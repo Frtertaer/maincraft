@@ -341,8 +341,12 @@ async function main() {
     }
     if (reply.task) {
       log(`[dialogue] task from ${username}: ${sanitizeForLog(reply.task, 120)}`);
-      if (/пройд|дракон|эндер|clear|beat the game/i.test(reply.task)) {
-        await applyCommand(session, { type: "clear", op: "start" }, username, "chat");
+      if (/пройд|дракон|эндер|визер|варден|wither|warden|clear|beat the game|босс/i.test(reply.task)) {
+        const objectives = [];
+        if (/визер|wither/i.test(reply.task)) objectives.push("wither");
+        if (/варден|warden/i.test(reply.task)) objectives.push("warden");
+        if (!objectives.length || /пройд|дракон|эндер|clear|beat/i.test(reply.task)) objectives.unshift("dragon");
+        await applyCommand(session, { type: "clear", op: "start", objectives }, username, "chat");
       } else {
         brain.queueCommand(`Игрок ${username} просит: ${reply.task}. Выполни.`, username);
       }
@@ -486,14 +490,22 @@ async function main() {
           const s = session.clear.status();
           log(`[clear] ${JSON.stringify(s)}`);
           if (source !== "console") {
-            bot.chat(`Прохождение: фаза ${s.phase}, шаг ${s.steps}, смертей ${s.deaths}`.slice(0, 256));
+            bot.chat(
+              `Прохождение: фаза ${s.phase}, цель ${s.objective}, шаг ${s.steps}, смертей ${s.deaths}`.slice(0, 256)
+            );
           }
         } else {
-          const r = await session.clear.start();
+          const objectives = command.objectives?.length ? command.objectives : ["dragon"];
+          const r = await session.clear.start(objectives);
           if (source !== "console") {
-            bot.chat(r.ok ? "Погнали — цель: убить дракона!" : String(r.message).slice(0, 100));
+            const names = { dragon: "дракон", wither: "визер", warden: "варден" };
+            bot.chat(
+              r.ok
+                ? `Погнали — цели: ${objectives.map((o) => names[o] || o).join(" → ")}!`
+                : String(r.message).slice(0, 100)
+            );
           }
-          log(`[clear] start ${r.message}`);
+          log(`[clear] start ${r.message} objectives=${objectives.join(",")}`);
         }
         break;
       }

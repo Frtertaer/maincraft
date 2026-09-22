@@ -656,6 +656,12 @@ const mkCtx = (world, over = {}) => ({
   check("parse !clear", parseCommand("!clear", "Opus")?.type === "clear" && parseCommand("!clear", "Opus").op === "start");
   check("parse !clear stop", parseCommand("!clear stop", "Opus")?.op === "stop");
   check("parse !проход", parseCommand("!проходи игру", "Opus")?.type === "clear");
+  const clearBosses = parseCommand("!clear боссы", "Opus");
+  check("parse !clear боссы", clearBosses?.type === "clear" && clearBosses.objectives.join() === "dragon,wither,warden");
+  const clearWarden = parseCommand("!clear варден", "Opus");
+  check("parse !clear варден", clearWarden?.objectives?.[0] === "warden" && !clearWarden.objectives.includes("dragon"));
+  const clearWither = parseCommand("!clear визер", "Opus");
+  check("parse !clear визер", clearWither?.objectives?.[0] === "wither");
 
   const dr = parseDialogueReply('{"say":"привет, Стив","action":"wave","task":null,"mood":"happy"}');
   check("dialogue reply json", dr.say === "привет, Стив" && dr.action === "wave" && dr.mood === "happy" && dr.task === null);

@@ -1116,6 +1116,258 @@ async function phaseDragon(bot, mcData, state, log) {
   return { ok: true, phase: "dragon", message: "fighting dragon", milestone: "DRAGON_FIGHT" };
 }
 
+/* ---------------------------------------------------------------------------
+ * Post-dragon epilogue: optional boss objectives (wither, warden).
+ * Each is a small state machine driven one step per call. The actual fight
+ * reuses bossCombatTick — same machinery as the dragon phase.
+ * ------------------------------------------------------------------------ */
+
+export const BOSS_OBJECTIVES = new Set(["dragon", "wither", "warden"]);
+
+function bossEntity(bot, name) {
+  return Object.values(bot.entities).find((e) => e && e !== bot.entity && mobName(e) === name);
+}
+
+async function gotoEntity(bot, mcData, ent, range = 2, timeoutMs = 60000) {
+  return executeAction(
+    bot,
+    { type: "goto", x: ent.position.x, y: ent.position.y, z: ent.position.z, range, timeoutMs },
+    mcData
+  );
+}
+
+async function enterPortal(bot, mcData) {
+  const portal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 96 });
+  if (!portal) return { ok: false, message: "no portal" };
+  await executeAction(
+    bot,
+    { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1, timeoutMs: 60000 },
+    mcData
+  );
+  await sleep(5000); // dimension transfer
+  return { ok: true, message: "portal crossed" };
+}
+
+async function wander(bot, mcData, radius = 48, dy = 0) {
+  const p = bot.entity.position;
+  const ang = Math.random() * Math.PI * 2;
+  return executeAction(
+    bot,
+    {
+      type: "goto",
+      x: p.x + Math.cos(ang) * radius,
+      y: p.y + dy,
+      z: p.z + Math.sin(ang) * radius,
+      range: 3,
+      timeoutMs: 60000,
+    },
+    mcData
+  );
+}
+
+/* --- Wither: 3 skulls + 4 soul sand → T-shape summon → fight ----------- */
+
+async function witherPrepStep(bot, mcData, state, prep, log) {
+  const skulls = countItem(bot, "wither_skeleton_skull");
+  const souls = countItem(bot, "soul_sand") + countItem(bot, "soul_soil");
+  const dim = String(bot.game?.dimension || "");
+  const inNether = /nether/i.test(dim);
+
+  // Live wither → fight it (same as progressionStep's boss check)
+  const wither = bossEntity(bot, "wither");
+  if (wither) {
+    prep.spawned = true;
+    state.boss = state.boss || { allowStickTp: false };
+    await bossCombatTick(bot, wither, state.boss, log);
+    return { ok: true, message: "wither fight", milestone: "WITHER_FIGHT" };
+  }
+  if (prep.spawned) return { ok: true, done: true, message: "wither down", milestone: "WITHER_DOWN" };
+
+  if (skulls < 3) {
+    if (!inNether) {
+      const r = await enterPortal(bot, mcData);
+      return { ok: r.ok, message: `skulls ${skulls}/3 — to nether (${r.message})` };
+    }
+    const skel = bossEntity(bot, "wither_skeleton") || Object.values(bot.entities).find((e) => mobName(e) === "wither_skeleton");
+    if (skel) {
+      await executeAction(bot, { type: "attack", name: "wither_skeleton", maxDurationMs: 25000, maxDistance: 24 }, mcData);
+      return { ok: true, message: `hunt wither_skeleton (skulls ${skulls}/3)`, milestone: "WITHER_SKELETON" };
+    }
+    const brick = bot.findBlock({
+      matching: (b) => b && (b.name === "nether_bricks" || b.name === "nether_brick_fence"),
+      maxDistance: 64,
+    });
+    if (brick) {
+      await executeAction(
+        bot,
+        { type: "goto", x: brick.position.x, y: brick.position.y, z: brick.position.z, range: 3, timeoutMs: 90000 },
+        mcData
+      );
+      return { ok: true, message: `goto fortress (skulls ${skulls}/3)`, milestone: "FORTRESS" };
+    }
+    await wander(bot, mcData, 48);
+    return { ok: true, message: `search fortress (skulls ${skulls}/3)` };
+  }
+
+  if (souls < 4) {
+    if (!inNether) {
+      const r = await enterPortal(bot, mcData);
+      return { ok: r.ok, message: `soul sand ${souls}/4 — to nether (${r.message})` };
+    }
+    const sand = bot.findBlock({
+      matching: (b) => b && (b.name === "soul_sand" || b.name === "soul_soil"),
+      maxDistance: 64,
+    });
+    if (sand) {
+      await executeAction(
+        bot,
+        { type: "goto", x: sand.position.x, y: sand.position.y, z: sand.position.z, range: 2, timeoutMs: 60000 },
+        mcData
+      );
+      await executeAction(bot, { type: "dig", block: "soul_sand", maxDistance: 8 }, mcData).catch(() => {});
+      return { ok: true, message: `dig soul sand ${souls}/4`, milestone: "SOUL_SAND" };
+    }
+    await wander(bot, mcData, 48);
+    return { ok: true, message: `search soul sand ${souls}/4` };
+  }
+
+  // Summon: go to overworld open ground, then build T + skulls
+  if (inNether) {
+    const r = await enterPortal(bot, mcData);
+    return { ok: r.ok, message: `to overworld for summon (${r.message})`, milestone: "WITHER_MATERIALS" };
+  }
+
+  if (!prep.summonPos) {
+    const p = bot.entity.position.floored();
+    // build at +3x from bot on ground level
+    prep.summonPos = { x: p.x + 3, y: p.y - 1, z: p.z };
+    // make sure there's air above ground
+    for (let dy = 0; dy <= 3; dy++) {
+      const b = bot.blockAt(new Vec3(prep.summonPos.x, prep.summonPos.y + 1 + dy, prep.summonPos.z));
+      if (b && !["air", "cave_air", "void_air", "grass", "short_grass", "tall_grass", "snow"].includes(b.name)) {
+        prep.summonPos.x += 4;
+        dy = -1;
+        if (prep.summonPos.x > p.x + 20) {
+          prep.summonPos.x = p.x - 3;
+          prep.summonPos.z += 4;
+        }
+      }
+    }
+    prep.placed = 0;
+  }
+
+  const sp = prep.summonPos;
+  // T-shape: bottom center + top row of 3, skulls on the top 3
+  const layout = [
+    { item: "soul_sand", x: sp.x, y: sp.y, z: sp.z },
+    { item: "soul_sand", x: sp.x - 1, y: sp.y + 1, z: sp.z },
+    { item: "soul_sand", x: sp.x, y: sp.y + 1, z: sp.z },
+    { item: "soul_sand", x: sp.x + 1, y: sp.y + 1, z: sp.z },
+    { item: "wither_skeleton_skull", x: sp.x - 1, y: sp.y + 2, z: sp.z },
+    { item: "wither_skeleton_skull", x: sp.x, y: sp.y + 2, z: sp.z },
+    { item: "wither_skeleton_skull", x: sp.x + 1, y: sp.y + 2, z: sp.z },
+  ];
+  const wantName = (l) => (l.item === "soul_sand" ? ["soul_sand", "soul_soil"] : ["wither_skeleton_skull"]);
+  let missing = null;
+  for (const l of layout) {
+    const b = bot.blockAt(new Vec3(l.x, l.y, l.z));
+    if (!b || !wantName(l).includes(b.name)) {
+      missing = l;
+      break;
+    }
+  }
+  if (!missing) {
+    prep.spawned = true; // last skull placed → wither spawns next tick
+    return { ok: true, message: "wither summoned!", milestone: "WITHER_SUMMON" };
+  }
+  const cur = bot.blockAt(new Vec3(missing.x, missing.y, missing.z));
+  if (cur && !["air", "cave_air", "void_air", "short_grass", "tall_grass", "snow"].includes(cur.name)) {
+    await executeAction(bot, { type: "dig", x: missing.x, y: missing.y, z: missing.z }, mcData).catch(() => {});
+  }
+  const r = await executeAction(
+    bot,
+    { type: "place", item: missing.item, x: missing.x, y: missing.y, z: missing.z, face: "top" },
+    mcData
+  );
+  return { ok: r.ok, message: `summon ${missing.item} @${missing.x},${missing.y},${missing.z}: ${r.message}` };
+}
+
+/* --- Warden: find deep dark sculk, trigger shrieker → fight ------------ */
+
+async function wardenPrepStep(bot, mcData, state, prep, log) {
+  const warden = bossEntity(bot, "warden");
+  if (warden) {
+    prep.spawned = true;
+    state.boss = state.boss || { allowStickTp: false };
+    await bossCombatTick(bot, warden, state.boss, log);
+    return { ok: true, message: "warden fight", milestone: "WARDEN_FIGHT" };
+  }
+  if (prep.spawned) return { ok: true, done: true, message: "warden down", milestone: "WARDEN_DOWN" };
+
+  // Find a sculk shrieker/sensor — deep dark markers
+  const shrieker = bot.findBlocks({
+    matching: (b) => b && (b.name === "sculk_shrieker" || b.name === "sculk_sensor" || b.name === "sculk_catalyst"),
+    maxDistance: 64,
+    count: 4,
+  });
+  if (shrieker.length) {
+    const t = shrieker[0];
+    const d = t.distanceTo(bot.entity.position);
+    if (d > 6) {
+      await executeAction(bot, { type: "goto", x: t.x, y: t.y, z: t.z, range: 4, timeoutMs: 90000 }, mcData);
+      return { ok: true, message: "approach sculk", milestone: "DEEP_DARK" };
+    }
+    // Agitate: stomp/jump on/near the sensor — vibrations shriek the shrieker;
+    // ~4 shrieks summon the warden.
+    prep.agitations = (prep.agitations || 0) + 1;
+    bot.setControlState("sprint", true);
+    bot.setControlState("jump", true);
+    await sleep(1500);
+    bot.setControlState("jump", false);
+    // step back and forth over the sculk
+    await executeAction(bot, { type: "goto", x: t.x, y: t.y + 1, z: t.z, range: 1, timeoutMs: 10000 }, mcData).catch(() => {});
+    const p = bot.entity.position;
+    await executeAction(
+      bot,
+      { type: "goto", x: p.x + (prep.agitations % 2 ? 3 : -3), y: p.y, z: p.z + (prep.agitations % 2 ? -3 : 3), range: 1, timeoutMs: 10000 },
+      mcData
+    ).catch(() => {});
+    bot.setControlState("sprint", false);
+    await sleep(3500);
+    const w = bossEntity(bot, "warden");
+    if (w) {
+      prep.spawned = true;
+      return { ok: true, message: "warden summoned!", milestone: "WARDEN_SUMMON" };
+    }
+    return { ok: true, message: `agitate sculk (x${prep.agitations})` };
+  }
+
+  // Descend + wander: deep dark lives under mountains below y≈0
+  prep.searchSteps = (prep.searchSteps || 0) + 1;
+  const y = bot.entity.position.y;
+  const dy = y > -8 && prep.searchSteps % 3 === 1 ? -16 : 0;
+  await wander(bot, mcData, 56, dy);
+  return { ok: true, message: `search deep dark (y=${Math.floor(y)}, try ${prep.searchSteps})`, milestone: prep.searchSteps === 1 ? "DEEP_DARK_SEARCH" : null };
+}
+
+/**
+ * One step toward an epilogue boss objective ("wither" | "warden").
+ * Returns { ok, done?, message, milestone? }. Call once per loop AFTER the
+ * dragon is down; the function also drives the boss fight itself.
+ */
+export async function bossObjectiveStep(bot, mcData, state, objective, log = () => {}) {
+  if (!bot?.entity) return { ok: false, message: "no entity" };
+  state.bossPrep = state.bossPrep || {};
+  const prep = state.bossPrep[objective] || (state.bossPrep[objective] = {});
+  try {
+    if (objective === "wither") return await witherPrepStep(bot, mcData, state, prep, log);
+    if (objective === "warden") return await wardenPrepStep(bot, mcData, state, prep, log);
+    return { ok: false, message: `unknown boss objective ${objective}` };
+  } catch (err) {
+    return { ok: false, message: `${objective} crash: ${err?.message || err}` };
+  }
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }

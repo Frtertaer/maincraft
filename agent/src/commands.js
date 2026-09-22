@@ -96,14 +96,20 @@ export function parseCommand(message, botName = "Opus") {
   if (/^(summary|память|summarize)$/i.test(body)) {
     return { type: "summary" };
   }
-  // Beat-the-game progression runner (wood → … → dragon → clear)
-  if (/^(clear|проход|дракон)/i.test(body)) {
+  // Beat-the-game progression runner (wood → … → dragon → clear),
+  // plus epilogue bosses: !clear wither|warden|bosses|all
+  if (/^(clear|проход|дракон|визер|варден)/i.test(body)) {
     const op = /stop|стоп|off|выкл/i.test(body)
       ? "stop"
       : /status|статус/i.test(body)
         ? "status"
         : "start";
-    return { type: "clear", op };
+    const objectives = [];
+    if (/визер|wither/i.test(body)) objectives.push("wither");
+    if (/варден|warden/i.test(body)) objectives.push("warden");
+    if (/дракон|dragon/i.test(body)) objectives.push("dragon");
+    if (/босс|boss|все|all/i.test(body)) objectives.push("dragon", "wither", "warden");
+    return { type: "clear", op, objectives };
   }
 
   // free-form order for the LLM
@@ -122,5 +128,5 @@ function normalizeMode(m) {
 export const HELP_TEXT =
   "Команды: !help | !stop | !pause | !resume | !status | !follow | !come | " +
   "!mode auto|hybrid|listen|observe | !combat auto|hold|off | !goal <текст> | !vision on|off | " +
-  "!listen [сек] (Whisper STT) | !summary (LLM-память) | !clear [start|stop|status] (прохождение до дракона) | " +
+  "!listen [сек] (Whisper STT) | !summary (LLM-память) | !clear [start|stop|status|визер|варден|боссы] (прохождение/боссы) | " +
   "или: Opus, добудь дерево / построй дом / иди за мной";

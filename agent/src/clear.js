@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES } from "./progression.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESULT_PATH = path.resolve(__dirname, "../../logs/clear-mode-result.md");
@@ -64,6 +64,8 @@ export class ClearRunner {
     return {
       running: this.running,
       phase: this.state?.phase || (this.bot.entity ? detectPhase(this.bot) : "?"),
+      objective: this.state?.objective || "dragon",
+      objectivesDone: this.state?.objectivesDone || [],
       steps: this.state?.steps || 0,
       deaths: this.deaths,
       milestones: this.state?.milestones || [],
@@ -71,11 +73,26 @@ export class ClearRunner {
     };
   }
 
-  async start() {
+  /**
+   * objectives: ordered epilogue bosses, e.g. ["dragon"], ["dragon","wither","warden"],
+   * or ["wither"] alone. "dragon" = normal progression; the rest run after clear.
+   */
+  async start(objectives = ["dragon"]) {
     if (this.running) return { ok: false, message: "clear already running" };
+    this.objectives = [...new Set((objectives || []).filter((o) => BOSS_OBJECTIVES.has(o)))];
+    if (!this.objectives.length) this.objectives = ["dragon"];
     this.running = true;
     this.deaths = 0;
-    this.state = { phase: "wood", milestones: [], boss: { allowStickTp: false }, steps: 0, t0: Date.now() };
+    this.state = {
+      phase: "wood",
+      milestones: [],
+      boss: { allowStickTp: false },
+      bossPrep: {},
+      steps: 0,
+      t0: Date.now(),
+      objective: this.objectives[0],
+      objectivesDone: [],
+    };
     this._deathHandler = () => {
       this.deaths += 1;
       this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}`);
@@ -89,8 +106,13 @@ export class ClearRunner {
     };
     this.bot.on("death", this._deathHandler);
     this.bot.on("respawn", this._respawnHandler);
-    this._note("Начал прохождение игры до дракона");
-    this.log("[clear] started");
+    const objNames = { dragon: "дракон", wither: "визер", warden: "варден" };
+    this._note(
+      this.objectives.length > 1 || this.objectives[0] !== "dragon"
+        ? `Начал прохождение — цели: ${this.objectives.map((o) => objNames[o] || o).join(" → ")}`
+        : "Начал прохождение игры до дракона"
+    );
+    this.log(`[clear] started objectives=${this.objectives.join(",")}`);
     void this._loop();
     return { ok: true, message: "clear run started" };
   }
@@ -121,14 +143,37 @@ export class ClearRunner {
         state.boss.allowStickTp = false;
         const phaseBefore = detectPhase(bot);
         let step = { ok: false, phase: phaseBefore, message: "no step" };
-        try {
-          step = await progressionStep(bot, this.mcData, state, this.log);
-        } catch (err) {
-          step = { ok: false, phase: phaseBefore, message: `crash: ${err?.message || err}` };
-          this.log(`[clear] STEP_CRASH ${step.message}`);
+
+        const dragonDone =
+          state.objectivesDone.includes("dragon") ||
+          state.milestones.some((m) => m.milestone === "CLEAR") ||
+          state.phase === "clear";
+        const nextObj = this.objectives.find((o) => !state.objectivesDone.includes(o) && o !== "dragon");
+
+        if (dragonDone && nextObj) {
+          // Epilogue boss objectives (wither/warden): self-contained prep + fight.
+          state.objective = nextObj;
+          try {
+            step = await bossObjectiveStep(bot, this.mcData, state, nextObj, this.log);
+          } catch (err) {
+            step = { ok: false, phase: phaseBefore, message: `boss crash: ${err?.message || err}` };
+            this.log(`[clear] BOSS_STEP_CRASH ${step.message}`);
+          }
+          if (step.done) {
+            state.objectivesDone.push(nextObj);
+            this._note(`Босс повержен: ${nextObj}!`);
+          }
+          step.phase = `${nextObj}_prep`;
+        } else {
+          try {
+            step = await progressionStep(bot, this.mcData, state, this.log);
+          } catch (err) {
+            step = { ok: false, phase: phaseBefore, message: `crash: ${err?.message || err}` };
+            this.log(`[clear] STEP_CRASH ${step.message}`);
+          }
         }
         const phaseAfter = detectPhase(bot);
-        state.phase = phaseAfter;
+        state.phase = step.phase || phaseAfter;
 
         if (step.milestone && step.milestone !== lastMilestone) {
           lastMilestone = step.milestone;
@@ -145,7 +190,15 @@ export class ClearRunner {
         );
 
         if (phaseAfter === "clear" || step.milestone === "CLEAR") {
-          this._note("ДРАКОН ПОВЕРЖЕН — игра пройдена!");
+          if (!state.objectivesDone.includes("dragon")) state.objectivesDone.push("dragon");
+          if (!this.objectives.some((o) => o !== "dragon" && !state.objectivesDone.includes(o))) {
+            this._note("ДРАКОН ПОВЕРЖЕН — игра пройдена!");
+            break;
+          }
+          this._note(`Дракон повержен! Эпилог: ${this.objectives.filter((o) => o !== "dragon").join(", ")}`);
+        }
+        if (this.objectives.every((o) => state.objectivesDone.includes(o))) {
+          this._note("ВСЕ ЦЕЛИ ВЫПОЛНЕНЫ — полное прохождение!");
           break;
         }
         const dim = String(bot.game?.dimension || "");
@@ -185,10 +238,14 @@ export class ClearRunner {
   _writeResult() {
     const state = this.state;
     if (!state) return;
-    const clear = state.milestones.some((m) => m.milestone === "CLEAR") || state.phase === "clear";
+    const clear =
+      this.objectives?.length > 0
+        ? this.objectives.every((o) => state.objectivesDone?.includes(o))
+        : state.milestones.some((m) => m.milestone === "CLEAR") || state.phase === "clear";
     const md = `# Clear mode result
 
 - **clear**: ${clear}
+- **objectives**: ${(this.objectives || ["dragon"]).join(", ")} (done: ${(state.objectivesDone || []).join(", ") || "—"})
 - **elapsed**: ${((Date.now() - state.t0) / 60000).toFixed(1)} min
 - **finalPhase**: ${state.phase}
 - **deaths**: ${this.deaths}
