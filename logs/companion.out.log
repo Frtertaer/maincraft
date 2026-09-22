@@ -1,0 +1,136 @@
+[05:06:06] Config D:\maincraft\agent\config.companion.json
+[05:06:06] Vision default source=viewer enabled=true everyNTicks=2
+[05:06:06] Checking API host=api.cheat-ai.shop model=claude-opus-5…
+[05:06:06] API ready | exact_model=claude-opus-5 | session_requests=500 | session_tokens=500000
+[05:06:06] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:06:06] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:06:06] Disconnected: socketClosed
+[05:06:06] Reconnect 1 in 2130ms (socketClosed).
+[05:06:09] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:06:09] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:06:09] Disconnected: socketClosed
+[05:06:09] Reconnect 2 in 3618ms (socketClosed).
+[05:06:12] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:06:12] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:06:12] Disconnected: socketClosed
+[05:06:12] Reconnect 3 in 7333ms (socketClosed).
+[05:06:20] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:06:20] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:06:20] Disconnected: socketClosed
+[05:06:20] Reconnect 4 in 16349ms (socketClosed).
+[05:06:36] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:06:36] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:06:36] Disconnected: socketClosed
+[05:06:36] Reconnect 5 in 31193ms (socketClosed).
+[05:07:07] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:07:07] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:07:07] Disconnected: socketClosed
+[05:07:07] Reconnect 6 in 26848ms (socketClosed).
+[05:07:34] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:07:34] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:07:34] Disconnected: socketClosed
+[05:07:34] Reconnect 7 in 28748ms (socketClosed).
+[05:08:03] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:08:03] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:08:03] Disconnected: socketClosed
+[05:08:03] Reconnect 8 in 34202ms (socketClosed).
+[05:08:37] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:08:37] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:08:37] Disconnected: socketClosed
+[05:08:37] Reconnect 9 in 27883ms (socketClosed).
+[05:09:05] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:09:05] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:09:05] Disconnected: socketClosed
+[05:09:05] Reconnect 10 in 26313ms (socketClosed).
+[05:09:32] Connecting to 127.0.0.1:25565 as Opus (auth=offline, ver=1.21.1)…
+Error: connect ECONNREFUSED 127.0.0.1:25565
+    at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16) {
+  errno: -4078,
+  code: 'ECONNREFUSED',
+  syscall: 'connect',
+  address: '127.0.0.1',
+  port: 25565
+}
+[05:09:32] Bot error: connect ECONNREFUSED 127.0.0.1:25565
+[05:09:32] Disconnected: socketClosed
+[05:09:32] Reconnect limit reached (10). Exiting.

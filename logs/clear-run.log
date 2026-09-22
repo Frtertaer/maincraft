@@ -1,0 +1,123 @@
+[2026-08-08T01:00:23.143Z] CLEAR_RUN start maxMs=7200000
+[2026-08-08T01:00:23.506Z] spawn (159.3, -30, -1.5) ver=1.21.1 dim=overworld
+[2026-08-08T01:00:28.967Z] API ready — Opus assist on stuck
+[2026-08-08T01:00:43.210Z] MILESTONE DIAMOND_STRIP phase=diamond inv={"log":0,"cobblestone":130,"iron_ingot":0,"diamond":0,"obsidian":0,"blaze_rod":0,"ender_pearl":0,"ender_eye":0,"flint_and_steel":0,"crafting_table":1,"bestPick":"iron_pickaxe","bestSword":null,"dim":"overworld","hp":19,"food":7,"pos":"159,-30,-2"}
+[2026-08-08T01:00:43.211Z] step=1 phase=diamond ok=true msg=strip y=-30 dug=5 d=0 held=iron_pickaxe stuck=0 deaths=0
+[2026-08-08T01:00:58.229Z] step=2 phase=diamond ok=true msg=strip y=-30 dug=5 d=0 held=iron_pickaxe stuck=1 deaths=0
+[2026-08-08T01:01:13.218Z] step=3 phase=diamond ok=true msg=strip y=-31 dug=5 d=0 held=iron_pickaxe stuck=2 deaths=0
+[2026-08-08T01:01:28.176Z] step=4 phase=diamond ok=true msg=strip y=-31 dug=5 d=0 held=iron_pickaxe stuck=3 deaths=0
+[2026-08-08T01:01:43.160Z] step=5 phase=diamond ok=true msg=strip y=-31 dug=5 d=0 held=iron_pickaxe stuck=4 deaths=0
+[2026-08-08T01:01:58.122Z] step=6 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=5 deaths=0
+[2026-08-08T01:02:13.230Z] step=7 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=6 deaths=0
+[2026-08-08T01:02:28.222Z] step=8 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=7 deaths=0
+[2026-08-08T01:02:43.325Z] step=9 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=8 deaths=0
+[2026-08-08T01:02:58.215Z] step=10 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=9 deaths=0
+[2026-08-08T01:03:13.117Z] step=11 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=10 deaths=0
+[2026-08-08T01:03:27.997Z] step=12 phase=diamond ok=true msg=strip y=-32 dug=5 d=0 held=iron_pickaxe stuck=11 deaths=0
+[2026-08-08T01:03:42.911Z] step=13 phase=diamond ok=true msg=strip y=-33 dug=5 d=0 held=iron_pickaxe stuck=12 deaths=0
+[2026-08-08T01:03:57.762Z] step=14 phase=diamond ok=true msg=strip y=-33 dug=5 d=0 held=iron_pickaxe stuck=13 deaths=0
+[2026-08-08T01:04:12.626Z] step=15 phase=diamond ok=true msg=strip y=-33 dug=5 d=0 held=iron_pickaxe stuck=14 deaths=0
+[2026-08-08T01:04:27.525Z] step=16 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=15 deaths=0
+[2026-08-08T01:04:43.175Z] step=17 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=16 deaths=0
+[2026-08-08T01:04:58.113Z] step=18 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=17 deaths=0
+[2026-08-08T01:05:13.012Z] step=19 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=18 deaths=0
+[2026-08-08T01:05:27.812Z] step=20 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=19 deaths=0
+[2026-08-08T01:05:42.660Z] step=21 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=20 deaths=0
+[2026-08-08T01:05:42.660Z] STUCK — Opus brain.step()
+[2026-08-08T01:05:42.668Z] [brain] tick=1 mode=auto vision=false goal="Пройди Minecraft: железо, портал, ад, крепость, стержни, жемчуг, глаза, крепость, Энд, убей дракона. Выживай."
+[2026-08-08T01:05:54.170Z] [brain] think=Я под землёй, здоровье почти полное, но еды мало. Есть верстак, железная кирка и материалы; сначала сделаю каменный топо action={"type":"craft","item":"stone_axe","count":1}
+[2026-08-08T01:06:10.569Z] step=22 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=1 deaths=0
+[2026-08-08T01:06:25.469Z] step=23 phase=diamond ok=true msg=strip y=-34 dug=5 d=0 held=iron_pickaxe stuck=2 deaths=0
+[2026-08-08T01:06:40.320Z] step=24 phase=diamond ok=true msg=strip y=-35 dug=5 d=0 held=iron_pickaxe stuck=3 deaths=0
+[2026-08-08T01:06:55.171Z] step=25 phase=diamond ok=true msg=strip y=-35 dug=5 d=0 held=iron_pickaxe stuck=4 deaths=0
+[2026-08-08T01:07:09.620Z] step=26 phase=diamond ok=true msg=strip y=-35 dug=5 d=0 held=iron_pickaxe stuck=5 deaths=0
+[2026-08-08T01:07:14.278Z] DEATH #1 phase=diamond
+[2026-08-08T01:07:14.279Z] MILESTONE DIAMOND_SHAFT phase=diamond inv={"log":0,"cobblestone":130,"iron_ingot":0,"diamond":0,"obsidian":0,"blaze_rod":0,"ender_pearl":0,"ender_eye":0,"flint_and_steel":0,"crafting_table":1,"bestPick":"iron_pickaxe","bestSword":null,"dim":"overworld","hp":0,"food":6,"pos":"157,-37,0"}
+[2026-08-08T01:07:14.279Z] step=27 phase=diamond ok=true msg=shaft down y=-37 digs=2 stuck=6 deaths=1
+[2026-08-08T01:07:14.284Z] RESPAWN phase=diamond
+[2026-08-08T01:07:18.125Z] step=28 phase=diamond ok=true msg=shaft down y=87 digs=1 stuck=7 deaths=1
+[2026-08-08T01:07:28.466Z] step=29 phase=diamond ok=true msg=shaft down y=61 digs=10 stuck=8 deaths=1
+[2026-08-08T01:07:38.821Z] step=30 phase=diamond ok=true msg=shaft down y=51 digs=10 stuck=9 deaths=1
+[2026-08-08T01:07:47.724Z] step=31 phase=diamond ok=true msg=shaft down y=41 digs=10 stuck=10 deaths=1
+[2026-08-08T01:08:06.981Z] step=32 phase=diamond ok=true msg=shaft down y=31 digs=10 stuck=11 deaths=1
+[2026-08-08T01:08:15.945Z] step=33 phase=diamond ok=true msg=shaft down y=21 digs=10 stuck=12 deaths=1
+[2026-08-08T01:08:43.969Z] step=34 phase=iron ok=true msg=strip y=16 dug=0 d=0 held=crafting_table err=cannot harvest stone with gravel stuck=0 deaths=1
+[2026-08-08T01:09:34.885Z] MILESTONE IRON_ORE phase=iron inv={"log":0,"cobblestone":180,"iron_ingot":0,"diamond":0,"obsidian":0,"blaze_rod":0,"ender_pearl":0,"ender_eye":0,"flint_and_steel":0,"crafting_table":1,"bestPick":null,"bestSword":null,"dim":"overworld","hp":9.333333015441895,"food":16,"pos":"193,19,-23"}
+[2026-08-08T01:09:34.886Z] step=35 phase=iron ok=true msg=mine iron stuck=1 deaths=1
+[2026-08-08T01:09:54.346Z] step=36 phase=iron ok=true msg=mine iron stuck=2 deaths=1
+[2026-08-08T01:10:33.560Z] step=37 phase=iron ok=true msg=mine iron stuck=3 deaths=1
+[2026-08-08T01:10:54.553Z] step=38 phase=iron ok=true msg=mine iron stuck=4 deaths=1
+[2026-08-08T01:11:13.604Z] step=39 phase=iron ok=true msg=mine iron stuck=5 deaths=1
+[2026-08-08T01:11:31.300Z] step=40 phase=iron ok=true msg=mine iron stuck=6 deaths=1
+[2026-08-08T01:11:54.508Z] step=41 phase=iron ok=true msg=mine iron stuck=7 deaths=1
+[2026-08-08T01:12:17.981Z] step=42 phase=iron ok=true msg=mine iron stuck=8 deaths=1
+[2026-08-08T01:12:35.047Z] step=43 phase=iron ok=true msg=mine iron stuck=9 deaths=1
+[2026-08-08T01:12:52.100Z] step=44 phase=iron ok=true msg=mine iron stuck=10 deaths=1
+[2026-08-08T01:13:09.139Z] step=45 phase=iron ok=true msg=mine iron stuck=11 deaths=1
+[2026-08-08T01:13:26.015Z] step=46 phase=iron ok=true msg=mine iron stuck=12 deaths=1
+[2026-08-08T01:13:26.016Z] STUCK — Opus brain.step()
+[2026-08-08T01:13:26.023Z] [brain] tick=2 mode=auto vision=false goal="Пройти Minecraft и выжить"
+[2026-08-08T01:13:36.594Z] [brain] think=Каменный топор не скрафтился: верстак есть в инвентаре, но не установлен. Поставлю его на камень рядом, затем повторю кр action={"type":"place","item":"crafting_table","x":192,"y":18,"z":-22}
+[2026-08-08T01:14:01.550Z] step=47 phase=iron ok=true msg=mine iron stuck=1 deaths=1
+[2026-08-08T01:14:19.261Z] step=48 phase=iron ok=true msg=mine iron stuck=2 deaths=1
+[2026-08-08T01:14:44.004Z] step=49 phase=iron ok=true msg=mine iron stuck=3 deaths=1
+[2026-08-08T01:15:07.300Z] step=50 phase=iron ok=true msg=mine iron stuck=4 deaths=1
+[2026-08-08T01:15:25.987Z] step=51 phase=iron ok=true msg=mine iron stuck=5 deaths=1
+[2026-08-08T01:15:55.748Z] step=52 phase=iron ok=true msg=mine iron stuck=6 deaths=1
+[2026-08-08T01:16:13.090Z] step=53 phase=iron ok=true msg=mine iron stuck=7 deaths=1
+[2026-08-08T01:16:31.224Z] step=54 phase=iron ok=true msg=mine iron stuck=8 deaths=1
+[2026-08-08T01:16:50.757Z] step=55 phase=iron ok=true msg=mine iron stuck=9 deaths=1
+[2026-08-08T01:17:15.058Z] step=56 phase=iron ok=true msg=mine iron stuck=10 deaths=1
+[2026-08-08T01:17:32.125Z] step=57 phase=iron ok=true msg=mine iron stuck=11 deaths=1
+[2026-08-08T01:17:48.961Z] step=58 phase=iron ok=true msg=mine iron stuck=12 deaths=1
+[2026-08-08T01:17:48.962Z] STUCK — Opus brain.step()
+[2026-08-08T01:17:48.968Z] [brain] tick=3 mode=auto vision=false goal="Пройти Minecraft и выжить"
+[2026-08-08T01:18:03.795Z] [brain] think=Верстак не поставился: указанная позиция занята камнем. Удалю известный каменный блок рядом, чтобы освободить место для  action={"type":"dig","x":192,"y":17,"z":-22}
+[2026-08-08T01:18:22.517Z] step=59 phase=iron ok=true msg=mine iron stuck=1 deaths=1
+[2026-08-08T01:18:40.601Z] step=60 phase=iron ok=true msg=mine iron stuck=2 deaths=1
+[2026-08-08T01:18:58.710Z] step=61 phase=iron ok=true msg=mine iron stuck=3 deaths=1
+[2026-08-08T01:19:16.915Z] step=62 phase=iron ok=true msg=mine iron stuck=4 deaths=1
+[2026-08-08T01:19:36.390Z] step=63 phase=iron ok=true msg=mine iron stuck=5 deaths=1
+[2026-08-08T01:19:55.953Z] step=64 phase=iron ok=true msg=mine iron stuck=6 deaths=1
+[2026-08-08T01:20:14.162Z] step=65 phase=iron ok=true msg=mine iron stuck=7 deaths=1
+[2026-08-08T01:20:32.311Z] step=66 phase=iron ok=true msg=mine iron stuck=8 deaths=1
+[2026-08-08T01:20:50.412Z] step=67 phase=iron ok=true msg=mine iron stuck=9 deaths=1
+[2026-08-08T01:21:08.514Z] step=68 phase=iron ok=true msg=mine iron stuck=10 deaths=1
+[2026-08-08T01:21:26.707Z] step=69 phase=iron ok=true msg=mine iron stuck=11 deaths=1
+[2026-08-08T01:21:52.309Z] step=70 phase=iron ok=true msg=mine iron stuck=12 deaths=1
+[2026-08-08T01:21:52.309Z] STUCK — Opus brain.step()
+[2026-08-08T01:21:52.318Z] [brain] tick=4 mode=auto vision=false goal="Пройти Minecraft и выжить"
+[2026-08-08T01:22:02.277Z] [brain] think=Камень нельзя добыть грязью. В инвентаре должна быть железная кирка; экипирую её, затем добуду камень и поставлю верстак action={"type":"equip","item":"iron_pickaxe","destination":"hand"}
+[2026-08-08T01:22:30.142Z] step=71 phase=iron ok=true msg=mine iron stuck=1 deaths=1
+[2026-08-08T01:22:47.991Z] step=72 phase=iron ok=true msg=mine iron stuck=2 deaths=1
+[2026-08-08T01:23:05.752Z] step=73 phase=iron ok=true msg=mine iron stuck=3 deaths=1
+[2026-08-08T01:23:23.944Z] step=74 phase=iron ok=true msg=mine iron stuck=4 deaths=1
+[2026-08-08T01:23:42.120Z] step=75 phase=iron ok=true msg=mine iron stuck=5 deaths=1
+[2026-08-08T01:24:11.764Z] step=76 phase=iron ok=true msg=mine iron stuck=6 deaths=1
+[2026-08-08T01:24:31.021Z] step=77 phase=iron ok=true msg=mine iron stuck=7 deaths=1
+[2026-08-08T01:24:49.193Z] step=78 phase=iron ok=true msg=mine iron stuck=8 deaths=1
+[2026-08-08T01:25:08.746Z] step=79 phase=iron ok=true msg=mine iron stuck=9 deaths=1
+[2026-08-08T01:25:26.791Z] step=80 phase=iron ok=true msg=mine iron stuck=10 deaths=1
+[2026-08-08T01:25:57.844Z] step=81 phase=iron ok=true msg=mine iron stuck=11 deaths=1
+[2026-08-08T01:26:26.698Z] step=82 phase=iron ok=true msg=mine iron stuck=12 deaths=1
+[2026-08-08T01:26:26.698Z] STUCK — Opus brain.step()
+[2026-08-08T01:26:26.705Z] [brain] tick=5 mode=auto vision=false goal="Пройти Minecraft и выжить"
+[2026-08-08T01:26:36.312Z] [brain] think=Железной кирки действительно нет; есть raw_iron, уголь и материалы. Верстак можно установить на воздухе над известным ка action={"type":"place","item":"crafting_table","x":192,"y":18,"z":-22}
+[2026-08-08T01:27:08.338Z] step=83 phase=iron ok=true msg=mine iron stuck=1 deaths=1
+[2026-08-08T01:27:25.955Z] step=84 phase=iron ok=true msg=mine iron stuck=2 deaths=1
+[2026-08-08T01:27:43.309Z] step=85 phase=iron ok=true msg=mine iron stuck=3 deaths=1
+[2026-08-08T01:28:03.138Z] step=86 phase=iron ok=true msg=mine iron stuck=4 deaths=1
+[2026-08-08T01:28:21.696Z] step=87 phase=iron ok=true msg=mine iron stuck=5 deaths=1
+[2026-08-08T01:28:44.902Z] step=88 phase=iron ok=true msg=mine iron stuck=6 deaths=1
+[2026-08-08T01:29:02.216Z] step=89 phase=iron ok=true msg=mine iron stuck=7 deaths=1
+[2026-08-08T01:29:21.848Z] step=90 phase=iron ok=true msg=mine iron stuck=8 deaths=1
+[2026-08-08T01:29:40.014Z] step=91 phase=iron ok=true msg=mine iron stuck=9 deaths=1
+[2026-08-08T01:29:59.557Z] step=92 phase=iron ok=true msg=mine iron stuck=10 deaths=1
+[2026-08-08T01:30:06.081Z] step=93 phase=iron ok=true msg=mine iron stuck=11 deaths=1
+[2026-08-08T01:30:07.088Z] step=94 phase=iron ok=true msg=mine iron stuck=12 deaths=1
+[2026-08-08T01:30:07.089Z] STUCK — Opus brain.step()
+[2026-08-08T01:30:07.097Z] [brain] tick=6 mode=auto vision=false goal="Получить железную кирку и безопасно выбраться на поверхность"
+[2026-08-08T01:30:21.838Z] DEATH #2 phase=iron
+[2026-08-08T01:30:21.844Z] RESPAWN phase=iron
+[2026-08-08T01:30:25.926Z] [brain] think=Здоровье критически низкое, еды нет. Известен камень на (194,17,-22); ставлю верстак на воздух прямо над ним, в (194,18, action={"type":"place","item":"crafting_table","x":194,"y":18,"z":-22}
+[2026-08-08T01:30:38.362Z] step=95 phase=iron ok=true msg=mine iron stuck=1 deaths=2

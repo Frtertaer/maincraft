@@ -1,0 +1,29 @@
+Starting org.bukkit.craftbukkit.Main
+WARN StatusConsoleListener Advanced terminal features are not available in this environment
+[02:13:18 INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.12+8-LTS; Microsoft Microsoft-14653896) on Windows 11 10.0 (amd64)
+[02:13:18 INFO]: [bootstrap] Loading Paper 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) for Minecraft 1.21.1
+[02:13:19 INFO]: [PluginInitializerManager] Initializing plugins...
+[02:13:19 INFO]: [PluginInitializerManager] Initialized 0 plugins
+[02:13:23 INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[02:13:25 INFO]: Loaded 1290 recipes
+[02:13:25 INFO]: Loaded 1399 advancements
+[02:13:25 INFO]: Starting minecraft server version 1.21.1
+[02:13:25 INFO]: Loading properties
+[02:13:25 INFO]: This server is running Paper version 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) (Implementing API version 1.21.1-R0.1-SNAPSHOT)
+[02:13:26 INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
+[02:13:26 INFO]: Server Ping Player Sample Count: 12
+[02:13:26 INFO]: Using 4 threads for Netty based IO
+[02:13:26 INFO]: [ChunkTaskScheduler] Chunk system is using 1 I/O threads, 3 worker threads, and population gen parallelism of 3 threads
+[02:13:27 INFO]: Default game type: SURVIVAL
+[02:13:27 INFO]: Generating keypair
+[02:13:27 INFO]: Starting Minecraft server on 127.0.0.1:25565
+[02:13:27 INFO]: Using default channel type
+[02:13:27 INFO]: Paper: Using Java compression from Velocity.
+[02:13:27 INFO]: Paper: Using Java cipher from Velocity.
+[02:13:27 INFO]: Server permissions file permissions.yml is empty, ignoring it
+[02:13:27 WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[02:13:27 WARN]: The server will make no attempt to authenticate usernames. Beware.
+[02:13:27 WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
+[02:13:27 WARN]: To change this, set "online-mode" to "true" in the server.properties file.
+[02:13:27 INFO]: Preparing level "world"
+[02:13:27 INFO]: Preparing start region for dimension minecraft:overworld

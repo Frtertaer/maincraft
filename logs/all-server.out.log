@@ -1,0 +1,83 @@
+Starting org.bukkit.craftbukkit.Main
+WARN StatusConsoleListener Advanced terminal features are not available in this environment
+[07:50:05 INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.12+8-LTS; Microsoft Microsoft-14653896) on Windows 11 10.0 (amd64)
+[07:50:05 INFO]: [bootstrap] Loading Paper 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) for Minecraft 1.21.1
+[07:50:06 INFO]: [PluginInitializerManager] Initializing plugins...
+[07:50:06 INFO]: [PluginInitializerManager] Initialized 0 plugins
+[07:50:09 INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[07:50:11 INFO]: Loaded 1290 recipes
+[07:50:11 INFO]: Loaded 1399 advancements
+[07:50:11 INFO]: Starting minecraft server version 1.21.1
+[07:50:11 INFO]: Loading properties
+[07:50:12 INFO]: This server is running Paper version 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) (Implementing API version 1.21.1-R0.1-SNAPSHOT)
+[07:50:12 INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
+[07:50:12 INFO]: Server Ping Player Sample Count: 12
+[07:50:12 INFO]: Using 4 threads for Netty based IO
+[07:50:13 INFO]: [ChunkTaskScheduler] Chunk system is using 1 I/O threads, 3 worker threads, and population gen parallelism of 3 threads
+[07:50:13 INFO]: Default game type: SURVIVAL
+[07:50:13 INFO]: Generating keypair
+[07:50:13 INFO]: Starting Minecraft server on 127.0.0.1:25565
+[07:50:13 INFO]: Using default channel type
+[07:50:13 INFO]: Paper: Using Java compression from Velocity.
+[07:50:13 INFO]: Paper: Using Java cipher from Velocity.
+[07:50:13 INFO]: Server permissions file permissions.yml is empty, ignoring it
+[07:50:13 WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[07:50:13 WARN]: The server will make no attempt to authenticate usernames. Beware.
+[07:50:13 WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
+[07:50:13 WARN]: To change this, set "online-mode" to "true" in the server.properties file.
+[07:50:13 INFO]: Preparing level "world"
+[07:50:14 INFO]: Preparing start region for dimension minecraft:overworld
+[07:50:14 INFO]: Time elapsed: 272 ms
+[07:50:14 INFO]: Preparing start region for dimension minecraft:the_nether
+[07:50:15 INFO]: Time elapsed: 661 ms
+[07:50:15 INFO]: Preparing start region for dimension minecraft:the_end
+[07:50:15 INFO]: Time elapsed: 125 ms
+[07:50:15 INFO]: [spark] Starting background profiler...
+[07:50:15 INFO]: [spark] The async-profiler engine is not supported for your os/arch (windows11/amd64), so the built-in Java engine will be used instead.
+[07:50:15 INFO]: Done preparing level "world" (2.129s)
+[07:50:15 INFO]: Running delayed init tasks
+[07:50:15 INFO]: Done (10.949s)! For help, type "help"
+[07:50:15 INFO]: Timings Reset
+[07:51:09 INFO]: UUID of player Steve is 5627dd98-e6be-3c21-b8a8-e92344183641
+[07:51:10 INFO]: Steve joined the game
+[07:51:10 INFO]: Steve[/127.0.0.1:53875] logged in with entity id 79 at ([world]197.5, 90.0, -6.5)
+[07:52:59 INFO]: UUID of player Opus is 15493bf8-0b79-3bf9-9e48-ad0f264a24b7
+[07:52:59 INFO]: Opus joined the game
+[07:52:59 INFO]: Opus[/127.0.0.1:57055] logged in with entity id 88 at ([world]191.5, 90.0, -15.5)
+[07:52:59 INFO]: [Not Secure] <Opus> Привет! Я Opus — спутник в мире. Пиши в чат, можно просто болтать. Команды: !help !follow !goal
+[07:53:07 INFO]: [Not Secure] <Opus> Сначала приземлюсь, а то выживание с высоты — сомнительный карьерный план.
+[07:53:22 INFO]: [Not Secure] <Opus> Приземление пережито. Иду за тобой искать дерево — камень камнем, а дом из него пока строить рановато.
+[07:53:23 INFO]: [Not Secure] <Steve> привет
+[07:53:31 INFO]: [Not Secure] <Opus> Привет, Steve! Иду рядом — надеюсь, дерево найдём раньше, чем ты начнёшь строить дом из камня.
+[07:53:51 INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Надеюсь, деревья не решили эмигрировать.
+[07:54:03 INFO]: [Not Secure] <Opus> Нашёл ель! Сейчас добуду древесину, пока лес не сбежал.
+[07:54:30 INFO]: [Not Secure] <Opus> Первый ствол есть. Беру ещё один — верстак сам себя, увы, не выстругает.
+[07:54:54 INFO]: [Not Secure] <Opus> Координаты у ствола шалят. Беру ель по подтверждённой точке — надеюсь, она не убежит.
+[07:55:08 INFO]: [Not Secure] <Opus> Ель добыта, но инвентарь почему-то голоднее меня. Собираю древесину.
+[07:55:32 INFO]: [Not Secure] <Steve> !follow
+[07:55:32 INFO]: [Not Secure] <Opus> Иду за Steve
+[07:56:05 INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Ель почти в кармане — осталось только убедить её не исчезать.
+[07:56:16 INFO]: [Not Secure] <Opus> Иду за тобой, Steve. У меня осталось мало здоровья — надеюсь, впереди есть укрытие, а не ещё один прыжок в неизвестность.
+[07:56:27 INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Надеюсь, впереди укрытие, а не очередная проверка моей живучести.
+[07:56:38 INFO]: [Not Secure] <Opus> Иду, Steve. Надеюсь, впереди укрытие, а не ночная экскурсия по зубам.
+[07:56:48 INFO]: [Not Secure] <Opus> Иду, Steve. Держусь рядом — ночью даже куст выглядит подозрительно.
+[07:56:54 INFO]: [Not Secure] <Steve> !unfollow
+[07:56:58 INFO]: [Not Secure] <Opus> Иду, Steve. Держусь рядом — ночью даже куст выглядит подозрительно.
+[07:57:06 INFO]: [Not Secure] <Steve> не иди больше сам
+[07:57:08 INFO]: [Not Secure] <Opus> Иду рядом, Steve. Ночью даже ель смотрит как-то подозрительно.
+[07:57:17 INFO]: [Not Secure] <Opus> Иду рядом, Steve. Держусь поближе — ночью даже ель выглядит подозрительно.
+[07:57:29 INFO]: [Not Secure] <Opus> Держусь рядом, Steve. Только бы впереди было укрытие, а не ночной лесной экзамен.
+[07:57:29 INFO]: [Not Secure] <Steve> ты заебал повторять
+[07:57:39 INFO]: [Not Secure] <Opus> Понял, молчу. Держусь рядом.
+[07:57:52 INFO]: [Not Secure] <Steve> больше не следуй
+[07:58:06 INFO]: [Not Secure] <Opus> Понял, больше не следую. Остаюсь здесь и постараюсь не умереть от собственной храбрости.
+[07:58:22 INFO]: [Not Secure] <Opus> Понял, Steve. Больше не следую — стою здесь и не болтаю.
+[07:58:36 INFO]: [Not Secure] <Opus> Понял, Steve. Больше не следую — стою здесь.
+[07:58:49 INFO]: [Not Secure] <Opus> Да, понял, Steve. Замолкаю — стою на месте.
+[07:58:59 INFO]: [Not Secure] <Opus> Понял, Steve. Отстаю и не двигаюсь.
+[07:59:13 INFO]: [Not Secure] <Opus> Принял. Стою на месте и молчу.
+[08:02:02 INFO]: Steve has made the advancement [Stone Age]
+[08:02:43 INFO]: Opus was slain by Steve
+[08:03:39 INFO]: Steve issued server command: /help
+[08:04:15 INFO]: Steve lost connection: Disconnected
+[08:04:15 INFO]: Steve left the game
