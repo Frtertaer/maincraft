@@ -122,6 +122,45 @@ npm run check-api
 
 В `agent\config.json` установлены ограничения на запросы, частоту и суммарные токены одной сессии.
 
+## Двухмодульный режим (Opus + быстрый контроллер)
+
+По умолчанию Opus 5 вызывается на **каждом** тике (`agent.tickMs`), поэтому реакция на мир ограничена латентностью LLM. В `agent\config.controller.json` включён стек «два разума»:
+
+- **Планировщик (медленный разум).** Opus 5 вызывается раз в `controller.plannerEveryTicks` тиков в фоне и сразу при приказе игрока. Возвращает те же `say/goal/plan/action` плюс `targets` (minecraft id целей на ~30 сек) и `waypoint`.
+- **Контроллер (быстрый разум).** На каждом тике выбирает **один глагол из ограниченного набора** (`wait/eat/sleep/flee/attack/equip/pickup/collect/dig/goto_target/goto_waypoint/craft/place/smelt/follow/come/container_*`). Координаты и аргументы вычисляет код из состояния мира — модель не может выдумать позицию или произвольную команду.
+- **Гейты.** Решение контроллера пропускается только если `safe` (noul ≥ 0.5) и `confidence ≥ controller.minConfidence`; иначе — `flee`/`wait`. При ошибке контроллера срабатывает `fallbackToLocal` — детерминированные эвристики без сети.
+- **Рефлексы.** Локальный combat-reflex (~40 мс) продолжает работать независимо и обрабатывает немедленные угрозы без любой модели.
+
+Запуск:
+
+```powershell
+cd D:\maincraft
+.\start-bot-controller.ps1 -Controller jev    # TypeSafe System One (API)
+.\start-bot-controller.ps1 -Controller laya   # локальная модель (сайдкар)
+.\start-bot-controller.ps1 -Controller local  # только эвристики, без модели
+```
+
+Либо вручную: `node agent/src/index.js --config agent/config.controller.json`.
+
+### Jev (api.typesafe.ai)
+
+Ключ кладётся в `agent\.env` (файл уже в `.gitignore`) или в переменную окружения `TYPESAFE_API_KEY` — см. `agent\.env.example`. На каждый тик уходит один POST `/v1/systemone` с тремя типизированными вопросами (choice/noul/score); типичный ответ — ~150 мс.
+
+### Laya (convaiinnovations/laya, локально)
+
+Полностью локальный контроллер на открытой модели решений (~421M параметров, Apache-2.0). Сайдкар на Python-stdlib:
+
+```powershell
+pip install laya
+python agent\tools\laya_server.py   # LAYA_PORT=8091 LAYA_DEVICE=cpu
+```
+
+Затем `-Controller laya`. На CPU решение занимает ~0,4-0,9 c на все три вопроса; на GPU — десятки миллисекунд. URL сайдкара принимается только loopback (`controller.laya.url`).
+
+### Совместимость
+
+Без блока `controller` в конфиге бот работает ровно как раньше — Opus каждый тик. При `controller.type` = `off`/`jev`/`laya`/`local` поведение меняется только между вызовами планировщика; приказы игрока по-прежнему получают полную мощь Opus (свободный `action`).
+
 ## Vision (Opus 5)
 
 Есть два режима:

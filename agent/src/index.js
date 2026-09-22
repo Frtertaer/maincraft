@@ -12,6 +12,7 @@ import { setupMovements, executeAction } from "./actions.js";
 import { createVisionProvider } from "./vision.js";
 import { startLocalViewer } from "./local-viewer.js";
 import { CombatReflex } from "./combat-reflex.js";
+import { createController } from "./controller/index.js";
 
 const pathfinder = pkgPathfinder.pathfinder || pkgPathfinder.default?.pathfinder || pkgPathfinder;
 const collectPlugin = pkgCollect.plugin || pkgCollect.default?.plugin || pkgCollect.default || pkgCollect;
@@ -174,6 +175,9 @@ async function main() {
     }
     session.combat.start();
     session.brain.combat = session.combat;
+
+    session.controller = createController({ cfg, log });
+    if (session.controller) session.brain.setController(session.controller);
     session.brain.start();
 
     if (cfg.agent.announceOnSpawn) {
@@ -183,7 +187,8 @@ async function main() {
         );
       } else {
         bot.chat(
-          `Opus 5 online | mode=${session.brain.mode} | combat=${session.combat.mode}@${cfg.combat?.intervalMs || 50}ms | vision=${session.brain.visionEnabled ? "on" : "off"}`
+          `Opus 5 online | mode=${session.brain.mode} | combat=${session.combat.mode}@${cfg.combat?.intervalMs || 50}ms | vision=${session.brain.visionEnabled ? "on" : "off"}` +
+            (session.controller ? ` | controller=${session.controller.type}` : "")
         );
       }
     }

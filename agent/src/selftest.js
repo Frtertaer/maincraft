@@ -20,6 +20,9 @@ import { renderBotPov } from "./vision-render.js";
 import { createVisionProvider } from "./vision.js";
 import { validateConfig } from "./config.js";
 import { isBossMobName } from "./boss-combat.js";
+import { legalVerbs, resolveVerb, parseInventory } from "./controller/verbs.js";
+import { readDecision, gateDecision, compactState, createController } from "./controller/index.js";
+import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
 import fs from "fs";
 import path from "path";
@@ -61,13 +64,23 @@ check("craft invalid count", normalizeActionCount(-3, 1, 64) === null);
 let recipeQuery = null;
 let craftCall = null;
 const recipe = { result: { count: 4 } };
+const craftInventory = { items: [] };
 const craftBot = {
+  inventory: {
+    items() {
+      return craftInventory.items;
+    },
+  },
   recipesFor(itemId, metadata, minResultCount, table) {
     recipeQuery = { itemId, metadata, minResultCount, table };
     return [recipe];
   },
   async craft(selectedRecipe, repetitions, table) {
     craftCall = { selectedRecipe, repetitions, table };
+    const made = (selectedRecipe.result?.count || 1) * repetitions;
+    const held = craftInventory.items.find((i) => i.name === "stick");
+    if (held) held.count += made;
+    else craftInventory.items.push({ name: "stick", count: made });
   },
 };
 const craftResult = await executeAction(
@@ -77,7 +90,7 @@ const craftResult = await executeAction(
 );
 check(
   "craft action uses output count",
-  craftResult.ok && recipeQuery?.minResultCount === 8 && craftCall?.repetitions === 2,
+  craftResult.ok && craftCall?.repetitions === 2 && craftInventory.items[0]?.count === 8,
   JSON.stringify({ craftResult, recipeQuery, craftCall })
 );
 
@@ -411,6 +424,231 @@ try {
   visionScreenRejected = true;
 }
 check("desktop screen capture rejected", visionScreenRejected);
+
+// --- Controller layer: bounded verbs, decision normalize, gate, routing ---
+const mkWorld = (over = {}) => ({
+  me: {
+    pos: { x: 0, y: 64, z: 0 },
+    health: 20,
+    food: 20,
+    oxygen: 20,
+    sleeping: false,
+    dimension: "overworld",
+    inWater: false,
+    held: null,
+    ...over.me,
+  },
+  environment: { isDay: true, timeOfDay: 1000, raining: false, ...over.environment },
+  inventory: over.inventory || [],
+  players: over.players || [],
+  mobs: over.mobs || [],
+  droppedItems: over.droppedItems || [],
+  blocksNearby: over.blocksNearby || [],
+  hazards: { blocks: [], hostileMobs: [], lowOxygen: false, lowHealth: false, ...over.hazards },
+  agent: { mode: "auto", goal: "g", plan: ["p"], lastError: null },
+});
+const mkCtx = (world, over = {}) => ({
+  world,
+  goal: "g",
+  plan: ["p"],
+  targets: [],
+  waypoint: null,
+  inventory: parseInventory(world),
+  container: null,
+  passive: false,
+  mcData: { itemsByName: {}, blocksByName: {} },
+  ...over,
+});
+
+{
+  const ids = legalVerbs(mkCtx(mkWorld())).map((v) => v.id);
+  check("wait always legal", ids.includes("wait"));
+  check("calm world: no flee/attack/eat", !ids.includes("flee") && !ids.includes("attack") && !ids.includes("eat"));
+
+  const danger = mkWorld({
+    me: { health: 6 },
+    mobs: [{ name: "zombie", hostile: true, dist: 3, pos: { x: 3, y: 64, z: 0 }, visible: true }],
+    hazards: { hostileMobs: [{ name: "zombie", dist: 3, pos: { x: 3, y: 64, z: 0 } }], lowHealth: true },
+  });
+  const dIds = legalVerbs(mkCtx(danger)).map((v) => v.id);
+  check("danger: flee+attack legal", dIds.includes("flee") && dIds.includes("attack"));
+  const atk = resolveVerb("attack", mkCtx(danger));
+  check("attack resolves to nearest hostile", atk.type === "attack" && atk.name === "zombie" && atk.maxDistance === 16);
+  const flee = resolveVerb("flee", mkCtx(danger));
+  check("flee resolves to goto away", flee.type === "goto" && flee.x < 0, JSON.stringify(flee));
+
+  const hungry = mkWorld({ me: { food: 12 }, inventory: ["cooked_beef x3"] });
+  const hCtx = mkCtx(hungry);
+  check("eat legal when hungry with food", legalVerbs(hCtx).some((v) => v.id === "eat"));
+  check("eat resolves", resolveVerb("eat", hCtx).type === "eat");
+
+  const res = mkWorld({
+    blocksNearby: [{ name: "oak_log", dist: 5, pos: { x: 5, y: 64, z: 0 } }],
+  });
+  const rCtx = mkCtx(res, { targets: ["oak_log"] });
+  check("collect legal on target block", legalVerbs(rCtx).some((v) => v.id === "collect"));
+  check("collect resolves target", resolveVerb("collect", rCtx).block === "oak_log");
+  check("goto_target resolves pos", resolveVerb("goto_target", rCtx).x === 5);
+
+  const wpCtx = mkCtx(mkWorld(), { waypoint: { x: 10, y: 64, z: -5 } });
+  const wp = resolveVerb("goto_waypoint", wpCtx);
+  check("waypoint resolves", wp.type === "goto" && wp.z === -5 && wp.range === 2);
+
+  const passiveCtx = mkCtx(danger, { passive: true });
+  const pIds = legalVerbs(passiveCtx).map((v) => v.id);
+  check("passive mode only wait", pIds.length === 1 && pIds[0] === "wait");
+
+  check("illegal verb resolves wait", resolveVerb("teleport", mkCtx(mkWorld())).type === "wait");
+  check("non-legal verb resolves wait", resolveVerb("attack", mkCtx(mkWorld())).type === "wait");
+}
+
+{
+  const legal = [{ id: "collect" }, { id: "wait" }];
+  const jevAnswer = {
+    action: { choice: "collect", confidence: 0.8, probabilities: { collect: 0.8, wait: 0.2 } },
+    safe: { noul: 0.9 },
+    urgency: { score: 2 },
+    usage: { input_tokens: 10, output_tokens: 5 },
+  };
+  const d = readDecision(jevAnswer, legal, "jev");
+  check("readDecision normalize", d.choice === "collect" && d.confidence === 0.8 && d.safe === true && d.urgency === 2);
+
+  const bad = readDecision({ action: { choice: "explode" }, safe: { noul: 0.9 } }, legal, "jev");
+  check("readDecision unknown choice falls back", bad.choice === "collect" && bad.confidence === 0 && bad.safe === false);
+
+  const unsafe = readDecision({ action: { choice: "collect", confidence: 0.9 }, safe: { noul: 0.2 } }, legal, "jev");
+  check("noul<0.5 unsafe", unsafe.safe === false);
+
+  const g1 = gateDecision(d, { minConfidence: 0.45 });
+  check("gate ok", g1.ok === true);
+  const g2 = gateDecision(unsafe, { minConfidence: 0.45 });
+  check("gate unsafe -> flee", g2.ok === false && g2.override === "flee");
+  const g3 = gateDecision({ ...d, confidence: 0.2 }, { minConfidence: 0.45 });
+  check("gate low conf -> wait", g3.ok === false && /low-confidence/.test(g3.reason));
+
+  const cs = compactState(mkCtx(mkWorld(), { targets: ["oak_log"], waypoint: { x: 1, y: 2, z: 3 } }));
+  check(
+    "compactState serializable",
+    cs.targets[0] === "oak_log" && cs.me.health === 20 && JSON.parse(JSON.stringify(cs)).targets.length === 1
+  );
+}
+
+{
+  const local = createLocalController();
+  const danger = mkWorld({
+    me: { health: 6 },
+    mobs: [{ name: "zombie", hostile: true, dist: 3, pos: { x: 3, y: 64, z: 0 } }],
+    hazards: { hostileMobs: [{ name: "zombie", dist: 3, pos: { x: 3, y: 64, z: 0 } }], lowHealth: true },
+  });
+  const ctx = mkCtx(danger);
+  ctx.legal = legalVerbs(ctx);
+  const d1 = await local.decide(ctx);
+  check("local: danger -> flee", d1.choice === "flee" && d1.urgency >= 2);
+
+  const gatherCtx = mkCtx(
+    mkWorld({ blocksNearby: [{ name: "oak_log", dist: 5, pos: { x: 5, y: 64, z: 0 } }] }),
+    { targets: ["oak_log"] }
+  );
+  gatherCtx.legal = legalVerbs(gatherCtx);
+  const d2 = await local.decide(gatherCtx);
+  check("local: target -> collect", d2.choice === "collect");
+
+  const idleCtx = mkCtx(mkWorld());
+  idleCtx.legal = legalVerbs(idleCtx);
+  const d3 = await local.decide(idleCtx);
+  check("local: empty world -> wait", d3.choice === "wait");
+}
+
+{
+  // Brain routing: controller set -> per-tick decide without LLM;
+  // pending command -> full planner power (llm.messages called).
+  let llmCalls = 0;
+  const ctrlBrain = new Brain({
+    bot: worldBot,
+    llm: {
+      async messages() {
+        llmCalls += 1;
+        return {
+          text: '{"think":"p","targets":["oak_log"],"command_done":true,"action":{"type":"idle"}}',
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      },
+    },
+    cfg: {
+      agent: { mode: "auto", maxHistory: 8 },
+      controller: { type: "local", plannerEveryTicks: 8, minConfidence: 0.45, fallbackToLocal: true },
+      vision: { enabled: false },
+      api: {},
+    },
+    mcData: {},
+    log() {},
+  });
+  ctrlBrain.tick = 5;
+  ctrlBrain.lastPlannerTick = 4; // planner not due
+  ctrlBrain._plannerBusy = true; // suppress background planner for determinism
+  let decided = null;
+  ctrlBrain.setController({
+    type: "fake",
+    async decide(ctx) {
+      decided = ctx;
+      return { choice: "wait", confidence: 1, safe: true, urgency: 0, source: "fake" };
+    },
+  });
+  await ctrlBrain.step();
+  check(
+    "controller tick: no LLM call, decide ran",
+    llmCalls === 0 && decided !== null && decided.legal.some((v) => v.id === "wait"),
+    `llmCalls=${llmCalls}`
+  );
+  check(
+    "controller tick history marked src",
+    ctrlBrain.history.at(-1)?.src === "fake" && ctrlBrain.lastAction?.result?.ok === true
+  );
+  ctrlBrain.queueCommand("сделай палку", "tester");
+  ctrlBrain._plannerBusy = false;
+  await ctrlBrain.step();
+  check("command tick routes to planner", llmCalls === 1 && ctrlBrain.controllerTargets[0] === "oak_log");
+}
+
+{
+  const off = createController({ cfg: { controller: { type: "off" } }, log() {} });
+  check("factory off -> null", off === null);
+  const loc = createController({ cfg: { controller: { type: "local" } }, log() {} });
+  check("factory local", loc?.type === "local");
+  const missingKey = createController({ cfg: { controller: { type: "jev", jev: { apiKeyEnv: "NO_SUCH_ENV_X" } } }, log() {} });
+  check("factory jev w/o key -> local fallback", missingKey?.type === "local");
+
+  const badCfg = { ...cfgVisionOk, controller: { type: "mindflayer" } };
+  let rejected = false;
+  try {
+    validateConfig(badCfg);
+  } catch {
+    rejected = true;
+  }
+  check("unknown controller type rejected", rejected);
+
+  const cfgCtrl = validateConfig({
+    ...cfgVisionOk,
+    controller: { type: "laya", plannerEveryTicks: 6 },
+  });
+  check(
+    "controller config normalized",
+    cfgCtrl.controller.type === "laya" &&
+      cfgCtrl.controller.plannerEveryTicks === 6 &&
+      cfgCtrl.controller.minConfidence === 0.45 &&
+      cfgCtrl.controller.laya.url === "http://127.0.0.1:8091/decide"
+  );
+  let remoteRejected = false;
+  try {
+    validateConfig({
+      ...cfgVisionOk,
+      controller: { type: "laya", laya: { url: "http://evil.example.com/decide" } },
+    });
+  } catch {
+    remoteRejected = true;
+  }
+  check("remote laya url rejected", remoteRejected);
+}
 
 console.log(
   JSON.stringify({
