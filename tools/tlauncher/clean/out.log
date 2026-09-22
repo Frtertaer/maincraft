@@ -1,0 +1,23 @@
+06:43:08.028 by.gdev.Main INFO  - logs directory C:\Users\user\AppData\Roaming\.tlauncher/logs/starter/
+06:43:08.143 by.gdev.Main INFO  - logs directory C:\Users\user\AppData\Roaming\.tlauncher/logs/starter/
+06:43:08.158 by.gdev.Main INFO  - starter was run
+06:43:08.181 by.gdev.Main INFO  - starter created Fri Oct 24 10:33:40 MSK 2025
+06:43:08.561 b.g.u.s.FileMapperService INFO  - file not exist starter.json
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://repo.fastrepo.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://repo.tlauncher.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://page.tlauncher.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection http://advancedrepository.net/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://stat.fastrepo.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://resource.tlauncher.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://resource.fastrepo.org/check.bin timeout 1500 ms
+06:43:10.063 b.g.u.DesktopUtil INFO  - check internet connection https://launchermeta.mojang.com/v1/packages/3d8e55480977e32acd9844e545177e69a52f594b/pre-1.6.json timeout 1500 ms
+06:43:11.237 b.g.u.DesktopUtil INFO  - passed advancedrepository.net within 1176 ms
+06:43:11.325 b.g.u.DesktopUtil INFO  - passed page.tlauncher.org within 1264 ms
+06:43:11.352 b.g.u.DesktopUtil INFO  - passed resource.tlauncher.org within 1291 ms
+06:43:11.416 b.g.u.DesktopUtil INFO  - passed resource.fastrepo.org within 1354 ms
+06:43:11.438 b.g.u.DesktopUtil INFO  - passed repo.tlauncher.org within 1377 ms
+06:43:11.530 b.g.u.DesktopUtil INFO  - passed repo.fastrepo.org within 1469 ms
+06:43:11.570 b.g.u.DesktopUtil INFO  - passed stat.fastrepo.org within 1509 ms
+06:43:12.617 b.g.u.DesktopUtil INFO  - check internet connection https://launchermeta.mojang.com/v1/packages/3d8e55480977e32acd9844e545177e69a52f594b/pre-1.6.json timeout 4500 ms
+06:43:13.087 b.g.u.DesktopUtil INFO  - passed launchermeta.mojang.com within 3026 ms
+06:43:13.346 b.g.u.DesktopUtil INFO  - execute command D:\maincraft\.runtime\microsoft-jdk-21\jdk-21.0.12+8\bin\javaw.exe -Dfile.encoding=UTF-8 -jar D:\maincraft\tools\tlauncher\clean\TLauncher.jar
