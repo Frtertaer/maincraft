@@ -1,0 +1,32 @@
+{
+  "name": "opus-minecraft-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Opus 5 hybrid Minecraft agent: Mineflayer + optional vision + chat commands",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "bot": "node src/index.js",
+    "check-api": "node src/check-api.js",
+    "selftest": "node src/selftest.js",
+    "combat-bench": "node src/combat-bench.js",
+    "boss-bench": "node src/boss-bench.js",
+    "clear-run": "node --max-old-space-size=8192 src/clear-run.js",
+    "vision-smoke": "node src/vision-smoke.js --config=config.companion.json",
+    "check": "npm run selftest && node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "canvas": "3.2.3",
+    "minecraft-data": "^3.99.0",
+    "mineflayer": "^4.33.0",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-tool": "^1.2.0",
+    "prismarine-viewer": "^1.33.0",
+    "vec3": "^0.1.10"
+  }
+}

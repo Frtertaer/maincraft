@@ -1,0 +1,47 @@
+node_modules/
+.runtime/
+
+# Отдельные репозитории / внешний код
+multica/
+vendor/
+
+# Локальные бинарники и окружения
+tools/
+voice/.venv/
+voice/out/
+__pycache__/
+*.pyc
+
+# Состояние локальных инструментов
+.agents/
+.codex/
+.remember/
+.playwright-cli/
+
+# Секреты
+.env
+*.env
+opus4.8api.txt
+
+server/world/
+server/world_nether/
+server/world_the_end/
+server/logs/
+server/cache/
+server/versions/
+server/libraries/
+server/plugins/
+server/.console_history
+server/*.jar
+server/*.download
+server/eula.txt
+server/server.properties
+server/ops.json
+server/whitelist.json
+server/banned-*.json
+server/usercache.json
+server/version_history.json
+logs/
+agent/node_modules/
+*.log
+opus4.8api.txt

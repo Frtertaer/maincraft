@@ -1,0 +1,115 @@
+{
+    "api":  {
+                "baseUrl":  "https://api.cheat-ai.shop",
+                "allowedHosts":  [
+                                     "api.cheat-ai.shop"
+                                 ],
+                "allowCustomHost":  false,
+                "keyEnv":  "OPUS_API_KEY",
+                "keyFile":  "~/Desktop/opus4.8api.txt",
+                "model":  "claude-opus-5",
+                "requireExactModel":  true,
+                "maxTokens":  1024,
+                "temperature":  0.7,
+                "whoamiTimeoutMs":  10000,
+                "requestTimeoutMs":  90000,
+                "maxRetries":  2,
+                "retryBaseMs":  750,
+                "retryMaxMs":  10000,
+                "retryMessagesOnNetworkError":  false,
+                "maxResponseBytes":  2097152,
+                "maxRequestsPerSession":  500,
+                "maxTotalTokens":  500000,
+                "budget":  {
+                               "maxRequestsPerMinute":  12,
+                               "minTokensRemaining":  100000
+                           }
+            },
+    "minecraft":  {
+                      "host":  "127.0.0.1",
+                      "port":  25565,
+                      "username":  "Opus",
+                      "version":  "1.21.1",
+                      "auth":  "offline",
+                      "reconnect":  {
+                                        "enabled":  true,
+                                        "maxAttempts":  10,
+                                        "baseDelayMs":  2000,
+                                        "maxDelayMs":  30000
+                                    }
+                  },
+    "agent":  {
+                  "botName":  "Opus",
+                  "mode":  "hybrid",
+                  "language":  "ru",
+                  "tickMs":  4000,
+                  "idleWhenNoGoal":  true,
+                  "maxHistory":  20,
+                  "announceOnSpawn":  true,
+                  "companionMode":  true,
+                  "persona":  "Тебя зовут Opus. Ты спутник в Minecraft: любопытный, слегка саркастичный. Отвечаешь коротко по-русски ТОЛЬКО когда игрок пишет. Не начинай монолог сам. Не повторяй одно и то же. Если нечего нового — молчи.",
+                  "allowPlayerCommands":  true,
+                  "allowPlayerChat":  true,
+                  "allowWhispers":  true,
+                  "trustOfflineUsernames":  true,
+                  "controllerUsers":  [
+                                          "Steve"
+                                      ],
+                  "chatUsers":  [
+                                    "Steve"
+                                ]
+              },
+    "combat":  {
+                   "enabled":  true,
+                   "mode":  "auto",
+                   "intervalMs":  40,
+                   "engageDistance":  20,
+                   "meleeDistance":  3.15,
+                   "maxDistance":  32,
+                   "cooldownMs":  520,
+                   "fleeAtHealth":  4,
+                   "eatBelowHealth":  14,
+                   "eatBelowFood":  16,
+                   "autoEngageHostiles":  true,
+                   "allowPlayers":  false,
+                   "holdMsAfterHit":  8000,
+                   "equipEveryMs":  2500,
+                   "shieldVsProjectile":  true,
+                   "kiteCreeperDistance":  5.5,
+                   "prioritizeExploders":  true,
+                   "strafe":  true,
+                   "jumpCrit":  true,
+                   "sprintHit":  true
+               },
+    "vision":  {
+                   "enabled":  true,
+                   "source":  "viewer",
+                   "everyNTicks":  2,
+                   "maxFileBytes":  5242880,
+                   "maxAgeMs":  30000,
+                   "width":  320,
+                   "height":  180,
+                   "maxDistance":  48,
+                   "jpegQuality":  0.72,
+                   "saveDebugFrame":  true,
+                   "capturePath":  "../logs/vision_frame.jpg"
+               },
+    "viewer":  {
+                   "enabled":  true,
+                   "host":  "127.0.0.1",
+                   "port":  3007,
+                   "firstPerson":  true
+               },
+    "mantella":  {
+                     "enabled":  true,
+                     "worldId":  "local",
+                     "maxChatLines":  200,
+                     "tts":  "edge",
+                     "ttsVoice":  "ru-RU-SvetlanaNeural",
+                     "stt":  "whisper",
+                     "voiceUrl":  "http://127.0.0.1:8765",
+                     "summaryEveryTurns":  6,
+                     "llmSummary":  true,
+                     "turnBased":  true
+                 }
+}

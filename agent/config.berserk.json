@@ -1,0 +1,101 @@
+{
+  "api": {
+    "baseUrl": "https://api.cheat-ai.shop",
+    "allowedHosts": ["api.cheat-ai.shop"],
+    "allowCustomHost": false,
+    "keyEnv": "OPUS_API_KEY",
+    "keyFile": "~/Desktop/opus4.8api.txt",
+    "model": "claude-opus-5",
+    "requireExactModel": true,
+    "maxTokens": 768,
+    "temperature": 0.3,
+    "whoamiTimeoutMs": 10000,
+    "requestTimeoutMs": 90000,
+    "maxRetries": 2,
+    "retryBaseMs": 750,
+    "retryMaxMs": 10000,
+    "retryMessagesOnNetworkError": false,
+    "maxResponseBytes": 2097152,
+    "maxRequestsPerSession": 300,
+    "maxTotalTokens": 300000,
+    "budget": {
+      "maxRequestsPerMinute": 10,
+      "minTokensRemaining": 50000
+    }
+  },
+  "minecraft": {
+    "host": "127.0.0.1",
+    "port": 25565,
+    "username": "Berserk",
+    "version": "1.21.1",
+    "auth": "offline",
+    "reconnect": {
+      "enabled": true,
+      "maxAttempts": 10,
+      "baseDelayMs": 2000,
+      "maxDelayMs": 30000
+    }
+  },
+  "agent": {
+    "botName": "Berserk",
+    "mode": "auto",
+    "language": "ru",
+    "tickMs": 5000,
+    "idleWhenNoGoal": false,
+    "maxHistory": 8,
+    "announceOnSpawn": true,
+    "allowPlayerCommands": true,
+    "allowWhispers": false,
+    "trustOfflineUsernames": true,
+    "controllerUsers": ["Steve"],
+    "companionMode": false,
+    "persona": "Ты берсерк. Цель — убивать всё живое вокруг. Коротко в чате. Не мирный."
+  },
+  "combat": {
+    "enabled": true,
+    "mode": "auto",
+    "intervalMs": 35,
+    "engageDistance": 40,
+    "meleeDistance": 3.2,
+    "maxDistance": 48,
+    "cooldownMs": 480,
+    "fleeAtHealth": 3,
+    "eatBelowHealth": 12,
+    "eatBelowFood": 14,
+    "autoEngageHostiles": true,
+    "attackAllLiving": true,
+    "allowPlayers": false,
+    "holdMsAfterHit": 12000,
+    "equipEveryMs": 1500,
+    "shieldVsProjectile": true,
+    "kiteCreeperDistance": 5.5,
+    "prioritizeExploders": true,
+    "strafe": true,
+    "jumpCrit": true,
+    "sprintHit": true
+  },
+  "vision": {
+    "enabled": false,
+    "source": "viewer",
+    "everyNTicks": 5,
+    "maxFileBytes": 5242880,
+    "maxAgeMs": 30000,
+    "width": 320,
+    "height": 180,
+    "maxDistance": 48,
+    "jpegQuality": 0.7,
+    "saveDebugFrame": false,
+    "capturePath": "../logs/vision_frame.jpg"
+  },
+  "viewer": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 3008,
+    "firstPerson": true
+  },
+  "mantella": {
+    "enabled": false,
+    "tts": "none",
+    "stt": "none"
+  }
+}

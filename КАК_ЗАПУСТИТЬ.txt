@@ -1,0 +1,53 @@
+OPUS 5 + MINECRAFT — БЫСТРЫЙ ЗАПУСК
+=====================================
+
+УЖЕ УСТАНОВЛЕНО:
+- локальная Java 21;
+- Paper 1.21.1;
+- Node-зависимости и canvas;
+- API-ключ читается из C:\Users\user\Desktop\opus4.8api.txt.
+
+1. Открой PowerShell:
+
+   cd D:\maincraft\server
+   .\start-server.ps1
+
+2. Открой второе окно PowerShell:
+
+   cd D:\maincraft
+   .\start-bot.ps1
+
+   # Или версия С ЗРЕНИЕМ Opus 5 (дороже по токенам):
+   .\start-bot-vision.ps1
+
+3. После строки Spawned открой в браузере:
+
+   http://127.0.0.1:3007
+
+   Vision-кадры (если запущен start-bot-vision.ps1) пишутся в:
+   D:\maincraft\logs\vision_frame.jpg
+
+4. Команды вводятся в консоли бота:
+
+   status
+   !mode auto
+   !goal добудь дерево, сделай инструменты и построй убежище
+   !vision on
+   !vision off
+   !pause
+   !resume
+   exit
+
+5. Сервер останавливается командой:
+
+   stop
+
+Лицензия Minecraft не нужна для режима сервер + бот + browser viewer.
+Она нужна только если ты сам заходишь официальным Minecraft Java-клиентом.
+
+Сервер и viewer доступны только на этом ПК. Не открывай offline-сервер в интернет.
+Полное прохождение игры пока не гарантировано: бот умеет развиваться в survival,
+но для надёжного убийства дракона ещё нужны специальные высокоуровневые навыки.
+
+Подробности: D:\maincraft\README.md
+
