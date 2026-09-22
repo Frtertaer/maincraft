@@ -189,7 +189,7 @@ export class Brain {
     this.lastPlannerTick = -999;
     this._plannerBusy = false;
     if (cfg.mantella?.enabled || cfg.agent?.companionMode) {
-      this.mantella = new MantellaConversation({ bot, cfg, log: this.log, llm: this.llm });
+      this.mantella = new MantellaConversation({ bot, cfg, log: this.log, llm: this.llm, mcData: this.mcData });
       this.log(
         `[mantella] memory world=${cfg.mantella?.worldId || "local"} char=${cfg.agent?.botName || "Opus"} tts=${cfg.mantella?.tts || "none"}`
       );

@@ -96,6 +96,15 @@ export function parseCommand(message, botName = "Opus") {
   if (/^(summary|память|summarize)$/i.test(body)) {
     return { type: "summary" };
   }
+  // Beat-the-game progression runner (wood → … → dragon → clear)
+  if (/^(clear|проход|дракон)/i.test(body)) {
+    const op = /stop|стоп|off|выкл/i.test(body)
+      ? "stop"
+      : /status|статус/i.test(body)
+        ? "status"
+        : "start";
+    return { type: "clear", op };
+  }
 
   // free-form order for the LLM
   return { type: "direct", text: body };
@@ -113,5 +122,5 @@ function normalizeMode(m) {
 export const HELP_TEXT =
   "Команды: !help | !stop | !pause | !resume | !status | !follow | !come | " +
   "!mode auto|hybrid|listen|observe | !combat auto|hold|off | !goal <текст> | !vision on|off | " +
-  "!listen [сек] (Whisper STT) | !summary (LLM-память) | " +
+  "!listen [сек] (Whisper STT) | !summary (LLM-память) | !clear [start|stop|status] (прохождение до дракона) | " +
   "или: Opus, добудь дерево / построй дом / иди за мной";

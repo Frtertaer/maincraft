@@ -114,6 +114,10 @@ function normalizeApiConfig(cfg) {
   api.allowedHosts = [...new Set(allowedHosts)];
   api.allowCustomHost = allowCustomHost;
   api.model = stringAt(api.model, "api.model", { max: 120 });
+  api.protocol = stringAt(api.protocol ?? "anthropic", "api.protocol", { max: 20 }).toLowerCase();
+  if (!["anthropic", "openai"].includes(api.protocol)) {
+    throw new Error("api.protocol must be anthropic or openai");
+  }
   api.requireExactModel = boolAt(api.requireExactModel, true, "api.requireExactModel");
   api.maxTokens = numberAt(api.maxTokens, 1024, "api.maxTokens", {
     min: 16,
@@ -332,6 +336,18 @@ function normalizeAgentConfig(cfg) {
     integer: true,
   });
   mantella.llmSummary = boolAt(mantella.llmSummary, true, "mantella.llmSummary");
+  mantella.dialogueMaxTokens = numberAt(mantella.dialogueMaxTokens, 420, "mantella.dialogueMaxTokens", {
+    min: 32,
+    max: 4096,
+    integer: true,
+  });
+  // Ambient NPC lines: how often the companion may comment on world events
+  // when nobody is chatting. 0 disables spontaneous speech.
+  mantella.ambientEveryMs = numberAt(mantella.ambientEveryMs, 90000, "mantella.ambientEveryMs", {
+    min: 0,
+    max: 3600000,
+    integer: true,
+  });
   // Mantella default: only generate on player turn (pc_to_npc), not every brain tick
   mantella.turnBased = boolAt(
     mantella.turnBased,
@@ -543,6 +559,13 @@ export function validateConfig(cfg) {
   normalizeViewerConfig(cfg);
   normalizeCombatConfig(cfg);
   normalizeControllerConfig(cfg);
+  const clear = objectAt(cfg.clear ?? {}, "clear");
+  clear.maxMs = numberAt(clear.maxMs, 120 * 60 * 1000, "clear.maxMs", {
+    min: 60000,
+    max: 24 * 3600000,
+    integer: true,
+  });
+  cfg.clear = clear;
   return cfg;
 }
 

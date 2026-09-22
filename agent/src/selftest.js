@@ -1,5 +1,6 @@
 import { parseCommand, HELP_TEXT } from "./commands.js";
-import { extractJsonObject } from "./llm.js";
+import { extractJsonObject, LlmClient } from "./llm.js";
+import { parseDialogueReply, dialogueActionToAction, MantellaConversation } from "./mantella/conversation.js";
 import {
   computeCraftPlan,
   executeAction,
@@ -648,6 +649,155 @@ const mkCtx = (world, over = {}) => ({
     remoteRejected = true;
   }
   check("remote laya url rejected", remoteRejected);
+}
+
+{
+  // NeuroSkyrim dialogue: parseCommand !clear, dialogue reply parse, action mapping
+  check("parse !clear", parseCommand("!clear", "Opus")?.type === "clear" && parseCommand("!clear", "Opus").op === "start");
+  check("parse !clear stop", parseCommand("!clear stop", "Opus")?.op === "stop");
+  check("parse !проход", parseCommand("!проходи игру", "Opus")?.type === "clear");
+
+  const dr = parseDialogueReply('{"say":"привет, Стив","action":"wave","task":null,"mood":"happy"}');
+  check("dialogue reply json", dr.say === "привет, Стив" && dr.action === "wave" && dr.mood === "happy" && dr.task === null);
+  const drTask = parseDialogueReply('{"say":"понял","task":"добудь дубовое бревно","action":"none"}');
+  check("dialogue task parse", drTask.task === "добудь дубовое бревно" && drTask.action === null);
+  const drRaw = parseDialogueReply("просто текст без json");
+  check("dialogue raw fallback", drRaw.say === "просто текст без json" && drRaw.action === null);
+  const drNulls = parseDialogueReply('{"say":null,"action":"null","task":null,"mood":null}');
+  check("dialogue nulls", drNulls.say === null && drNulls.action === null && drNulls.task === null);
+
+  check("give→toss", dialogueActionToAction("give:bread", { playerName: "Steve" })?.type === "toss" && dialogueActionToAction("give:bread", { playerName: "Steve" }).item === "bread");
+  check("wave→emote", dialogueActionToAction("wave", { playerName: "Steve" })?.type === "emote");
+  check("follow→follow", dialogueActionToAction("follow", { playerName: "Steve" })?.type === "follow" && dialogueActionToAction("follow", { playerName: "Steve" }).player === "Steve");
+  check("look→look_at_player", dialogueActionToAction("look", { playerName: "Steve" })?.type === "look_at_player");
+  check("none→null", dialogueActionToAction("none") === null && dialogueActionToAction(null) === null);
+  check("attack→attack", dialogueActionToAction("attack")?.type === "attack");
+
+  // OpenAI-compatible protocol (OpenRouter/VseGPT/etc): request shape + response mapping
+  let captured = null;
+  const openaiLlm = new LlmClient(
+    {
+      api: {
+        baseUrl: "https://openrouter.ai/api/v1",
+        protocol: "openai",
+        apiKey: "TESTKEY123",
+        model: "some-model/x",
+        requireExactModel: true,
+        maxTokens: 64,
+        temperature: 0.4,
+        whoamiTimeoutMs: 5000,
+        requestTimeoutMs: 5000,
+        maxRetries: 0,
+        retryBaseMs: 10,
+        retryMaxMs: 50,
+        retryMessagesOnNetworkError: false,
+        maxResponseBytes: 65536,
+        budget: { maxRequestsPerSession: 10, maxRequestsPerMinute: 10, maxTokensPerSession: 100000, minTokensRemaining: 0 },
+      },
+    },
+    {
+      fetchImpl: async (url, init) => {
+        captured = { url, init };
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '{"say":"привет"}' } }],
+            model: "some-model/x",
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      },
+    }
+  );
+  const openaiRes = await openaiLlm.messages({ system: "sys", messages: [{ role: "user", content: "hi" }] });
+  const capturedBody = JSON.parse(captured.init.body);
+  check(
+    "openai request shape",
+    captured.url === "https://openrouter.ai/api/v1/chat/completions" &&
+      captured.init.headers.authorization === "Bearer TESTKEY123" &&
+      capturedBody.messages[0].role === "system" &&
+      capturedBody.messages[0].content === "sys" &&
+      capturedBody.messages[1].role === "user"
+  );
+  check("openai response mapped", openaiRes.text === '{"say":"привет"}' && openaiRes.usage.input_tokens === 10 && openaiLlm.tokensUsed === 15);
+
+  const prefl = await new LlmClient(
+    {
+      api: {
+        baseUrl: "https://x.example/v1",
+        protocol: "openai",
+        apiKey: "K",
+        model: "m",
+        requireExactModel: true,
+        whoamiTimeoutMs: 5000,
+        requestTimeoutMs: 5000,
+        maxRetries: 0,
+        maxResponseBytes: 65536,
+        budget: { maxRequestsPerSession: 10, maxRequestsPerMinute: 10, maxTokensPerSession: 100000, minTokensRemaining: 0 },
+      },
+    },
+    {
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ data: [{ id: "m" }, { id: "other" }] }), { status: 200 }),
+    }
+  ).preflight();
+  check("openai preflight /models ok", prefl.ok === true && prefl.models === 2);
+
+  let preflightRejected = false;
+  try {
+    await new LlmClient(
+      {
+        api: {
+          baseUrl: "https://x.example/v1",
+          protocol: "openai",
+          apiKey: "K",
+          model: "missing",
+          requireExactModel: true,
+          whoamiTimeoutMs: 5000,
+          requestTimeoutMs: 5000,
+          maxRetries: 0,
+          maxResponseBytes: 65536,
+          budget: { maxRequestsPerSession: 10, maxRequestsPerMinute: 10, maxTokensPerSession: 100000, minTokensRemaining: 0 },
+        },
+      },
+      {
+        fetchImpl: async () => new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 }),
+      }
+    ).preflight();
+  } catch (err) {
+    preflightRejected = err.code === "model_unavailable";
+  }
+  check("openai preflight missing model rejected", preflightRejected);
+
+  const cfgOpenai = validateConfig({
+    ...cfgVisionOk,
+    api: { ...cfgVisionOk.api, protocol: "openai", baseUrl: "https://openrouter.ai/api/v1", allowedHosts: ["openrouter.ai"], allowCustomHost: true, model: "qwen/x" },
+  });
+  check("openai protocol config accepted", cfgOpenai.api.protocol === "openai");
+  let badProto = false;
+  try {
+    validateConfig({ ...cfgVisionOk, api: { ...cfgVisionOk.api, protocol: "grpc" } });
+  } catch {
+    badProto = true;
+  }
+  check("bad protocol rejected", badProto);
+
+  // Dialogue end-to-end on a mocked LLM: reply + mood + memory wiring
+  const convo = new MantellaConversation({
+    bot: worldBot,
+    cfg: { agent: { botName: "Opus", persona: "тестовый персонаж" }, mantella: { worldId: "selftest", maxChatLines: 50 } },
+    log() {},
+    llm: {
+      async messages() {
+        return { text: '{"say":"здорово","action":"wave","task":null,"mood":"happy"}', usage: {} };
+      },
+    },
+  });
+  convo.onPlayerChat("Steve", "привет");
+  const convoReply = await convo.respond("Steve", "привет", {});
+  check("respond returns reply", convoReply.say === "здорово" && convoReply.action === "wave" && convo.mood === "happy");
+  const mapped = dialogueActionToAction(convoReply.action, { playerName: "Steve" });
+  check("respond action maps", mapped?.type === "emote");
 }
 
 console.log(

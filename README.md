@@ -161,6 +161,44 @@ python agent\tools\laya_server.py   # LAYA_PORT=8091 LAYA_DEVICE=cpu
 
 Без блока `controller` в конфиге бот работает ровно как раньше — Opus каждый тик. При `controller.type` = `off`/`jev`/`laya`/`local` поведение меняется только между вызовами планировщика; приказы игрока по-прежнему получают полную мощь Opus (свободный `action`).
 
+## «Нейроскайрим»-режим (разговорный спутник)
+
+В `agent\config.companion.json` включён режим живого NPC-компаньона (по мотивам SkyrimNet/Mantella):
+
+- **Свободный диалог.** Любая строка в игровом чате от разрешённых ников (`agent.chatUsers`) идёт не в планировщик, а в диалоговый пайплайн: один вызов LLM возвращает `{say, action, task, mood}`. `say` — реплика в чат; `action` — жест/действие тела (`wave`, `sit`, `follow`, `give:предмет`, `attack`, `look`…); `task` — реальная работа («добудь дерево» → приказ мозгу); `mood` — настроение.
+- **Персонаж и память.** `agent.persona` задаёт характер; модуль `mantella` хранит историю чата в `logs/mantella-memory/<world>/<bot>/chat.jsonl` и периодически конденсирует её в summary, который подаётся в контекст диалога.
+- **Автономность.** Бот слушает события мира (смерть, зашёл/вышел игрок, начался дождь, майлстоуны прохождения) и редко — не чаще `mantella.ambientEveryMs` — комментирует их репликой от своего имени.
+- **Голос (опционально).** `mantella.tts`: `none` | `sapi` | `edge` | `silero` | `voice` (внешний сервер `mantella.voiceUrl`); `mantella.stt: whisper` — распознавание голоса через voice-сервер.
+
+Запуск:
+
+```powershell
+cd D:\maincraft
+.\start-bot-companion.ps1 -PlayerName Steve -Controller local   # или jev / laya / off
+```
+
+### Другой ИИ вместо Opus
+
+Диалог и планировщик работают на любом OpenAI-совместимом API (OpenRouter, VseGPT, NanoGPT, локальный vLLM/Ollama). В конфиге:
+
+```json
+"api": {
+  "protocol": "openai",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "allowedHosts": ["openrouter.ai"],
+  "allowCustomHost": true,
+  "keyEnv": "OPENAI_API_KEY",
+  "model": "qwen/qwen-2.5-72b-instruct",
+  "requireExactModel": false
+}
+```
+
+`protocol: "anthropic"` (по умолчанию) — `/v1/messages` + `x-api-key`; `protocol: "openai"` — `POST /chat/completions` + `Bearer`-ключ, preflight через `GET /models` (мягкий: если у прокси нет `/models`, бот стартует с предупреждением). Ключ — только через env/.env, не в конфиге.
+
+### Пройти игру до дракона
+
+`!clear` (или попросить в чате: «пройди игру») запускает `ClearRunner` — детерминированный движок фаз (дерево → камень → железо → броня/еда → алмазы → портал → незер → стержни → жемчуг → очи → стронгхолд → энд → дракон). Майлстоуны бот озвучивает в чат; статус — `!clear status`, остановка — `!clear stop`. Отдельный самостоятельный скрипт `agent\src\clear-run.js` продолжает работать как раньше.
+
 ## Vision (Opus 5)
 
 Есть два режима:

@@ -14,6 +14,8 @@ param(
   [string]$PlayerName = 'Steve',
   [string]$HostName = '127.0.0.1',
   [int]$Port = 25565,
+  [ValidateSet('off', 'jev', 'laya', 'local')]
+  [string]$Controller = 'local',  # fast per-tick controller (two-mind stack)
   [switch]$WithVoice   # check voice server on 8765
 )
 
@@ -63,6 +65,10 @@ try {
   # Mantella pc_to_npc: LLM only when player speaks (no tick monologue)
   try { $json.mantella.turnBased = $true } catch { $json.mantella | Add-Member turnBased $true -Force }
   $json.agent.idleWhenNoGoal = $true
+  if (-not $json.controller) {
+    $json | Add-Member -NotePropertyName controller -NotePropertyValue ([pscustomobject]@{})
+  }
+  $json.controller.type = $Controller
   # UTF8 *without* BOM — BOM breaks JSON.parse in Node unless stripped
   $jsonText = $json | ConvertTo-Json -Depth 30
   [System.IO.File]::WriteAllText($configPath, $jsonText, $utf8NoBom)
@@ -100,7 +106,9 @@ Write-Host "  Server:       ${HostName}:${Port}" -ForegroundColor White
 Write-Host "  Viewer:       http://127.0.0.1:3007" -ForegroundColor White
 Write-Host "  Vision:       ON (viewer POV -> logs\vision_frame.jpg every 2 ticks)" -ForegroundColor Green
 Write-Host "  Chat:         just type in game chat" -ForegroundColor White
-Write-Host "  Commands:     !follow  !come  !goal ...  !listen  !summary  !vision on/off" -ForegroundColor White
+Write-Host "  Controller:   $Controller (fast verbs between Opus plans)" -ForegroundColor White
+Write-Host "  Commands:     !follow  !come  !goal ...  !listen  !summary  !clear  !vision on/off" -ForegroundColor White
+Write-Host "  Clear-run:    say 'пройди игру' or !clear — bot grinds to the dragon" -ForegroundColor White
 Write-Host '========================================' -ForegroundColor Cyan
 Write-Host 'Need Paper running first (start-server.ps1)' -ForegroundColor Yellow
 Write-Host 'Smoke vision:  cd agent; node src/vision-smoke.js --config=config.companion.json' -ForegroundColor DarkGray

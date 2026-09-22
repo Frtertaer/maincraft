@@ -118,6 +118,40 @@ export async function executeAction(bot, action, mcData) {
         return { ok: true, message: "looked" };
       }
 
+      case "look_at_player": {
+        const name = action.player || action.username || action.name;
+        const player = name ? bot.players[name]?.entity : nearestPlayer(bot);
+        if (!player) return { ok: false, message: `player not found: ${name || "?"}` };
+        await bot.lookAt(player.position.offset(0, player.height ?? 1.6, 0));
+        return { ok: true, message: `looking at ${player.username || name}` };
+      }
+
+      case "emote": {
+        // Social gesture: wave/point/bow → arm swing; sit/crouch → brief sneak.
+        const kind = String(action.kind || "wave").toLowerCase();
+        const name = action.player || action.username;
+        const player = name ? bot.players[name]?.entity : nearestPlayer(bot);
+        if (player) {
+          try {
+            await bot.lookAt(player.position.offset(0, player.height ?? 1.6, 0));
+          } catch {
+            /* ignore */
+          }
+        }
+        if (kind === "sit" || kind === "crouch" || kind === "sneak") {
+          bot.setControlState("sneak", true);
+          await sleep(1200);
+          bot.setControlState("sneak", false);
+        } else if (kind === "jump") {
+          bot.setControlState("jump", true);
+          await sleep(350);
+          bot.setControlState("jump", false);
+        } else {
+          bot.swingArm("right");
+        }
+        return { ok: true, message: `emote ${kind}` };
+      }
+
       case "goto":
       case "go": {
         const x = Number(action.x);

@@ -13,6 +13,7 @@ import { createVisionProvider } from "./vision.js";
 import { startLocalViewer } from "./local-viewer.js";
 import { CombatReflex } from "./combat-reflex.js";
 import { createController } from "./controller/index.js";
+import { ClearRunner } from "./clear.js";
 
 const pathfinder = pkgPathfinder.pathfinder || pkgPathfinder.default?.pathfinder || pkgPathfinder;
 const collectPlugin = pkgCollect.plugin || pkgCollect.default?.plugin || pkgCollect.default || pkgCollect;
@@ -59,11 +60,12 @@ async function main() {
   log(
     `Vision default source=${cfg.vision.source} enabled=${cfg.vision.enabled} everyNTicks=${cfg.vision.everyNTicks}`
   );
-  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model}…`);
+  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model} protocol=${cfg.api.protocol || "anthropic"}…`);
   try {
-    await llm.whoami();
+    const pre = await llm.preflight();
     log(
-      `API ready | exact_model=${cfg.api.model} | session_requests=${cfg.api.budget.maxRequestsPerSession} | session_tokens=${cfg.api.budget.maxTokensPerSession}`
+      `API ready | exact_model=${cfg.api.model} | session_requests=${cfg.api.budget.maxRequestsPerSession} | session_tokens=${cfg.api.budget.maxTokensPerSession}` +
+        (pre?.warning ? ` | note=${pre.warning}` : "")
     );
   } catch (err) {
     const code = err?.code ? ` [${err.code}]` : "";
@@ -91,6 +93,8 @@ async function main() {
   function stopSession(session) {
     session?.brain?.stop();
     session?.combat?.stop();
+    session?.clear?.stop();
+    if (session?.ambientTimer) clearInterval(session.ambientTimer);
     closeViewer(session?.bot);
   }
 
@@ -180,6 +184,48 @@ async function main() {
     if (session.controller) session.brain.setController(session.controller);
     session.brain.start();
 
+    // NeuroSkyrim-style ambient NPC: world events feed memory; when chat is
+    // quiet the companion may comment on its own (mantella.ambientEveryMs).
+    if (session.brain.mantella) {
+      const note = (text) => {
+        try {
+          session.brain.mantella.noteWorldEvent(text);
+        } catch {
+          /* ignore */
+        }
+      };
+      bot.on("death", () => note("Я погиб и возродился — надо вернуться за вещами"));
+      bot.on("playerJoined", (player) => {
+        if (player?.username && player.username !== bot.username) note(`${player.username} зашёл в мир`);
+      });
+      bot.on("playerLeft", (player) => {
+        if (player?.username && player.username !== bot.username) note(`${player.username} вышел из мира`);
+      });
+      bot.on("rain", () => note("Пошёл дождь"));
+      const ambientMs = Math.max(20000, Number(cfg.mantella?.ambientEveryMs) || 0);
+      if (ambientMs > 0) {
+        session.ambientTimer = setInterval(() => {
+          void (async () => {
+            try {
+              const reply = await session.brain.mantella.maybeAmbient({
+                agentState: { mode: session.brain.mode, goal: session.brain.goal },
+                minGapMs: ambientMs,
+              });
+              if (reply?.say) session.brain._emitSay(reply.say);
+              if (reply?.action) {
+                await session.brain.mantella.runDialogueAction(reply.action, {
+                  playerName: session.brain.mantella.lastPlayerName,
+                });
+              }
+            } catch (err) {
+              log(`[ambient] ${sanitizeForLog(err?.message || err, 160)}`);
+            }
+          })();
+        }, ambientMs);
+        session.ambientTimer.unref?.();
+      }
+    }
+
     if (cfg.agent.announceOnSpawn) {
       if (cfg.agent.companionMode) {
         bot.chat(
@@ -237,7 +283,8 @@ async function main() {
     }
 
     if (plainChat && isChatAllowed(cfg, username)) {
-      // Companion / social: any chat line becomes a player message to the character
+      // Companion / social: a chat line goes through the fast dialogue
+      // pipeline (SkyrimNet-style), not the heavy planner command path.
       const text = String(message || "").trim().slice(0, 400);
       if (!text) return;
       session.brain.resume();
@@ -246,19 +293,59 @@ async function main() {
       } catch (err) {
         log(`[mantella] ${sanitizeForLog(err?.message || err)}`);
       }
-      session.brain.queueCommand(
-        `Игрок ${username} сказал в игровом чате: «${text}». ` +
-          `Ответь как персонаж в поле say (коротко по-русски). ` +
-          `Если просят действие — сделай action; если просто болтают — say + idle/look/come/follow по смыслу. ` +
-          `Учти Mantella-context (память и мир) в промпте.`,
-        username
-      );
       log(`[chat] from ${username}: ${sanitizeForLog(text, 120)}`);
+      void handleDialogue(session, username, text).catch((err) => {
+        log(`[dialogue] ${sanitizeForLog(err?.message || err)}`);
+      });
       return;
     }
 
     if (plainChat) {
       log(`[security] ignored chat from ${username} (not in chatUsers/controllers)`);
+    }
+  }
+
+  /**
+   * NeuroSkyrim dialogue turn: memory → one LLM reply → say + optional body
+   * action + optional task routed to the planner (or the clear runner).
+   */
+  async function handleDialogue(session, username, text) {
+    const brain = session.brain;
+    if (!brain) return;
+    if (!brain.mantella) {
+      brain.queueCommand(
+        `Игрок ${username} сказал в игровом чате: «${text}». Ответь в say по-русски и действуй если просят.`,
+        username
+      );
+      return;
+    }
+    let reply;
+    try {
+      reply = await brain.mantella.respond(username, text, {
+        agentState: { mode: brain.mode, goal: brain.goal },
+      });
+    } catch (err) {
+      // API hiccup → degrade to the planner path so the player is not ignored.
+      log(`[dialogue] llm fail, queueing: ${sanitizeForLog(err?.message || err, 160)}`);
+      brain.queueCommand(
+        `Игрок ${username} сказал в игровом чате: «${text}». Ответь в say по-русски и действуй если просят.`,
+        username
+      );
+      return;
+    }
+    if (!reply) return;
+    if (reply.say) brain._emitSay(reply.say);
+    if (reply.action) {
+      const r = await brain.mantella.runDialogueAction(reply.action, { playerName: username });
+      if (r && !r.ok) log(`[dialogue] action ${reply.action} fail: ${r.message}`);
+    }
+    if (reply.task) {
+      log(`[dialogue] task from ${username}: ${sanitizeForLog(reply.task, 120)}`);
+      if (/пройд|дракон|эндер|clear|beat the game/i.test(reply.task)) {
+        await applyCommand(session, { type: "clear", op: "start" }, username, "chat");
+      } else {
+        brain.queueCommand(`Игрок ${username} просит: ${reply.task}. Выполни.`, username);
+      }
     }
   }
 
@@ -372,6 +459,44 @@ async function main() {
         brain.queueCommand(command.text, username);
         log(`[cmd] queued from ${username}`);
         break;
+      case "clear": {
+        if (!session.clear) {
+          session.clear = new ClearRunner({
+            bot,
+            cfg,
+            mcData: session.mcData,
+            brain,
+            combat: session.combat,
+            log,
+            onMilestone: (text) => {
+              try {
+                bot.chat(String(text).slice(0, 200));
+              } catch {
+                /* ignore */
+              }
+              brain.mantella?.noteWorldEvent(text);
+            },
+          });
+        }
+        if (command.op === "stop") {
+          const r = session.clear.stop();
+          if (source !== "console") bot.chat(r.ok ? "Останавливаю прохождение." : r.message);
+          log(`[clear] stop ${r.message}`);
+        } else if (command.op === "status") {
+          const s = session.clear.status();
+          log(`[clear] ${JSON.stringify(s)}`);
+          if (source !== "console") {
+            bot.chat(`Прохождение: фаза ${s.phase}, шаг ${s.steps}, смертей ${s.deaths}`.slice(0, 256));
+          }
+        } else {
+          const r = await session.clear.start();
+          if (source !== "console") {
+            bot.chat(r.ok ? "Погнали — цель: убить дракона!" : String(r.message).slice(0, 100));
+          }
+          log(`[clear] start ${r.message}`);
+        }
+        break;
+      }
       case "listen": {
         // Whisper STT via voice sidecar
         brain.resume();
