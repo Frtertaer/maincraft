@@ -10,6 +10,8 @@ server/cache/
 server/versions/
 server/libraries/
 server/*.download
+server/paper.jar
+server/plugins/.paper-remapped/remap-classpath/
 
 # Секреты
 .env
