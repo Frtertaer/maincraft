@@ -182,6 +182,8 @@ export class Brain {
     this._localController = null;
     this.controllerTargets = [];
     this.controllerConsecutiveFails = 0;
+    this.plannerConsecutiveFails = 0;
+    this._verbCooldowns = new Map();
     this.waypoint = null;
     this.container = null;
     this.lastPlannerTick = -999;
@@ -398,8 +400,10 @@ export class Brain {
     if (this.controller) {
       const every = this.cfg.controller?.plannerEveryTicks || 8;
       const plannerDue = this.tick === 1 || this.tick - this.lastPlannerTick >= every;
-      if (hasCommand && !this._plannerBusy) {
+      if (hasCommand && !this._plannerBusy && this.plannerConsecutiveFails < 3) {
         // Player commands need the full planner (free-form action space).
+        // After 3 straight planner failures let the controller keep driving
+        // instead of stalling on a dead API; a later background run resets it.
         this.lastPlannerTick = this.tick;
         return this._plannerStep(world);
       }
@@ -407,7 +411,10 @@ export class Brain {
         this.lastPlannerTick = this.tick;
         this._plannerBusy = true;
         this._plannerStep(world)
-          .catch(() => {})
+          .catch((err) => {
+            this.lastError = `planner error: ${err?.message || err}`;
+            this.log(`[brain] ${this.lastError}`);
+          })
           .finally(() => {
             this._plannerBusy = false;
           });
@@ -500,25 +507,35 @@ export class Brain {
     const fullUserText = promptText + mantellaBlock;
 
     this.requestCount += 1;
-    const result = imageBase64
-      ? await this.llm.messagesWithImage({
-          system,
-          text: fullUserText,
-          imageBase64,
-          mediaType: "image/jpeg",
-        })
-      : await this.llm.messages({
-          system,
-          messages: [{ role: "user", content: fullUserText }],
-        });
+    let result;
+    try {
+      result = imageBase64
+        ? await this.llm.messagesWithImage({
+            system,
+            text: fullUserText,
+            imageBase64,
+            mediaType: "image/jpeg",
+          })
+        : await this.llm.messages({
+            system,
+            messages: [{ role: "user", content: fullUserText }],
+          });
+    } catch (err) {
+      this.plannerConsecutiveFails += 1;
+      this.lastError = `planner llm failed: ${err?.message || err}`;
+      this.log(`[brain] ${this.lastError} (streak=${this.plannerConsecutiveFails})`);
+      return;
+    }
     this.totalTokens += usageTokenCount(result.usage);
 
     const parsed = extractJsonObject(result.text);
     if (!parsed) {
+      this.plannerConsecutiveFails += 1;
       this.lastError = "LLM returned non-JSON";
-      this.log(`[brain] bad JSON: ${result.text.slice(0, 200)}`);
+      this.log(`[brain] bad JSON (streak=${this.plannerConsecutiveFails}): ${result.text.slice(0, 200)}`);
       return;
     }
+    this.plannerConsecutiveFails = 0;
 
     if (parsed.goal) this.goal = String(parsed.goal).slice(0, 300);
     const nextPlan = sanitizePlan(parsed.plan);
@@ -653,10 +670,21 @@ export class Brain {
       mcData: this.mcData,
     };
     ctx.legal = legalVerbs(ctx);
+    // Verbs that just failed cool down briefly so the controller does not
+    // re-issue the same failing action every tick (observed: failing craft
+    // retried ~15 ticks straight). wait/flee never cool down (safety).
+    const decideCtx = {
+      ...ctx,
+      legal: ctx.legal.filter((v) => {
+        if (v.id === "wait" || v.id === "flee") return true;
+        const until = this._verbCooldowns.get(v.id);
+        return !(Number.isFinite(until) && until > this.tick);
+      }),
+    };
 
     let decision;
     try {
-      decision = await this.controller.decide(ctx);
+      decision = await this.controller.decide(decideCtx);
       this.controllerConsecutiveFails = 0;
     } catch (err) {
       this.controllerConsecutiveFails += 1;
@@ -667,7 +695,7 @@ export class Brain {
       if (c.fallbackToLocal !== false) {
         if (!this._localController) this._localController = createLocalController();
         try {
-          decision = await this._localController.decide(ctx);
+          decision = await this._localController.decide(decideCtx);
         } catch {
           decision = { choice: "wait", confidence: 1, safe: true, urgency: 0, source: "fallback-error" };
         }
@@ -692,6 +720,11 @@ export class Brain {
     const exec = await executeAction(this.bot, action, this.mcData);
     this.lastAction = { action, result: exec, controller: decision.source };
     this.lastError = exec.ok ? null : exec.message;
+    if (!exec?.ok && verbId !== "wait" && verbId !== "flee") {
+      this._verbCooldowns.set(verbId, this.tick + 10);
+    } else if (exec?.ok) {
+      this._verbCooldowns.delete(verbId);
+    }
 
     if (exec?.ok && action.type === "container_list" && Array.isArray(exec.meta?.contents)) {
       this.container = {

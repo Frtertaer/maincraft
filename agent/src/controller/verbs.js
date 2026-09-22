@@ -419,9 +419,11 @@ function collectCandidate(ctx) {
   // Planner targets first; otherwise fall back to common gatherables so early game moves.
   const hit = nearestByName(nearby, wanted);
   if (hit) return hit;
+  // Surface blocks only: *_ore fallback makes collectBlock pathfind into deep
+  // veins and can exhaust the Node heap (observed: 4 GB in ~40 s).
   const fallback = new Set(
     nearby
-      .filter((b) => /_log$|_ore$|^(wheat|carrots|potatoes|sugar_cane|sweet_berry_bush)$/.test(b.name))
+      .filter((b) => /_log$|^(wheat|carrots|potatoes|sugar_cane|sweet_berry_bush)$/.test(b.name))
       .map((b) => b.name)
   );
   if (!fallback.size) return null;
