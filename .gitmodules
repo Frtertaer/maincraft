@@ -1,0 +1,6 @@
+[submodule "multica"]
+	path = multica
+	url = https://github.com/multica-ai/multica.git
+[submodule "vendor/Mantella"]
+	path = vendor/Mantella
+	url = https://github.com/art-from-the-machine/Mantella.git

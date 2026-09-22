@@ -1,0 +1,267 @@
+- generic [ref=e6]:
+  - generic:
+    - button "Подключить Kimi Business" [ref=e7] [cursor=pointer]
+    - button "Выкупать" [ref=e8] [cursor=pointer]
+    - link "Подписка" [ref=e9] [cursor=pointer]:
+      - /url: /membership/subscription
+    - button [ref=e10] [cursor=pointer]
+  - generic [ref=e13]:
+    - generic [ref=e14]:
+      - generic [ref=e15]:
+        - heading "Скоро появятся новые планы" [level=2] [ref=e16]
+        - paragraph [ref=e17]: Текущих подписчиков изменения не затронут. Чтобы сохранить объединённые преимущества, купите текущий план до запуска новой системы.
+        - paragraph [ref=e18]: В новой системе преимущества Kimi и Kimi Code продаются отдельно — покупайте только нужное.
+      - img "membership" [ref=e19]
+    - generic [ref=e20]:
+      - heading "Ваш Moonshot начинается здесь" [level=1] [ref=e24]
+      - paragraph [ref=e25]: Обновите подписку Kimi, чтобы получить более быстрые модели, больше параллельных задач и мощные исследования.
+    - generic [ref=e26]:
+      - button "Подключить Kimi Business" [ref=e27] [cursor=pointer]
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30] [cursor=pointer]: Ежемесячно
+          - generic [ref=e32] [cursor=pointer]:
+            - generic [ref=e33]: Ежегодно
+            - generic [ref=e34]: Экономия до $480
+        - generic [ref=e35]:
+          - generic [ref=e36]:
+            - generic [ref=e37]: Moderato
+            - paragraph [ref=e54]: Расширенные возможности
+            - paragraph [ref=e55]:
+              - generic [ref=e56]: $
+              - generic [ref=e57]: "15"
+              - generic [ref=e58]: / месяц
+              - generic [ref=e59]: $19
+            - paragraph [ref=e60]: Ежегодная оплата $180
+            - button "Встать в лист ожидания" [ref=e62] [cursor=pointer]
+            - generic [ref=e63]:
+              - generic [ref=e64]: Больше кредитов Agent
+              - generic [ref=e69]: Работа с Word, Excel и презентациями
+              - generic [ref=e74]: Глубокое исследование
+              - generic [ref=e79]: Публикация сайтов
+              - generic [ref=e84]: Параллельный запуск нескольких задач Agent
+              - generic [ref=e89]: Доступен Kimi Code
+            - paragraph [ref=e95]: Экспериментальные функции
+            - generic [ref=e96]:
+              - generic [ref=e97]: Создание и публикация сайтов с поддержкой баз данных
+              - generic [ref=e104]: Плагины
+              - generic [ref=e111]: Кластер
+              - generic [ref=e116]: Параллельные Agent для большей продуктивности
+              - generic [ref=e121]: Задачи Kimi Work по расписанию
+              - generic [ref=e126]: Автоматический запуск задач по расписанию и отправка результатов после выполнения
+              - generic [ref=e131]: Создание и публикация сайтов с поддержкой баз данных
+          - generic [ref=e137]:
+            - generic [ref=e138]: Allegretto
+            - paragraph [ref=e152]: Выбор профессионалов
+            - paragraph [ref=e153]:
+              - generic [ref=e154]: $
+              - generic [ref=e155]: "31"
+              - generic [ref=e156]: / месяц
+              - generic [ref=e157]: $39
+            - paragraph [ref=e158]: Ежегодная оплата $372
+            - button "Встать в лист ожидания" [ref=e160] [cursor=pointer]
+            - generic [ref=e161]:
+              - generic [ref=e162]: В 2 раза больше кредитов Agent
+              - generic [ref=e167]: Работа с Word, Excel и презентациями
+              - generic [ref=e172]: Глубокое исследование
+              - generic [ref=e177]: Публикация сайтов
+              - generic [ref=e182]: Параллельный запуск нескольких задач Agent
+              - generic [ref=e187]: Доступен Kimi Code
+            - paragraph [ref=e193]: Экспериментальные функции
+            - generic [ref=e194]:
+              - generic [ref=e195]: Создание и публикация сайтов с поддержкой баз данных
+              - generic [ref=e202]: Персональный Kimi Claw
+              - generic [ref=e209]: Плагины
+              - generic [ref=e214]: Кластер
+              - generic [ref=e219]: Параллельные Agent для большей продуктивности
+              - generic [ref=e224]: Задачи Kimi Work по расписанию
+              - generic [ref=e229]: Плагины
+              - generic [ref=e234]: Доступ к профессиональным финансовым и экономическим базам данных
+              - generic [ref=e239]: Создание и публикация сайтов с поддержкой баз данных
+          - generic [ref=e245]:
+            - generic [ref=e246]: Allegro
+            - paragraph [ref=e261]: Премиум-режим
+            - paragraph [ref=e262]:
+              - generic [ref=e263]: $
+              - generic [ref=e264]: "79"
+              - generic [ref=e265]: / месяц
+              - generic [ref=e266]: $99
+            - paragraph [ref=e267]: Ежегодная оплата $948
+            - button "Встать в лист ожидания" [ref=e269] [cursor=pointer]
+            - generic [ref=e270]:
+              - generic [ref=e271]: В 5 раз больше кредитов Agent
+              - generic [ref=e276]: Работа с Word, Excel и презентациями
+              - generic [ref=e281]: Глубокое исследование
+              - generic [ref=e286]: Публикация сайтов
+              - generic [ref=e291]: Параллельный запуск нескольких задач Agent
+              - generic [ref=e296]: Доступен Kimi Code
+            - paragraph [ref=e302]: Экспериментальные функции
+            - generic [ref=e303]:
+              - generic [ref=e304]: Создание и публикация сайтов с поддержкой баз данных
+              - generic [ref=e310]: Персональный Kimi Claw
+              - generic [ref=e317]: Плагины
+              - generic [ref=e324]: Agent Swarm
+              - generic [ref=e329]: Задачи Kimi Work по расписанию
+              - generic [ref=e334]: Автоматический запуск задач по расписанию и отправка результатов после выполнения
+              - generic [ref=e339]: Персональный Kimi Claw
+              - generic [ref=e344]: Плагины
+              - generic [ref=e349]: Доступ к профессиональным финансовым и экономическим базам данных
+              - generic [ref=e354]: Создание и публикация сайтов с поддержкой баз данных
+          - generic [ref=e360]:
+            - generic [ref=e361]: Vivace
+            - paragraph [ref=e373]: Максимальное ускорение
+            - paragraph [ref=e374]:
+              - generic [ref=e375]: $
+              - generic [ref=e376]: "159"
+              - generic [ref=e377]: / месяц
+              - generic [ref=e378]: $199
+            - paragraph [ref=e379]: Ежегодная оплата $1 908
+            - button "Встать в лист ожидания" [ref=e381] [cursor=pointer]
+            - generic [ref=e382]:
+              - generic [ref=e383]: В 10 раз больше кредитов Agent
+              - generic [ref=e388]: Работа с Word, Excel и презентациями
+              - generic [ref=e393]: Глубокое исследование
+              - generic [ref=e398]: Публикация сайтов
+              - generic [ref=e403]: Параллельный запуск нескольких задач Agent
+              - generic [ref=e408]: Доступен Kimi Code
+            - paragraph [ref=e414]: Экспериментальные функции
+            - generic [ref=e415]:
+              - generic [ref=e416]: Создание и публикация сайтов с поддержкой баз данных
+              - generic [ref=e422]: Персональный Kimi Claw
+              - generic [ref=e429]: Плагины
+              - generic [ref=e436]: Agent Swarm
+              - generic [ref=e441]: Задачи Kimi Work по расписанию
+              - generic [ref=e446]: Автоматический запуск задач по расписанию и отправка результатов после выполнения
+              - generic [ref=e451]: Персональный Kimi Claw
+              - generic [ref=e456]: Плагины
+              - generic [ref=e461]: Доступ к профессиональным финансовым и экономическим базам данных
+              - generic [ref=e466]: Создание и публикация сайтов с поддержкой баз данных
+    - generic [ref=e472] [cursor=pointer]:
+      - generic [ref=e473]:
+        - paragraph [ref=e474]:
+          - text: Подарите своим друзьям все возможности
+          - generic [ref=e475]: Kimi AI
+        - paragraph [ref=e476]: Подарите своему другу членство Kimi, чтобы разблокировать более быстрые модели, более высокий уровень параллелизма и более мощные возможности предварительного просмотра исследований.
+      - img "Vivace"
+    - generic [ref=e477]:
+      - paragraph [ref=e478]: Найдите идеальный план
+      - generic [ref=e479]:
+        - generic [ref=e480]:
+          - generic [ref=e482]:
+            - paragraph [ref=e483]: Планы
+            - generic [ref=e484]:
+              - generic [ref=e485] [cursor=pointer]
+              - generic [ref=e487]: Ежегодно
+          - generic [ref=e489]:
+            - paragraph [ref=e490]: Adagio
+            - paragraph [ref=e491]: $0
+          - generic [ref=e493]:
+            - paragraph [ref=e494]: Moderato
+            - paragraph [ref=e495]: $180 / год
+            - button "Встать в лист ожидания" [ref=e496] [cursor=pointer]
+          - generic [ref=e498]:
+            - paragraph [ref=e499]: Allegretto
+            - paragraph [ref=e500]: $372 / год
+            - button "Встать в лист ожидания" [ref=e501] [cursor=pointer]
+          - generic [ref=e503]:
+            - paragraph [ref=e504]: Allegro
+            - paragraph [ref=e505]: $948 / год
+            - button "Встать в лист ожидания" [ref=e506] [cursor=pointer]
+          - generic [ref=e508]:
+            - paragraph [ref=e509]: Vivace
+            - paragraph [ref=e510]: $1 908 / год
+            - button "Встать в лист ожидания" [ref=e511] [cursor=pointer]
+        - generic [ref=e512]:
+          - generic [ref=e513]: Параллельные задачи Agent
+          - generic [ref=e515]: 1 задачи
+          - generic [ref=e517]: 2 задачи
+          - generic [ref=e519]: 2 задачи
+          - generic [ref=e521]: 4 задачи
+          - generic [ref=e523]: 4 задачи
+        - generic [ref=e525]:
+          - generic [ref=e526]: Приоритетная очередь Agent
+          - generic [ref=e531]: Скорость ×4
+          - generic [ref=e533]: Скорость ×4
+          - generic [ref=e535]: Скорость ×4
+          - generic [ref=e537]: Скорость ×4
+        - generic [ref=e539]: Объём сверхдлинного чата K3 (до 1 млн токенов)
+        - generic [ref=e557]: Настраиваемая панель
+        - generic [ref=e575]:
+          - generic [ref=e576]: Запланированные задачи Kimi Work
+          - generic [ref=e578]: 2 задачи
+          - generic [ref=e580]: 10 задачи
+          - generic [ref=e582]: 15 задачи
+          - generic [ref=e584]: 20 задачи
+          - generic [ref=e586]: 25 задачи
+        - generic [ref=e588]:
+          - generic [ref=e589]: Задача виджета
+          - generic [ref=e591]: 2 задач
+          - generic [ref=e593]: 10 задач
+          - generic [ref=e595]: 15 задач
+          - generic [ref=e597]: 20 задач
+          - generic [ref=e599]: 25 задач
+        - generic [ref=e601]:
+          - generic [ref=e602]: Проекты
+          - generic [ref=e604]: 2 проектов
+          - generic [ref=e606]: 20 проектов
+          - generic [ref=e608]: 20 проектов
+          - generic [ref=e610]: 100 проектов
+          - generic [ref=e612]: 100 проектов
+        - generic [ref=e614]:
+          - generic [ref=e615]: Хранилище проектов
+          - generic [ref=e617]: 500MB
+          - generic [ref=e619]: 20GB
+          - generic [ref=e621]: 20GB
+          - generic [ref=e623]: 50GB
+          - generic [ref=e625]: 50GB
+        - generic [ref=e627]:
+          - generic [ref=e628]: Плагины
+          - generic [ref=e630]: Доступно более 15
+          - generic [ref=e632]: Доступно более 15
+          - generic [ref=e634]: Доступно более 15
+          - generic [ref=e636]: Доступно более 15
+          - generic [ref=e638]: Доступно более 15
+        - generic [ref=e640]: Кластер
+        - generic [ref=e658]:
+          - generic [ref=e659]: Количество выполняемых подзадач в кластере
+          - generic [ref=e664]: 2 подзадачи
+          - generic [ref=e666]: 4 подзадачи
+          - generic [ref=e668]: 8 подзадачи
+          - generic [ref=e670]: 8 подзадачи
+        - generic [ref=e672]: Память сновидений
+        - generic [ref=e690]: Саморазвивающийся навык
+        - generic [ref=e708]: Режим целей
+        - generic [ref=e726]:
+          - generic [ref=e727]: Kimi Code
+          - generic [ref=e732]: Доступно
+          - generic [ref=e734]: Доступно
+          - generic [ref=e736]: Доступно
+          - generic [ref=e738]: Доступно
+        - generic [ref=e740]: Kimi Claw
+        - generic [ref=e758]:
+          - generic [ref=e759]: Групповые чаты Kimi Claw
+          - generic [ref=e767]: 10 групповых чата
+          - generic [ref=e769]: 10 групповых чата
+          - generic [ref=e771]: 10 групповых чата
+        - generic [ref=e773]: Публикация сайта с базой данных
+    - generic [ref=e791]:
+      - paragraph [ref=e793]: Частые вопросы
+      - generic [ref=e794]:
+        - generic [ref=e795]:
+          - generic [ref=e796]: Я оформил подписку, но не вижу преимуществ
+          - generic [ref=e804]:
+            - generic [ref=e805]: Убедитесь, что вы вошли в тот же аккаунт Kimi, который использовали при оформлении подписки.
+            - generic [ref=e806]:
+              - text: Если преимущества по-прежнему не отображаются, отправьте номер счёта на
+              - link "membership@moonshot.ai" [ref=e807] [cursor=pointer]:
+                - /url: mailto:membership@moonshot.ai
+              - text: для проверки. Служба поддержки поможет найти аккаунт, к которому они привязаны.
+        - generic [ref=e808]: Как получить счёт?
+        - generic [ref=e814]: Как повысить план подписки?
+        - generic [ref=e820]: Как приобрести Extra Usage?
+  - generic [ref=e826]:
+    - img "bass-triplet" [ref=e827]
+    - paragraph [ref=e828]:
+      - text: Оплачивая заказ, вы соглашаетесь с документом
+      - link "Соглашение о платных услугах Kimi" [ref=e829] [cursor=pointer]:
+        - /url: /user/agreement/paidServiceAgreement?version=v2

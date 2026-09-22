@@ -1,0 +1,37 @@
+[   12586ms] [LOG] %cKimi.ai 
+  color: #1772F6;
+  font-weight: bold;
+  font-size: 3em;
+  padding: 10px 0;
+  text-shadow: 0.7px 1px 0 rgb(255 255 255 / 100%),
+    1.4px 2px 0 rgb(255 255 255 / 96%),
+    2.1px 3px 0 rgb(255 255 255 / 92%),
+    2.8px 4px 0 rgb(255 255 255 / 88%),
+    1px 1px 2px rgb(100 100 100 / 70%);
+ @ https://statics.moonshot.cn/kimi-web-seo/assets/index-h6DE6Ow7.js:1
+[   12586ms] [LOG] %c林深时见鹿，海深时见鲸，情深时见你🥰
+
+爬虫万里，不如 API 走起🥺
+
+一键接入 Kimi 大模型👇
+
+https://platform.kimi.com 
+  font-size: 1.2em;
+ @ https://statics.moonshot.cn/kimi-web-seo/assets/index-h6DE6Ow7.js:1
+[   16830ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   16831ms] [WARNING] The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127 @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   17335ms] [LOG] /./ @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   17335ms] [LOG] JSHandle@node @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   17335ms] [LOG] function OQO0O(){} @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   17335ms] [LOG] Sun Aug 09 2026 11:53:32 GMT+0300 (Москва, стандартное время) @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   19583ms] [LOG] /./ @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   19583ms] [LOG] JSHandle@node @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   19583ms] [LOG] function OQO0O(){} @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   19583ms] [LOG] Sun Aug 09 2026 11:53:34 GMT+0300 (Москва, стандартное время) @ https://static.trustdecision.com/tdfp/sg/51193b5b2cf8d41581289fba7ba3cce3/fm.js?t=496185:3
+[   23850ms] [LOG] %c %s color: yellow; background-color: black; [instance: default] appid: 20001731, userInfo:{"user_unique_id":"7671952411279257354","web_id":"7671952411279257354"} @ https://lf3-data.volccdn.com/obj/data-static/log-sdk/collect/5.0/collect-rangers-v5.1.12.js:0
+[   23851ms] [LOG] %c %s color: yellow; background-color: black; [instance: default] appid: 20001731, sdk is ready, version is 5.1.12_tob, you can report now !!! @ https://lf3-data.volccdn.com/obj/data-static/log-sdk/collect/5.0/collect-rangers-v5.1.12.js:0
+[   25576ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_CLOSED @ https://static.cloudflareinsights.com/beacon.min.js/v4513226cdae34746b4dedf0b4dfa099e1781791509496:0
+[   47247ms] [ERROR] Failed to initialize Baidu Analytics Error: Failed to load external script: https://hm.baidu.com/hm.js?358cae4815e85d48f7e8ab7f3680a74b
+    at https://statics.moonshot.cn/kimi-web-seo/assets/request-CyuNxtSS.js:1:39410
+    at async https://statics.moonshot.cn/kimi-web-seo/assets/index-h6DE6Ow7.js:2:1576653 @ https://statics.moonshot.cn/kimi-web-seo/assets/index-h6DE6Ow7.js:1
+[   47247ms] [ERROR] Failed to load resource: net::ERR_TIMED_OUT @ https://hm.baidu.com/hm.js?358cae4815e85d48f7e8ab7f3680a74b:0
