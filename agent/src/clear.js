@@ -145,6 +145,7 @@ export class ClearRunner {
         let step = { ok: false, phase: phaseBefore, message: "no step" };
 
         const dragonDone =
+          !this.objectives.includes("dragon") ||
           state.objectivesDone.includes("dragon") ||
           state.milestones.some((m) => m.milestone === "CLEAR") ||
           state.phase === "clear";

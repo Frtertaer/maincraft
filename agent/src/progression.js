@@ -1128,12 +1128,20 @@ function bossEntity(bot, name) {
   return Object.values(bot.entities).find((e) => e && e !== bot.entity && mobName(e) === name);
 }
 
-async function gotoEntity(bot, mcData, ent, range = 2, timeoutMs = 60000) {
-  return executeAction(
-    bot,
-    { type: "goto", x: ent.position.x, y: ent.position.y, z: ent.position.z, range, timeoutMs },
-    mcData
-  );
+/** Dropped-item entity by item name — proof-of-kill for boss drops. */
+function droppedItemEntity(bot, mcData, names) {
+  const set = new Set(names);
+  for (const e of Object.values(bot.entities || {})) {
+    if (!e || e === bot.entity || e.name !== "item") continue;
+    const metas = Array.isArray(e.metadata) ? e.metadata : Object.values(e.metadata || {});
+    for (const m of metas) {
+      const id = m?.itemId ?? m?.item_id;
+      if (id == null) continue;
+      const n = mcData.itemsById?.[id]?.name || mcData.items?.[id]?.name || "";
+      if (set.has(n)) return e;
+    }
+  }
+  return null;
 }
 
 async function enterPortal(bot, mcData) {
@@ -1173,15 +1181,34 @@ async function witherPrepStep(bot, mcData, state, prep, log) {
   const dim = String(bot.game?.dimension || "");
   const inNether = /nether/i.test(dim);
 
-  // Live wither → fight it (same as progressionStep's boss check)
+  // Proof of kill: the nether star must exist — a wither drifting out of
+  // entity range is NOT a win.
+  const star = droppedItemEntity(bot, mcData, ["nether_star"]) || countItem(bot, "nether_star") > 0;
+  if (star) return { ok: true, done: true, message: "wither down", milestone: "WITHER_DOWN" };
+
   const wither = bossEntity(bot, "wither");
   if (wither) {
     prep.spawned = true;
+    prep.lastPos = wither.position.clone();
     state.boss = state.boss || { allowStickTp: false };
     await bossCombatTick(bot, wither, state.boss, log);
     return { ok: true, message: "wither fight", milestone: "WITHER_FIGHT" };
   }
-  if (prep.spawned) return { ok: true, done: true, message: "wither down", milestone: "WITHER_DOWN" };
+  if (prep.spawned && prep.lastPos) {
+    // Out of tracking range, no star: it escaped — go back and re-engage
+    const lp = prep.lastPos;
+    const d = Math.hypot(lp.x - bot.entity.position.x, lp.z - bot.entity.position.z);
+    if (d > 10) {
+      await executeAction(
+        bot,
+        { type: "goto", x: lp.x, y: lp.y, z: lp.z, range: 6, timeoutMs: 60000 },
+        mcData
+      );
+      return { ok: true, message: "return to wither" };
+    }
+    await wander(bot, mcData, 32);
+    return { ok: true, message: "search escaped wither" };
+  }
 
   if (skulls < 3) {
     if (!inNether) {
@@ -1240,7 +1267,7 @@ async function witherPrepStep(bot, mcData, state, prep, log) {
   if (!prep.summonPos) {
     const p = bot.entity.position.floored();
     // build at +3x from bot on ground level
-    prep.summonPos = { x: p.x + 3, y: p.y - 1, z: p.z };
+    prep.summonPos = { x: p.x + 3, y: p.y, z: p.z };
     // make sure there's air above ground
     for (let dy = 0; dy <= 3; dy++) {
       const b = bot.blockAt(new Vec3(prep.summonPos.x, prep.summonPos.y + 1 + dy, prep.summonPos.z));
@@ -1295,14 +1322,34 @@ async function witherPrepStep(bot, mcData, state, prep, log) {
 /* --- Warden: find deep dark sculk, trigger shrieker → fight ------------ */
 
 async function wardenPrepStep(bot, mcData, state, prep, log) {
+  // Proof of kill: warden always drops a sculk catalyst.
+  const catalyst =
+    droppedItemEntity(bot, mcData, ["sculk_catalyst"]) || countItem(bot, "sculk_catalyst") > 0;
+  if (catalyst) return { ok: true, done: true, message: "warden down", milestone: "WARDEN_DOWN" };
+
   const warden = bossEntity(bot, "warden");
   if (warden) {
     prep.spawned = true;
+    prep.lastPos = warden.position.clone();
     state.boss = state.boss || { allowStickTp: false };
     await bossCombatTick(bot, warden, state.boss, log);
     return { ok: true, message: "warden fight", milestone: "WARDEN_FIGHT" };
   }
-  if (prep.spawned) return { ok: true, done: true, message: "warden down", milestone: "WARDEN_DOWN" };
+  if (prep.spawned && prep.lastPos) {
+    // Out of range without a kill drop: it burrowed away — re-approach.
+    const lp = prep.lastPos;
+    const d = Math.hypot(lp.x - bot.entity.position.x, lp.z - bot.entity.position.z);
+    if (d > 10) {
+      await executeAction(
+        bot,
+        { type: "goto", x: lp.x, y: lp.y, z: lp.z, range: 6, timeoutMs: 60000 },
+        mcData
+      );
+      return { ok: true, message: "return to warden" };
+    }
+    await wander(bot, mcData, 32, -6);
+    return { ok: true, message: "search burrowed warden" };
+  }
 
   // Find a sculk shrieker/sensor — deep dark markers
   const shrieker = bot.findBlocks({

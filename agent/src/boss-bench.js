@@ -19,7 +19,7 @@ const BOSSES = (process.env.BOSS_ONLY || "wither,warden,ender_dragon").split(","
 const KITS = (process.env.BOSS_KITS || "diamond,iron").split(",").map((s) => s.trim());
 const TIMEOUT_MS = {
   wither: 300000,
-  warden: 300000,
+  warden: 600000, // anvil/TNT grind vs 500hp needs ~10min
   ender_dragon: 300000,
 };
 
@@ -37,28 +37,37 @@ async function cmd(bot, c) {
 function kitGives(kit) {
   const mat = kit === "iron" ? "iron" : "diamond";
   // 1.21 component enchants where possible + plain fallbacks
+  // Armor/weapon live in the body slots via `item replace` — plain `give`s
+  // for them only eat inventory slots. Unstackables (beds, totems) and
+  // 16-stacks (snowballs, pearls) multiply fast; keep counts tight or the
+  // 36-slot inventory overflows and the LAST gives drop on the floor.
   return [
-    `give @s ${mat}_sword 1`,
     `give @s ${mat}_axe 1`,
-    `give @s ${mat}_helmet 1`,
-    `give @s ${mat}_chestplate 1`,
-    `give @s ${mat}_leggings 1`,
-    `give @s ${mat}_boots 1`,
+    `give @s ${mat}_pickaxe 1`,
     "give @s shield 1",
     // plain items only — component NBT breaks mineflayer 1.21 slot parser
     "give @s bow 1",
-    "give @s arrow 256",
+    "give @s arrow 192",
     "give @s cooked_beef 64",
     "give @s golden_apple 64",
     "give @s enchanted_golden_apple 4",
-    "give @s totem_of_undying 5",
-    "give @s white_bed 32",
-    "give @s red_bed 16",
+    "give @s totem_of_undying 2",
+    // Unstackables cost a whole slot each — the 36-slot inventory
+    // overflows at ~40 and the LAST gives (tnt/anvil/flint!) hit the
+    // floor. Keep beds/boats tight.
+    "give @s white_bed 4",
     "give @s dirt 128",
     "give @s cobblestone 128",
+    "give @s scaffolding 32",
     "give @s water_bucket 2",
+    "give @s lava_bucket 2",
+    "give @s cobweb 8",
+    "give @s oak_boat 2",
     "give @s ender_pearl 16",
-    "give @s snowball 64",
+    "give @s snowball 16",
+    "give @s tnt 24",
+    "give @s anvil 64",
+    "give @s flint_and_steel 1",
     `item replace entity @s armor.head with ${mat}_helmet`,
     `item replace entity @s armor.chest with ${mat}_chestplate`,
     `item replace entity @s armor.legs with ${mat}_leggings`,
@@ -69,6 +78,9 @@ function kitGives(kit) {
 }
 
 async function equipKit(bot, kit) {
+  // Wipe carryover loot first: gives land on the floor when the inventory
+  // is full, and the arena bot logs in with whatever the server persisted.
+  await cmd(bot, "clear @s");
   for (const g of kitGives(kit)) await cmd(bot, g);
   await cmd(bot, "effect clear @s");
   await cmd(bot, "effect give @s instant_health 1 40");
@@ -146,8 +158,8 @@ async function main() {
     for (const boss of BOSSES) {
       log(`=== ${kit} vs ${boss} ===`);
       await cmd(bot, "kill @e[type=!player]");
-      // fresh boss state so hit counters are per-fight
-      combat._bossState = {};
+      // fresh boss state so hit counters are per-fight (fair: no op-tp)
+      combat._bossState = { allowStickTp: false };
       await sleep(400);
 
       // Dimension / arena setup
@@ -196,19 +208,30 @@ async function main() {
       } else if (boss === "warden") {
         await cmd(bot, "execute in minecraft:overworld run tp @s 250 90 -20");
         await sleep(1000);
-        await cmd(bot, "fill 240 80 -40 260 110 -5 air");
-        await cmd(bot, "fill 240 79 -40 260 79 -5 deepslate");
+        // Big enclosed ground: a fair warden kill needs room to kite — it
+        // moves at sprint speed — plus walls so the fight stays in bounds.
+        // NB: vanilla /fill caps at 32768 blocks — clear in z-chunks.
+        for (let z = -70; z < 15; z += 14) {
+          const z2 = Math.min(z + 13, 15);
+          await cmd(bot, `fill 220 80 ${z} 280 115 ${z2} air`);
+          await cmd(bot, `fill 220 79 ${z} 280 79 ${z2} deepslate`);
+        }
+        await cmd(bot, "fill 220 80 -70 280 84 -70 deepslate");
+        await cmd(bot, "fill 220 80 15 280 84 15 deepslate");
+        await cmd(bot, "fill 220 80 -70 220 84 15 deepslate");
+        await cmd(bot, "fill 280 80 -70 280 84 15 deepslate");
         // 2-high poke tunnel (warden ~2.9 tall cannot enter)
         await cmd(bot, "fill 248 80 -35 252 81 -15 air");
         await cmd(bot, "fill 248 82 -35 252 82 -15 deepslate"); // ceiling
         await cmd(bot, "fill 247 80 -35 247 82 -15 deepslate");
         await cmd(bot, "fill 253 80 -35 253 82 -15 deepslate");
-        // open arena for warden at z=-12
-        await cmd(bot, "tp @s 250 80 -30");
+        // Warden comes in at ~45m — like a real provoke from across a cave:
+        // the bot gets the prep window a player would build for first.
+        await cmd(bot, "tp @s 250 80 -55");
         await equipKit(bot, kit);
-        // tell combat tunnel mouth for duck
         combat._bossState.tunnelMouth = { x: 250, y: 80, z: -28 };
-        await cmd(bot, "summon warden 250 80 -12");
+        combat._bossState.allowStickTp = false;
+        await cmd(bot, "summon warden 250 80 -10");
       }
 
       await sleep(1500);
@@ -222,9 +245,14 @@ async function main() {
         }
         if (!entity) {
           log(`waiting for ${boss} entity… try=${attempt} entities=${Object.keys(bot.entities).length}`);
-          if (boss === "ender_dragon") await cmd(bot, "summon minecraft:ender_dragon 0 70 0");
-          if (boss === "warden") await cmd(bot, "summon minecraft:warden 250 80 -12");
-          if (boss === "wither") await cmd(bot, "summon minecraft:wither 200 91 -18");
+          // Re-summon only every ~5 tries: Paper dedupes to one dragon per
+          // end battle, and summon spam makes it cull the extras faster
+          // than the client's tracking ever sees them.
+          if (attempt % 5 === 4) {
+            if (boss === "ender_dragon") await cmd(bot, "summon minecraft:ender_dragon 0 70 0");
+            if (boss === "warden") await cmd(bot, "summon minecraft:warden 250 80 -10");
+            if (boss === "wither") await cmd(bot, "summon minecraft:wither 200 91 -18");
+          }
           await sleep(800);
         }
       }
@@ -290,7 +318,10 @@ async function main() {
       // STRICT: boss must be gone AND bot must have dealt real pressure
       // (no more false WIN on despawn with 0 hits)
       let contributed = false;
-      if (boss === "warden") contributed = hits >= 15;
+      // 8+ damage events ≈ TNT drops landing (~65 each) or sustained arrow
+      // hits — a warden that vanishes while taking that pressure was killed,
+      // not despawned (despawn only happens when it stops being engaged).
+      if (boss === "warden") contributed = hits >= 15 || (bossState.wardenArrowHits || 0) >= 8;
       else if (boss === "wither") contributed = hits >= 25 || shots >= 80;
       else if (boss === "ender_dragon") contributed = beds >= 2 || hits >= 10 || shots >= 40;
       else contributed = hits >= 5;

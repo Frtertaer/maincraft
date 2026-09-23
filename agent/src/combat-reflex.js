@@ -164,7 +164,7 @@ export class CombatReflex {
     this.mode = this.cfg.mode || "auto";
     this._onEntityGone = null;
     this._onHurt = null;
-    this._bossState = {};
+    this._bossState = { allowStickTp: false };
   }
 
   getBossState() {
@@ -356,6 +356,7 @@ export class CombatReflex {
 
   async _ensureGear(force = false, target = null) {
     const now = Date.now();
+    if (this.bot._placingTower) return; // tower hop+place owns the hand
     if (!force && now - this._lastEquipAt < this.cfg.equipEveryMs) return;
     this._lastEquipAt = now;
     try {
@@ -393,6 +394,7 @@ export class CombatReflex {
   async _tryEat(force = false) {
     const bot = this.bot;
     const now = Date.now();
+    if (bot._placingTower) return false; // tower hop+place owns the hand
     if (now - this._lastEatAt < 2500 && !force) return false;
     const hp = Number(bot.health);
     const food = Number(bot.food);
@@ -407,7 +409,12 @@ export class CombatReflex {
       await bot.equip(item, "hand");
       await bot.consume();
       this._stats.eats += 1;
-      await equipBestWeapon(bot);
+      // Don't restore the weapon while a boss owns the hotbar — it
+      // re-equips whatever its current step needs anyway.
+      const locked = this._lockedId != null ? bot.entities[this._lockedId] : null;
+      if (!locked || !isBossMobName(this._mobName(locked))) {
+        await equipBestWeapon(bot);
+      }
       return true;
     } catch {
       return false;
@@ -578,6 +585,10 @@ export class CombatReflex {
     const bot = this.bot;
     if (!bot?.entity || bot.health == null) return;
 
+    // A boss tick is mid-await (climb/eat/shoot take seconds) — let it own
+    // the bot exclusively or we'd stomp its gear and control states.
+    if (this._bossState?._tickBusy) return;
+
     const now = Date.now();
     const hp = Number(bot.health);
 
@@ -617,7 +628,11 @@ export class CombatReflex {
 
     // gear refresh uses current lock for pumpkin/shield choice
     const lockedPreview = this._lockedId != null ? bot.entities[this._lockedId] : null;
-    void this._ensureGear(false, lockedPreview);
+    const previewName = lockedPreview ? this._mobName(lockedPreview) : "";
+    // While a boss is engaged the boss tick owns the hotbar — a
+    // void-launched gear swap from this gap window lands mid-place
+    // and stomps the held block (the "diamond_sword place" fails).
+    if (!isBossMobName(previewName)) void this._ensureGear(false, lockedPreview);
 
     let target = this._lockedId != null ? bot.entities[this._lockedId] : null;
     if (!target || target.isValid === false) {
