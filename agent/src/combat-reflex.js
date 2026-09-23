@@ -324,6 +324,18 @@ export class CombatReflex {
       if (options.name && this._mobName(e) !== String(options.name).toLowerCase()) continue;
       const d = e.position.distanceTo(bot.entity.position);
       if (!Number.isFinite(d) || d > maxD) continue;
+      // Ignore hostiles hidden underground/behind walls — chasing an unreachable
+      // mob resets the pathfinder and starves every dig/collect in flight.
+      // Very close threats still count (a creeper can blow through a wall).
+      if (d >= 5 && !isBossMobName(this._mobName(e))) {
+        try {
+          const feet = bot.blockAt(e.position);
+          const head = bot.blockAt(e.position.offset(0, Math.min(e.height || 1.8, 1.7), 0));
+          if (!bot.canSeeBlock(feet) && !bot.canSeeBlock(head)) continue;
+        } catch {
+          /* if LOS check unsupported, keep the target */
+        }
+      }
       const score = this._threatScore(e, d);
       if (score > bestScore) {
         bestScore = score;

@@ -398,44 +398,63 @@ async function phaseStone(bot, mcData, state, log) {
   await ensureTable(bot, mcData);
   const cobble = countItem(bot, "cobblestone");
   if (cobble < 12) {
-    // Prefer digging a few nearby stone blocks (bounded) over open-ended collect
-    const stonePos = bot.findBlocks({
-      matching: (b) => b && (b.name === "stone" || b.name === "cobblestone" || b.name === "deepslate"),
-      maxDistance: 16,
-      count: 6,
-    });
+    // Only target stone with an exposed face — buried blocks can't be dug from outside
+    const FACES = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    const stonePos = bot
+      .findBlocks({
+        matching: (b) => b && (b.name === "stone" || b.name === "cobblestone" || b.name === "deepslate"),
+        maxDistance: 16,
+        count: 6,
+      })
+      .filter((pos) =>
+        FACES.some(([dx, dy, dz]) => {
+          const nb = bot.blockAt(pos.offset(dx, dy, dz));
+          return nb && (nb.boundingBox === "empty" || /air|water|grass|fern|flower|sapling|snow|vine/.test(nb.name));
+        })
+      );
     let dug = 0;
     for (const pos of stonePos) {
-      const dig = await executeAction(bot, { type: "dig", x: pos.x, y: pos.y, z: pos.z }, mcData);
+      const dig = await executeAction(bot, { type: "dig", x: pos.x, y: pos.y, z: pos.z, timeoutMs: 10000 }, mcData);
       if (dig.ok) dug += 1;
       if (dug >= 4) break;
     }
     if (dug === 0) {
-      let r = await executeAction(
-        bot,
-        { type: "collect", block: "stone", count: 4, maxDistance: 16, timeoutMs: 30000 },
-        mcData
-      );
-      if (!r.ok) {
-        r = await executeAction(
-          bot,
-          { type: "collect", block: "cobblestone", count: 4, maxDistance: 16, timeoutMs: 30000 },
-          mcData
-        );
-      }
-      if (!r.ok) {
-        // Dig straight down a few blocks to hit stone
-        const p = bot.entity.position.floored();
-        for (let dy = 0; dy <= 5; dy++) {
-          const blk = bot.blockAt(p.offset(0, -1 - dy, 0));
-          if (!blk || blk.name === "air" || blk.name === "bedrock") break;
+      // Staircase down to stone — clears a 2-cell doorway per level and steps in,
+      // so the shaft is walkable both ways
+      const p = bot.entity.position.floored();
+      for (let k = 1; k <= 9 && countItem(bot, "cobblestone") < 12; k++) {
+        let okDig = true;
+        for (const dy of [-k, 1 - k]) {
+          const blk = bot.blockAt(p.offset(0, dy, k));
+          if (!blk || blk.name === "air") continue;
+          if (/lava|water|bedrock/.test(blk.name)) {
+            okDig = false;
+            break;
+          }
           const dig = await executeAction(
             bot,
-            { type: "dig", x: blk.position.x, y: blk.position.y, z: blk.position.z },
+            { type: "dig", x: blk.position.x, y: blk.position.y, z: blk.position.z, timeoutMs: 10000 },
             mcData
           );
-          if (dig.ok && /stone|cobble|deepslate/.test(blk.name)) break;
+          if (!dig.ok) {
+            okDig = false;
+            break;
+          }
         }
+        if (!okDig) break;
+        const stepIn = await executeAction(
+          bot,
+          { type: "goto", x: p.x + 0.5, y: p.y - k, z: p.z + k + 0.5, range: 0.8, timeoutMs: 6000 },
+          mcData
+        );
+        if (!stepIn.ok) break;
       }
     }
     // pick up drops

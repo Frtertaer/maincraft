@@ -95,6 +95,7 @@ async function main() {
     session?.combat?.stop();
     session?.clear?.stop();
     if (session?.ambientTimer) clearInterval(session.ambientTimer);
+    if (session?.pruneTimer) clearInterval(session.pruneTimer);
     closeViewer(session?.bot);
   }
 
@@ -586,6 +587,37 @@ async function main() {
 
     const session = { bot, brain: null, mcData: null, ended: false };
     runtime.session = session;
+
+    // Chunk columns accumulate forever — unload ones far from the bot so
+    // exploring/mining does not grow the heap until OOM.
+    session.pruneTimer = setInterval(() => {
+      try {
+        const p = bot.entity?.position;
+        if (!p || !bot.world?.async?.columns) return;
+        const cx = Math.floor(p.x / 16);
+        const cz = Math.floor(p.z / 16);
+        let pruned = 0;
+        for (const key of Object.keys(bot.world.async.columns)) {
+          const [x, z] = key.split(",").map(Number);
+          if (Math.abs(x - cx) + Math.abs(z - cz) > 24) {
+            bot.world.unloadColumn(x, z);
+            pruned += 1;
+          }
+        }
+        const heap = Math.round(process.memoryUsage().heapUsed / 1048576);
+        let blockUpdates = 0;
+        let totalListeners = 0;
+        for (const ev of bot.eventNames()) {
+          const n = bot.listenerCount(ev);
+          totalListeners += n;
+          if (String(ev).startsWith("blockUpdate")) blockUpdates += n;
+        }
+        log(`[mem] heap=${heap}MB cols=${Object.keys(bot.world.async.columns).length} listeners=${totalListeners} blockUpdate=${blockUpdates} handles=${process._getActiveHandles().length}`);
+        if (typeof global.gc === "function") global.gc();
+      } catch (err) {
+        log(`[mem] prune fail: ${err?.message || err}`);
+      }
+    }, 15000);
 
     bot.on("kicked", (reason) => log(`Kicked: ${JSON.stringify(reason).slice(0, 500)}`));
     bot.on("error", (err) => log(`Bot error: ${err?.message || "unknown error"}`));

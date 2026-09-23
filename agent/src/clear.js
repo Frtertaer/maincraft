@@ -242,6 +242,8 @@ export class ClearRunner {
             await this.brain.step();
           } catch (err) {
             this.log(`[clear] brain step fail: ${err?.message || err}`);
+          } finally {
+            this.brain.pause();
           }
           samePhaseSteps = 0;
           await sleep(1500);

@@ -224,6 +224,13 @@ export async function executeAction(bot, action, mcData) {
         }
         const after = bot.blockAt(block.position);
         if (after?.type === beforeType) return { ok: false, message: `${block.name} was not broken` };
+        for (const target of dropVacuumTargets(bot, block.position)) {
+          try {
+            await goto(bot, new goals.GoalNear(target.x, target.y, target.z, 1), 5000);
+          } catch {
+            /* drop unreachable; leave it */
+          }
+        }
         return { ok: true, message: `dug ${block.name}` };
       }
 
@@ -241,7 +248,18 @@ export async function executeAction(bot, action, mcData) {
           count,
         });
         if (!targets.length) return { ok: false, message: `no ${blockName} nearby` };
-        const blocks = targets.map((p) => bot.blockAt(p)).filter(Boolean);
+        const invTypes = [null, ...bot.inventory.items().map((i) => i.type)];
+        const canHarvest = (b) => {
+          try {
+            return invTypes.some((t) => b.canHarvest(t));
+          } catch {
+            return true;
+          }
+        };
+        const blocks = targets.map((p) => bot.blockAt(p)).filter((b) => b && canHarvest(b));
+        if (!blocks.length) {
+          return { ok: false, message: `no harvestable ${blockName} (missing tool)` };
+        }
         try {
           await withTimeout(bot.collectBlock.collect(blocks), timeoutMs, `collect ${blockName} timeout`);
         } catch (err) {
@@ -310,9 +328,12 @@ export async function executeAction(bot, action, mcData) {
 
         const before = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
         await bot.craft(recipe, plan.repetitions, craftingTable);
-        // Wait a tick for inventory sync
-        await sleep(150);
-        const after = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
+        // Server-side inventory sync can lag the craft — poll briefly instead of one fixed sleep
+        let after = before;
+        for (let i = 0; i < 14 && after <= before; i++) {
+          await sleep(150);
+          after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+        }
         if (after <= before) {
           return {
             ok: false,
@@ -450,6 +471,22 @@ function faceVec(face) {
     default:
       return new Vec3(0, 1, 0);
   }
+}
+
+function dropVacuumTargets(bot, origin) {
+  const targets = [origin.floored().offset(0.5, 0, 0.5)];
+  for (const entity of Object.values(bot.entities)) {
+    if (!entity?.position || typeof entity.getDroppedItem !== "function") continue;
+    try {
+      if (!entity.getDroppedItem()) continue;
+    } catch {
+      continue;
+    }
+    if (entity.position.distanceTo(origin) > 7) continue;
+    targets.push(entity.position.floored().offset(0.5, 0, 0.5));
+    if (targets.length >= 4) break;
+  }
+  return targets;
 }
 
 function nearestPlayer(bot) {
@@ -936,6 +973,27 @@ function setupMovements(bot, mcData) {
   movements.canDig = true;
   movements.allowSprinting = true;
   bot.pathfinder.setMovements(movements);
+  // mineflayer-tool bug: equipForBlock recurses forever when the bot owns no
+  // item that can harvest the target and getFromChest is set — retrieveTools
+  // resolves instantly on an empty chest list, so each recursion level leaves a
+  // suspended async frame until the process OOMs. Strip getFromChest when no
+  // chests are configured so it errors out instead of recursing.
+  if (bot.tool?.equipForBlock && !bot.tool._equipPatched) {
+    const orig = bot.tool.equipForBlock.bind(bot.tool);
+    bot.tool.equipForBlock = (block, options = {}, cb) => {
+      if (options.getFromChest && !(bot.tool.chestLocations?.length)) {
+        const { getFromChest, ...rest } = options;
+        options = rest;
+      }
+      return orig(block, options, cb);
+    };
+    bot.tool._equipPatched = true;
+  }
+  // Unbounded A* search in dense 3D terrain (jungle canopy, caves) explodes the
+  // node space until the process OOMs — cap cost radius and think time; all our
+  // goals are local.
+  bot.pathfinder.searchRadius = 48;
+  bot.pathfinder.thinkTimeout = 2500;
 }
 
 async function goto(bot, goal, timeoutMs) {

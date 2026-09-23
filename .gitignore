@@ -21,3 +21,4 @@ opus4.8api.txt
 # session diagnostics (bench probes)
 agent/probe-*.cjs
 agent/bcheck.cjs
+*.heapsnapshot

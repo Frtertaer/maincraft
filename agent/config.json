@@ -1,7 +1,9 @@
 {
   "api": {
     "baseUrl": "https://api.cheat-ai.shop",
-    "allowedHosts": ["api.cheat-ai.shop"],
+    "allowedHosts": [
+      "api.cheat-ai.shop"
+    ],
     "allowCustomHost": false,
     "keyEnv": "OPUS_API_KEY",
     "keyFile": "~/Desktop/opus4.8api.txt",
@@ -85,7 +87,7 @@
     "capturePath": "../logs/vision_frame.jpg"
   },
   "viewer": {
-    "enabled": true,
+    "enabled": false,
     "host": "127.0.0.1",
     "port": 3007,
     "firstPerson": true
