@@ -491,7 +491,7 @@ async function main() {
           log(`[clear] ${JSON.stringify(s)}`);
           if (source !== "console") {
             bot.chat(
-              `Прохождение: фаза ${s.phase}, цель ${s.objective}, шаг ${s.steps}, смертей ${s.deaths}`.slice(0, 256)
+              `Прохождение: фаза ${s.phase}, цель ${s.objective}, шаг ${s.steps}, смертей ${s.deaths}${s.credits ? ", титры ✓" : ""}`.slice(0, 256)
             );
           }
         } else {

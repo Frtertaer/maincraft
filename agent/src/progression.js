@@ -132,7 +132,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
       case "dragon":
         return await phaseDragon(bot, mcData, state, log);
       case "clear":
-        return { ok: true, phase: "clear", message: "DRAGON DOWN / clear", milestone: "CLEAR" };
+        return await phaseExitPortal(bot, mcData, state, log);
       default:
         return { ok: false, phase, message: `unknown phase ${phase}` };
     }
@@ -1114,6 +1114,50 @@ async function phaseDragon(bot, mcData, state, log) {
     await executeAction(bot, { type: "attack", name: "end_crystal", maxDurationMs: 10000, maxDistance: 48 }, mcData);
   }
   return { ok: true, phase: "dragon", message: "fighting dragon", milestone: "DRAGON_FIGHT" };
+}
+
+/**
+ * Post-dragon: the run is only complete once the bot has gone through the
+ * exit portal (credits roll) and respawned in the overworld. Walks to the
+ * end fountain's `end_portal` blocks and drops in; the runner watches the
+ * dimension flip for the CREDITS milestone.
+ */
+async function phaseExitPortal(bot, mcData, state, log) {
+  const dim = String(bot.game?.dimension || "");
+  if (!/end/i.test(dim)) {
+    return { ok: true, phase: "credits", message: "respawned overworld — credits done", milestone: "CREDITS" };
+  }
+  state.exit = state.exit || {};
+  const portal = bot.findBlock({ matching: (b) => b && b.name === "end_portal", maxDistance: 96 });
+  if (!portal) {
+    // The exit fountain sits at the island center — get it in render range.
+    const p = bot.entity.position;
+    if (Math.hypot(p.x, p.z) > 14) {
+      await executeAction(bot, { type: "goto", x: 0, y: p.y, z: 0, range: 10, timeoutMs: 90000 }, mcData);
+    }
+    return { ok: true, phase: "exit_portal", message: "seeking exit portal" };
+  }
+  const pp = portal.position;
+  state.exit.portalPos = { x: pp.x, y: pp.y, z: pp.z };
+  const center = new Vec3(pp.x + 0.5, pp.y + 0.5, pp.z + 0.5);
+  const d = bot.entity.position.distanceTo(center);
+  if (d < 2.2) {
+    // Pathfinder refuses standing inside a portal cell — hop into the mouth.
+    state.exitTouched = Date.now();
+    await bot.lookAt(center.offset(0, -0.4, 0), true);
+    bot.setControlState("jump", true);
+    bot.setControlState("forward", true);
+    await new Promise((r) => setTimeout(r, 1100));
+    bot.setControlState("jump", false);
+    bot.setControlState("forward", false);
+    return { ok: true, phase: "exit_portal", message: "entering exit portal" };
+  }
+  const r = await executeAction(
+    bot,
+    { type: "goto", x: pp.x, y: pp.y, z: pp.z, range: 1.5, timeoutMs: 90000 },
+    mcData
+  );
+  return { ok: r.ok, phase: "exit_portal", message: r.ok ? "at exit portal rim" : `goto portal: ${r.message || "?"}` };
 }
 
 /* ---------------------------------------------------------------------------

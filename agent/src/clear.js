@@ -66,6 +66,7 @@ export class ClearRunner {
       phase: this.state?.phase || (this.bot.entity ? detectPhase(this.bot) : "?"),
       objective: this.state?.objective || "dragon",
       objectivesDone: this.state?.objectivesDone || [],
+      credits: !!this.state?.creditsDone,
       steps: this.state?.steps || 0,
       deaths: this.deaths,
       milestones: this.state?.milestones || [],
@@ -95,10 +96,23 @@ export class ClearRunner {
     };
     this._deathHandler = () => {
       this.deaths += 1;
+      this.state._diedAt = Date.now();
       this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}`);
     };
     this._respawnHandler = () => {
       try {
+        const dim = String(this.bot.game?.dimension || "");
+        // Credits: leaving the_end alive after the dragon fell — a respawn
+        // with no recent death means the exit portal did it, not dying.
+        const diedRecently = this.state._diedAt && Date.now() - this.state._diedAt < 4000;
+        if (this.state._clearNoted && !this.state.creditsDone && !/end/i.test(dim) && !diedRecently) {
+          this.state.creditsDone = true;
+          this.state.milestones.push({ t: Date.now() - this.state.t0, milestone: "CREDITS", phase: "credits" });
+          if (this.objectives.includes("dragon") && !this.state.objectivesDone.includes("dragon")) {
+            this.state.objectivesDone.push("dragon");
+          }
+          this._note("ТИТРЫ ДОСМОТРЕНЫ — Майнкрафт пройден полностью!");
+        }
         this._note(`Возродился. Фаза: ${detectPhase(this.bot)}`);
       } catch {
         /* ignore */
@@ -142,13 +156,14 @@ export class ClearRunner {
       while (this.running && bot.entity && Date.now() - state.t0 < this.maxMs) {
         state.boss.allowStickTp = false;
         const phaseBefore = detectPhase(bot);
+        const dimBefore = String(bot.game?.dimension || "");
+        const deathsBefore = this.deaths;
         let step = { ok: false, phase: phaseBefore, message: "no step" };
 
+        // "dragon" is done only once the credits have rolled — dying or
+        // leaving the_end without the exit portal means heading back in.
         const dragonDone =
-          !this.objectives.includes("dragon") ||
-          state.objectivesDone.includes("dragon") ||
-          state.milestones.some((m) => m.milestone === "CLEAR") ||
-          state.phase === "clear";
+          !this.objectives.includes("dragon") || state.objectivesDone.includes("dragon");
         const nextObj = this.objectives.find((o) => !state.objectivesDone.includes(o) && o !== "dragon");
 
         if (dragonDone && nextObj) {
@@ -190,26 +205,33 @@ export class ClearRunner {
           `[clear] step=${state.steps} phase=${phaseAfter} ok=${step.ok} msg=${step.message} stuck=${samePhaseSteps} deaths=${this.deaths}`
         );
 
-        if (phaseAfter === "clear" || step.milestone === "CLEAR") {
-          if (!state.objectivesDone.includes("dragon")) state.objectivesDone.push("dragon");
-          if (!this.objectives.some((o) => o !== "dragon" && !state.objectivesDone.includes(o))) {
-            this._note("ДРАКОН ПОВЕРЖЕН — игра пройдена!");
-            break;
+        const dimNow = String(bot.game?.dimension || "");
+        if ((phaseAfter === "clear" || step.milestone === "CLEAR") && !state._clearNoted) {
+          state._clearNoted = true;
+          this._note("Дракон повержен! Иду к выходному порталу — титры.");
+        }
+        // Credits = left the_end without dying this step (death also flips
+        // the dimension — gated on the deaths counter so a death isn't a win).
+        const leftEndAlive =
+          /end/i.test(dimBefore) &&
+          !/end/i.test(dimNow) &&
+          this.deaths === deathsBefore &&
+          !!state._clearNoted;
+        if (!state.creditsDone && (step.milestone === "CREDITS" || leftEndAlive)) {
+          state.creditsDone = true;
+          state.milestones.push({ t: Date.now() - state.t0, milestone: "CREDITS", phase: "credits" });
+          if (this.objectives.includes("dragon") && !state.objectivesDone.includes("dragon")) {
+            state.objectivesDone.push("dragon");
           }
-          this._note(`Дракон повержен! Эпилог: ${this.objectives.filter((o) => o !== "dragon").join(", ")}`);
+          this._note("ТИТРЫ ДОСМОТРЕНЫ — Майнкрафт пройден полностью!");
+          const epilogueLeft = this.objectives.filter((o) => !state.objectivesDone.includes(o));
+          if (epilogueLeft.length) {
+            this._note(`Эпилог: ${epilogueLeft.join(", ")}`);
+          }
         }
         if (this.objectives.every((o) => state.objectivesDone.includes(o))) {
           this._note("ВСЕ ЦЕЛИ ВЫПОЛНЕНЫ — полное прохождение!");
           break;
-        }
-        const dim = String(bot.game?.dimension || "");
-        if (/end/i.test(dim)) {
-          const dragon = Object.values(bot.entities).find((e) => /dragon/i.test(String(e?.name || "")));
-          if (!dragon && (state.boss?.hits || 0) > 5) {
-            this._note("ДРАКОН ПОВЕРЖЕН — игра пройдена!");
-            state.milestones.push({ t: Date.now() - state.t0, milestone: "CLEAR", phase: "clear" });
-            break;
-          }
         }
 
         const stuckThresh = phaseAfter === "diamond" || phaseAfter === "portal" || phaseAfter === "nether" ? 20 : 12;
@@ -247,6 +269,7 @@ export class ClearRunner {
 
 - **clear**: ${clear}
 - **objectives**: ${(this.objectives || ["dragon"]).join(", ")} (done: ${(state.objectivesDone || []).join(", ") || "—"})
+- **credits**: ${!!state.creditsDone}
 - **elapsed**: ${((Date.now() - state.t0) / 60000).toFixed(1)} min
 - **finalPhase**: ${state.phase}
 - **deaths**: ${this.deaths}
