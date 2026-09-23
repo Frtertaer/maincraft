@@ -156,6 +156,7 @@ export class Brain {
     this.lastThink = null;
     this.visionEnabled = Boolean(cfg.vision?.enabled);
     this.paused = false;
+    this.suspended = false;
     this.pendingCommand = null;
     this.pendingFrom = null;
     this.commandTurns = 0;
@@ -311,6 +312,20 @@ export class Brain {
     this.paused = false;
   }
 
+  suspend() {
+    this.suspended = true;
+    try {
+      this.bot.pathfinder?.setGoal(null);
+      this.bot.clearControlStates();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  unsuspend() {
+    this.suspended = false;
+  }
+
   _budgetError() {
     if (this.requestCount >= this.requestLimit) {
       return `LLM request limit reached (${this.requestCount}/${this.requestLimit})`;
@@ -358,7 +373,7 @@ export class Brain {
 
   async step() {
     this.tick += 1;
-    if (this.paused) return;
+    if (this.paused || this.suspended) return;
     if (!this.bot.entity) return;
     const budgetError = this._budgetError();
     if (budgetError) {

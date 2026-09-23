@@ -87,6 +87,17 @@ export async function executeAction(bot, action, mcData) {
   }
   const type = String(action.type || "").toLowerCase();
 
+  // mineflayer-collectblock swaps in its own bare Movements for the duration
+  // of a collect — afterwards every pathfind runs with wrong config. Restore
+  // our configured movements whenever that happened (tagged via _ours).
+  if (mcData && bot.pathfinder && !bot.pathfinder.movements?._ours) {
+    try {
+      setupMovements(bot, mcData);
+    } catch {
+      /* ignore */
+    }
+  }
+
   try {
     switch (type) {
       case "chat":
@@ -245,7 +256,7 @@ export async function executeAction(bot, action, mcData) {
         const targets = bot.findBlocks({
           matching: (b) => b && (b.name === blockName || b.name.includes(blockName)),
           maxDistance,
-          count,
+          count: Math.max(count, 24),
         });
         if (!targets.length) return { ok: false, message: `no ${blockName} nearby` };
         const invTypes = [null, ...bot.inventory.items().map((i) => i.type)];
@@ -256,10 +267,31 @@ export async function executeAction(bot, action, mcData) {
             return true;
           }
         };
-        const blocks = targets.map((p) => bot.blockAt(p)).filter((b) => b && canHarvest(b));
+        const exposed = (b) => {
+          for (const [dx, dy, dz] of [
+            [1, 0, 0],
+            [-1, 0, 0],
+            [0, 1, 0],
+            [0, -1, 0],
+            [0, 0, 1],
+            [0, 0, -1],
+          ]) {
+            const nb = bot.blockAt(b.position.offset(dx, dy, dz));
+            if (nb && (nb.boundingBox === "empty" || /air|water|grass|fern|flower|sapling|snow|vine/.test(nb.name))) {
+              return true;
+            }
+          }
+          return false;
+        };
+        const blocks = targets
+          .map((p) => bot.blockAt(p))
+          .filter((b) => b && canHarvest(b) && exposed(b));
         if (!blocks.length) {
-          return { ok: false, message: `no harvestable ${blockName} (missing tool)` };
+          return { ok: false, message: `no reachable ${blockName} (buried or missing tool)` };
         }
+        // Collect pathfinds internally — mark the window so the combat reflex
+        // can't steal the pathfinder to chase (it may still hit/kite/flee).
+        bot._phaseMove = true;
         try {
           await withTimeout(bot.collectBlock.collect(blocks), timeoutMs, `collect ${blockName} timeout`);
         } catch (err) {
@@ -271,6 +303,8 @@ export async function executeAction(bot, action, mcData) {
             /* ignore */
           }
           return { ok: false, message: err.message || String(err) };
+        } finally {
+          if (bot._phaseMove === true) bot._phaseMove = null;
         }
         return { ok: true, message: `collected ~${blocks.length} ${blockName}` };
       }
@@ -330,7 +364,7 @@ export async function executeAction(bot, action, mcData) {
         await bot.craft(recipe, plan.repetitions, craftingTable);
         // Server-side inventory sync can lag the craft — poll briefly instead of one fixed sleep
         let after = before;
-        for (let i = 0; i < 14 && after <= before; i++) {
+        for (let i = 0; i < 30 && after <= before; i++) {
           await sleep(150);
           after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
         }
@@ -972,6 +1006,7 @@ function setupMovements(bot, mcData) {
   const movements = new Movements(bot, mcData);
   movements.canDig = true;
   movements.allowSprinting = true;
+  movements._ours = true;
   bot.pathfinder.setMovements(movements);
   // mineflayer-tool bug: equipForBlock recurses forever when the bot owns no
   // item that can harvest the target and getFromChest is set — retrieveTools
@@ -1004,6 +1039,7 @@ async function goto(bot, goal, timeoutMs) {
     const finish = (fn) => {
       if (done) return;
       done = true;
+      if (bot._phaseMove === goal) bot._phaseMove = null;
       clearTimeout(timer);
       clearInterval(poll);
       bot.removeListener("goal_reached", onReached);
@@ -1014,20 +1050,27 @@ async function goto(bot, goal, timeoutMs) {
       bot.pathfinder.setGoal(null);
       finish(() => reject(new Error("pathfinder timeout")));
     }, finiteNumber(timeoutMs, 45000, 1000, 180000));
-    const onReached = () => finish(() => resolve());
+    // goal_reached fires for ANY goal that completes — resolve only on ours,
+    // or a combat-reflex goal finishing masquerades as our move succeeding.
+    const onReached = (g) => {
+      if (g === goal) finish(() => resolve());
+    };
     const onPath = (r) => {
-      if (r?.status === "noPath") {
+      if (r?.status === "noPath" && bot.pathfinder.goal === goal) {
         bot.pathfinder.setGoal(null);
         finish(() => reject(new Error("no path")));
       }
     };
-    bot.once("goal_reached", onReached);
+    bot.on("goal_reached", onReached);
     bot.on("path_update", onPath);
+    // Mark a phase-owned move in flight: the combat reflex must not steal the
+    // pathfinder to chase while one is active (it may still hit/kite/flee).
+    bot._phaseMove = goal;
     bot.pathfinder.setGoal(goal);
     poll = setInterval(() => {
-      // goal completed / cancelled
-      if (!bot.pathfinder.goal) finish(() => resolve());
-    }, 500);
+      // Our goal was cleared or replaced (combat reflex, stop, another goto)
+      if (bot.pathfinder.goal !== goal) finish(() => reject(new Error("goal superseded")));
+    }, 250);
   });
 }
 

@@ -11,7 +11,8 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight } from "./progression.js";
+import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESULT_PATH = path.resolve(__dirname, "../../logs/clear-mode-result.md");
@@ -114,6 +115,21 @@ export class ClearRunner {
           this._note("ТИТРЫ ДОСМОТРЕНЫ — Майнкрафт пройден полностью!");
         }
         this._note(`Возродился. Фаза: ${detectPhase(this.bot)}`);
+        // Spawn-camp escape: next loop iteration moves ~40 blocks away from
+        // the respawn kill-zone before resuming progression. Bare-handed
+        // reflex fights are suicide — park combat until the escape lands.
+        this._needRetreat = true;
+        try {
+          this.combat?.setMode?.("off");
+        } catch {
+          /* ignore */
+        }
+        try {
+          this.bot.pathfinder?.setGoal(null);
+          this.bot.clearControlStates?.();
+        } catch {
+          /* ignore */
+        }
       } catch {
         /* ignore */
       }
@@ -127,6 +143,9 @@ export class ClearRunner {
         : "Начал прохождение игры до дракона"
     );
     this.log(`[clear] started objectives=${this.objectives.join(",")}`);
+    // Own the bot for the run: suspend the brain's planner loop so its
+    // auto-goals and LLM actions can't fight phase actions over pathfinder.
+    this.brain?.suspend();
     void this._loop();
     return { ok: true, message: "clear run started" };
   }
@@ -151,10 +170,87 @@ export class ClearRunner {
     let lastMilestone = null;
     let lastPhase = null;
     let samePhaseSteps = 0;
+    let yieldCount = 0;
 
     try {
       while (this.running && bot.entity && Date.now() - state.t0 < this.maxMs) {
         state.boss.allowStickTp = false;
+        // Yield while the combat reflex owns movement fighting a normal mob —
+        // phase actions (staircases, collects) would otherwise fight it for
+        // the pathfinder and their gotos resolve instantly on the wrong goal.
+        // Capped: an unreachable aggroed mob can't yield-lock the run forever.
+        // Post-death escape FIRST: inventory is empty on respawn, so fighting
+        // the camping mob bare-handed is a loss. At night hide underground;
+        // by day sprint far away. Must run before the combat yield.
+        const nightTod = bot.time?.timeOfDay;
+        const isNight = nightTod != null && nightTod >= 12541;
+        if (this._needRetreat && bot.entity) {
+          this._needRetreat = false;
+          if (isNight) {
+            this.log(`[clear] night respawn — burrowing over retreat`);
+            try {
+              await burrowForNight(bot, this.mcData, this.log);
+            } catch (err) {
+              this.log(`[clear] burrow fail: ${err?.message || err}`);
+            }
+          } else {
+            const p = bot.entity.position;
+            const dirs = [
+              [60, 0],
+              [0, 60],
+              [-60, 0],
+              [0, -60],
+            ];
+            const [dx, dz] = dirs[this.deaths % 4];
+            this.log(`[clear] retreat ${dx},${dz} after death #${this.deaths}`);
+            try {
+              await executeAction(
+                bot,
+                { type: "goto", x: p.x + dx, y: p.y, z: p.z + dz, range: 8, timeoutMs: 40000 },
+                this.mcData
+              );
+            } catch {
+              /* superseded/failed — progress anyway */
+            }
+          }
+          // escape landed — reflexes back on for whatever chased us out here
+          try {
+            this.combat?.setMode?.(this.combat?.cfg?.mode || "auto");
+          } catch {
+            /* ignore */
+          }
+          continue;
+        }
+        if (this.combat?.shouldYield?.() && yieldCount < 50) {
+          yieldCount += 1;
+          await sleep(600);
+          continue;
+        }
+        yieldCount = 0;
+        // Survival for surface phases: burrow at night (mobs will come), and
+        // also in daylight when a hostile is camped nearby and the run has
+        // died before — creepers/spiders don't burn at dawn.
+        const surfacePhase = ["wood", "stone", "iron"].includes(detectPhase(bot));
+        const hostileNear = Object.values(bot.entities || {}).some((e) => {
+          if (!e?.position || e === bot.entity) return false;
+          const n = String(e.name || e.displayName || "").toLowerCase();
+          const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+          return hostile && e.position.distanceTo(bot.entity.position) < 14;
+        });
+        if (
+          surfacePhase &&
+          (isNight || (hostileNear && this.deaths > 0)) &&
+          Date.now() - (this._lastBurrow || 0) > 120000
+        ) {
+          this._lastBurrow = Date.now();
+          this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
+          try {
+            await burrowForNight(bot, this.mcData, this.log);
+          } catch (err) {
+            this.log(`[clear] burrow fail: ${err?.message || err}`);
+          }
+          continue;
+        }
         const phaseBefore = detectPhase(bot);
         const dimBefore = String(bot.game?.dimension || "");
         const deathsBefore = this.deaths;
@@ -238,12 +334,16 @@ export class ClearRunner {
         if (samePhaseSteps >= stuckThresh && this.brain) {
           this.log("[clear] STUCK — brain.step()");
           try {
-            this.brain.resume();
+            this.brain.unsuspend();
+            this.brain.queueCommand(
+              `Застрял в фазе ${phaseAfter} во время прохождения. Выбери действия чтобы продвинуться: копай лестницу вниз/вперёд, поднимись, обойди препятствие.`,
+              "clear-mode"
+            );
             await this.brain.step();
           } catch (err) {
             this.log(`[clear] brain step fail: ${err?.message || err}`);
           } finally {
-            this.brain.pause();
+            this.brain.suspend();
           }
           samePhaseSteps = 0;
           await sleep(1500);
@@ -254,6 +354,7 @@ export class ClearRunner {
       }
     } finally {
       this.running = false;
+      this.brain?.unsuspend();
       if (this._deathHandler) this.bot.removeListener("death", this._deathHandler);
       if (this._respawnHandler) this.bot.removeListener("respawn", this._respawnHandler);
       this._writeResult();

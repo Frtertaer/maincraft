@@ -171,6 +171,32 @@ export class CombatReflex {
     return { ...this._bossState };
   }
 
+  // True while the reflex owns movement fighting a normal mob — long-running
+  // phase actions (staircases, collects) should yield instead of fighting the
+  // reflex for the pathfinder. Boss mobs are excluded: boss phases drive the
+  // fight themselves.
+  shouldYield() {
+    if (this.mode === "off" || !this.cfg.enabled) return false;
+    const t = this._lockedId != null ? this.bot.entities[this._lockedId] : null;
+    if (t && t.isValid !== false) return !isBossMobName(this._mobName(t));
+    // Recently-engaged window: the reflex may be re-acquiring the same mob
+    // between ticks — keep yielding so phase actions don't win the race.
+    if (Date.now() < this._engagedUntil) return !isBossMobName(this._stats.lastTarget);
+    return false;
+  }
+
+  // Approach-chase goal — skipped while a phase action owns the pathfinder
+  // (_phaseMove), so reflex chasing can't stomp staircases/collects. Melee
+  // hits, creeper kiting and low-hp flees still run: they don't chase.
+  _chaseGoal(goal) {
+    if (this.bot._phaseMove) return;
+    try {
+      this.bot.pathfinder.setGoal(goal, true);
+    } catch {
+      /* pathfinder not ready */
+    }
+  }
+
   getStats() {
     const n = Math.max(1, this._stats.ticks);
     return {
@@ -725,11 +751,7 @@ export class CombatReflex {
     if (this._shouldBlock(target, dist) || (heavyMelee && dist < 4.5 && now - this._lastHitAt < 200)) {
       void this._startBlock();
       if (dist > this.cfg.meleeDistance) {
-        try {
-          bot.pathfinder.setGoal(new goals.GoalFollow(target, heavyMelee ? 2.4 : 2.0), true);
-        } catch {
-          /* ignore */
-        }
+        this._chaseGoal(new goals.GoalFollow(target, heavyMelee ? 2.4 : 2.0));
       }
     } else if (!(heavyMelee && dist <= this.cfg.meleeDistance)) {
       this._stopBlock();
@@ -740,17 +762,11 @@ export class CombatReflex {
       this._engagedUntil = Math.max(this._engagedUntil, now + 15000);
       if (dist <= 5) void this._splashWaterNear(target);
       if (dist > this.cfg.meleeDistance) {
-        try {
-          bot.pathfinder.setGoal(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 1), true);
+        this._chaseGoal(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 1));
+        if (!bot._phaseMove) {
           bot.setControlState("sprint", true);
           bot.setControlState("forward", true);
           bot.setControlState("jump", true);
-        } catch {
-          try {
-            bot.pathfinder.setGoal(new goals.GoalFollow(target, 0.8), true);
-          } catch {
-            /* ignore */
-          }
         }
         // swing if slightly out of range but line of sight
         if (dist < 4.2 && now - this._lastHitAt >= this.cfg.cooldownMs) {
@@ -772,14 +788,10 @@ export class CombatReflex {
     }
 
     if (dist > this.cfg.meleeDistance) {
-      try {
-        // ranged: close gap aggressively
-        const range = RANGED.has(name) ? 1.8 : 2.2;
-        bot.pathfinder.setGoal(new goals.GoalFollow(target, range), true);
-        bot.setControlState("sprint", true);
-      } catch {
-        /* pathfinder not ready */
-      }
+      // ranged: close gap aggressively
+      const range = RANGED.has(name) ? 1.8 : 2.2;
+      this._chaseGoal(new goals.GoalFollow(target, range));
+      if (!bot._phaseMove) bot.setControlState("sprint", true);
       return;
     }
 
