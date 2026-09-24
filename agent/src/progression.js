@@ -574,6 +574,39 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         k -= 1;
         continue;
       }
+      // overhang trap: every direction is a cliff — dig straight down through
+      // the block under our feet (guarded: never into lava/water/deep falls)
+      const under = bot.blockAt(p.offset(0, -1, 0));
+      if (under && under.name !== "air" && !dangerous(under) && diggableBlock(bot, under)) {
+        let landY = null;
+        let landDangerous = false;
+        for (let dy = -2; dy >= -5; dy--) {
+          const b = bot.blockAt(p.offset(0, dy, 0));
+          if (b && b.name !== "air") {
+            if (dangerous(b)) landDangerous = true;
+            else landY = b.position.y;
+            break;
+          }
+        }
+        if (landY != null && !landDangerous && !findHostile(bot, 8)) {
+          const dig = await executeAction(
+            bot,
+            { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 10000 },
+            mcData
+          );
+          if (dig.ok) {
+            await sleep(400); // let gravity settle the drop
+            dug += 1;
+            log?.(`[stairDown] vertical dig at ${p.x},${p.y},${p.z} → y~${landY}`);
+            continue;
+          }
+          why.push(`vert:dig=${dig.message}`);
+        } else {
+          why.push(`vert:${landY == null ? "deep" : landDangerous ? "danger" : "mob"}`);
+        }
+      } else {
+        why.push(`vert:${under?.name ?? "air"}`);
+      }
       log?.(`[stairDown] stuck at ${p.x},${p.y},${p.z} k=${k} dug=${dug} :: ${why.join(" | ")}`);
       break;
     }
