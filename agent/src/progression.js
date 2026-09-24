@@ -1113,22 +1113,29 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       await sleep(250);
     }
     if (raised >= 4) {
-      const t0 = Date.now();
-      while (!safe() && Date.now() - t0 < 480000) await sleep(4000);
-      // dig back down through our own pillar
-      for (let i = 0; i < raised + 2; i++) {
-        const b = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
-        if (!b || b.name === "air" || /bedrock|lava|water/.test(b.name)) break;
-        try {
-          await executeAction(
-            bot,
-            { type: "dig", x: b.position.x, y: b.position.y, z: b.position.z, timeoutMs: 10000 },
-            mcData
-          );
-        } catch {
-          break;
+      // sheltered on the pillar: the reflex would pathfinder-walk off the
+      // edge to reach a mob it sees below — park it until we climb down
+      bot._inShelter = true;
+      try {
+        const t0 = Date.now();
+        while (!safe() && Date.now() - t0 < 480000) await sleep(4000);
+        // dig back down through our own pillar
+        for (let i = 0; i < raised + 2; i++) {
+          const b = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+          if (!b || b.name === "air" || /bedrock|lava|water/.test(b.name)) break;
+          try {
+            await executeAction(
+              bot,
+              { type: "dig", x: b.position.x, y: b.position.y, z: b.position.z, timeoutMs: 10000 },
+              mcData
+            );
+          } catch {
+            break;
+          }
+          await sleep(200);
         }
-        await sleep(200);
+      } finally {
+        bot._inShelter = false;
       }
       log?.("[burrow] dawn — down from pillar");
       return true;
@@ -1282,8 +1289,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       return retryElsewhere("no seal");
     }
   }
-  const t0 = Date.now();
-  while (!safe() && Date.now() - t0 < 570000) {
+  // sealed in: hostiles outside the wall are unreachable — the reflex
+  // seeing them anyway just pathfinds against the seal (and a creeper at
+  // the wall blowing up means fighting was already lost). Park it.
+  bot._inShelter = true;
+  try {
+    const t0 = Date.now();
+    while (!safe() && Date.now() - t0 < 570000) {
     await sleep(4000);
     // a camper at the open shaft mouth is in melee reach of the bottom —
     // swing at it every loop instead of turtling forever. Bare fists lose
@@ -1352,6 +1364,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         break;
       }
     }
+  }
+  } finally {
+    bot._inShelter = false;
   }
   log?.("[burrow] dawn — back out");
   return true;

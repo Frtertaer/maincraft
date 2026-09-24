@@ -213,6 +213,9 @@ export class ClearRunner {
         const isNight = nightTod != null && nightTod >= 12541;
         if (this._needRetreat && bot.entity) {
           this._needRetreat = false;
+          // died mid-shelter — flag lives on the bot object, reflex must be
+          // free again at respawn
+          bot._inShelter = false;
           if (isNight) {
             this.log(`[clear] night respawn — flee then burrow`);
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and

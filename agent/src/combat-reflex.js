@@ -640,6 +640,15 @@ export class CombatReflex {
     // the bot exclusively or we'd stomp its gear and control states.
     if (this._bossState?._tickBusy) return;
 
+    // Sheltered (sealed burrow pocket / night pillar): hostiles are behind
+    // walls we can't path to — engaging only pathfinds against the seal or
+    // walks us off the edge. The shelter's own wait-loop handles campers.
+    if (bot._inShelter) {
+      this._lockedId = null;
+      this._stopBlock();
+      return;
+    }
+
     const now = Date.now();
     const hp = Number(bot.health);
 
