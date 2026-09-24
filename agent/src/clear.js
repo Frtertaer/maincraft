@@ -255,7 +255,10 @@ export class ClearRunner {
               // slept night skips the whole exposure window
               const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
               if (slept.ok) this.log(`[clear] ${slept.message}`);
-              else await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+              else {
+                this.log(`[clear] no bed: ${slept.message}`);
+                await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+              }
             } catch (err) {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
@@ -305,7 +308,10 @@ export class ClearRunner {
               // moves the spawn point permanently, no sleep needed in daylight
               const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
               if (slept.ok) this.log(`[clear] ${slept.message}`);
-              else await burrowForNight(bot, this.mcData, this.log, true, 0, this.state);
+              else {
+                this.log(`[clear] no bed: ${slept.message}`);
+                await burrowForNight(bot, this.mcData, this.log, true, 0, this.state);
+              }
             } catch (err) {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
@@ -370,6 +376,8 @@ export class ClearRunner {
             if (slept.ok) {
               this.log(`[clear] ${slept.message}`);
               burrowed = true; // night is over — treat as sheltered
+            } else {
+              this.log(`[clear] no bed: ${slept.message}`);
             }
             // force=true for the daytime variant — a hostile is camped on us
             // and the wait-until-safe logic is exactly what we need anyway
