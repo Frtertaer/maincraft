@@ -478,9 +478,22 @@ export async function executeAction(bot, action, mcData) {
             .join(",");
           throw new Error(`${craftErr?.message || craftErr} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
         }
-        // Server-side inventory sync can lag the craft — poll briefly instead of one fixed sleep
+        // Server-side inventory sync lags table crafts: every set_slot went
+        // to the table window while it was open, so bot.inventory only
+        // catches up on the next resend. For a table craft, force that
+        // resend NOW — reopen+close so every later countItem reads truth.
+        if (!craftErr && craftingTable) {
+          try {
+            const w = await withTimeout(bot.openBlock(craftingTable), 8000, "resync open");
+            await sleep(350);
+            if (w) bot.closeWindow(w);
+            await sleep(250);
+          } catch {
+            /* resync best-effort — the poll below still gets a chance */
+          }
+        }
         let after = before;
-        for (let i = 0; i < 30 && after <= before; i++) {
+        for (let i = 0; i < 60 && after <= before; i++) {
           await sleep(150);
           after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
         }
@@ -500,7 +513,7 @@ export async function executeAction(bot, action, mcData) {
                 await bot.clickWindow(slot, 0, 0);
               }
             }
-            for (let i = 0; i < 10 && after <= before; i++) {
+            for (let i = 0; i < 30 && after <= before; i++) {
               await sleep(150);
               after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
             }
