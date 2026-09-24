@@ -270,7 +270,10 @@ export class ClearRunner {
               [0, 70],
               [0, -70],
             ];
-            const [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            // a camper reads the deterministic dry-dir exit — after a couple
+            // of spawn-camp deaths, rotate the escape instead of running the
+            // same bearing into the same arrow
+            const [fdx, fdz] = this.deaths >= 2 ? fleeDirs[this.deaths % fleeDirs.length] : pickDryDir(bot, fleeDirs);
             this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
             await sprintBurst(fdx, fdz).catch(() => {});
             try {
@@ -283,7 +286,11 @@ export class ClearRunner {
               /* superseded — burrow anyway */
             }
             try {
-              await burrowForNight(bot, this.mcData, this.log, true);
+              // a camper at spawn survives every respawn — a bed activate
+              // moves the spawn point permanently, no sleep needed in daylight
+              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+              if (slept.ok) this.log(`[clear] ${slept.message}`);
+              else await burrowForNight(bot, this.mcData, this.log, true);
             } catch (err) {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
