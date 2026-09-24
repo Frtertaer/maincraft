@@ -1297,7 +1297,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
 // to burrowing. Kills the respawn-at-night death spiral on open terrain.
 export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   const tod = bot.time?.timeOfDay;
-  if (tod == null || tod < 12541) return { ok: false, message: "not night" };
+  // Not night: still worth claiming the spawn point — a placed+activated bed
+  // moves every future respawn here and ends the world-spawn death camp.
+  const dayClaimOnly = tod != null && tod < 12541;
   const woolCount = () => countItem(bot, (i) => /(?:^|_)wool$/.test(i.name));
   const bedItem = () =>
     bot.inventory.items().find((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name));
@@ -1363,6 +1365,17 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
     }
   }
   if (!bedBlock()) return { ok: false, message: "no bed" };
+  // Claim the spawn point: right-clicking a bed sets respawn even in
+  // daylight ("You can sleep only at night" still sets the point). Every
+  // later death then lands at the bed instead of the camped world-spawn.
+  const bb = bedBlock();
+  try {
+    await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "activate bed");
+    log?.(`[bed] spawn point claimed @${bb.position.x},${bb.position.y},${bb.position.z}`);
+  } catch {
+    /* claim is best-effort */
+  }
+  if (dayClaimOnly) return { ok: false, message: "bed placed — spawn claimed (day)" };
   // sleep — fails fast if monsters nearby (vanilla rule), caller burrows then
   const s = await executeAction(
     bot,

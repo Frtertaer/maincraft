@@ -325,14 +325,14 @@ export class ClearRunner {
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
           try {
             // bed first on real nights — a slept night is ~30s of exposure
-            // vs ~9.5min sealed; burrow remains the fallback
+            // vs ~9.5min sealed; burrow remains the fallback. In daylight it
+            // still places+activates a bed to claim the spawn point — after
+            // one respawn-at-camp the bed is the only permanent fix.
             let burrowed = false;
-            if (isNight) {
-              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
-              if (slept.ok) {
-                this.log(`[clear] ${slept.message}`);
-                burrowed = true; // night is over — treat as sheltered
-              }
+            const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+            if (slept.ok) {
+              this.log(`[clear] ${slept.message}`);
+              burrowed = true; // night is over — treat as sheltered
             }
             // force=true for the daytime variant — a hostile is camped on us
             // and the wait-until-safe logic is exactly what we need anyway
