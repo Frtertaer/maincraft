@@ -167,6 +167,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         return { ok: false, phase, message: `unknown phase ${phase}` };
     }
   } catch (err) {
+    log?.(`[progression] ${phase} crash: ${err?.stack || err}`);
     return { ok: false, phase, message: err?.message || String(err) };
   }
 }
@@ -197,6 +198,18 @@ function findHostile(bot, range) {
       /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
     return hostile && e.position.distanceTo(bot.entity.position) < range;
   });
+}
+
+const HAND_DIGGABLE =
+  /^(dirt|coarse_dirt|rooted_dirt|dirt_path|grass_block|farmland|podzol|mycelium|sand|red_sand|gravel|clay|mud|muddy_mangrove_roots|snow|snow_block|soul_soil|soul_sand|moss_block|pale_moss_block|.*_log|.*_planks|.*_leaves)$/;
+
+// terrain the bot can actually break with what it carries — mineflayer's
+// b.diggable doesn't account for harvestTools, so check by name class: a
+// small set is always hand-breakable, everything else needs a pickaxe
+function diggableBlock(bot, b) {
+  if (!b || /air|lava|water|magma_block|bedrock|cave_air|void_air/.test(b.name)) return false;
+  if (HAND_DIGGABLE.test(b.name)) return true;
+  return bot.inventory.items().some((i) => /pickaxe/.test(i.name)) && isDiggableStone(b.name);
 }
 
 async function ensureCraft(bot, mcData, item, count = 1) {
@@ -324,6 +337,7 @@ const FACES = [
 ];
 
 function isExposedFace(bot, pos) {
+  if (!pos) return false;
   return FACES.some(([dx, dy, dz]) => {
     const nb = bot.blockAt(pos.offset(dx, dy, dz));
     return nb && (nb.boundingBox === "empty" || /air|water|grass|fern|flower|sapling|snow|vine/.test(nb.name));
@@ -376,6 +390,14 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
       });
       if (ambush) {
         why.push(`${tag}:mob`);
+        continue;
+      }
+      // solid-rock only: air at the door/head cell means a cave mouth —
+      // stepping in lands us on a mob ledge (the mid-descent death loop).
+      // Only dirs that are fully enclosed diggable rock get stepped.
+      const doorHead = [bot.blockAt(p.offset(dx, 0, dz)), bot.blockAt(p.offset(dx, 1, dz))];
+      if (doorHead.some((c) => !c || !diggableBlock(bot, c))) {
+        why.push(`${tag}:open`);
         continue;
       }
       // clear the doorway column: headroom (+1), feet (0), floor (-1) —
@@ -578,6 +600,32 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
 // Night survival: dig a straight 1x1 shaft down (~8s, no walkable path for
 // mobs to follow), cap the opening with one block, wait for dawn, then pillar
 // back out. Returns true when it burrowed.
+// pick the flee direction with the least water and jungle canopy along the
+// path — drowned rivers and tree trunks are where flee-and-burrow dies
+export function pickDryDir(bot, dirs) {
+  let best = dirs[0];
+  let bestScore = Infinity;
+  const feet = bot.entity.position.floored();
+  for (const [dx, dz] of dirs) {
+    const sx = Math.sign(dx);
+    const sz = Math.sign(dz);
+    let score = 0;
+    for (const step of [6, 12, 18, 24]) {
+      for (const dy of [-1, 0]) {
+        const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
+        if (!b) continue;
+        if (/water|kelp|seagrass|ice|bubble/.test(b.name)) score += 3;
+        else if (/_log$|_stem$|leaves$/.test(b.name)) score += 1;
+      }
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      best = [dx, dz];
+    }
+  }
+  return best;
+}
+
 export async function burrowForNight(bot, mcData, log, force = false) {
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
@@ -589,14 +637,7 @@ export async function burrowForNight(bot, mcData, log, force = false) {
   // mineflayer's b.diggable doesn't account for harvestTools, so check by
   // name class: a small set is always hand-breakable, everything else
   // (stone/ore/bricks) needs a pickaxe in inventory
-  const hasPick = bot.inventory.items().some((i) => /pickaxe/.test(i.name));
-  const HAND_DIG =
-    /^(dirt|coarse_dirt|rooted_dirt|dirt_path|grass_block|farmland|podzol|mycelium|sand|red_sand|gravel|clay|mud|muddy_mangrove_roots|snow|snow_block|soul_soil|soul_sand|moss_block|pale_moss_block|.*_log|.*_planks|.*_leaves)$/;
-  const diggable = (b) => {
-    if (!b || /air|lava|water|magma_block|bedrock|cave_air|void_air/.test(b.name)) return false;
-    if (HAND_DIG.test(b.name)) return true;
-    return hasPick && isDiggableStone(b.name);
-  };
+  const diggable = (b) => diggableBlock(bot, b);
   // safe() = daylight and no hostile within 16 (creepers/spiders don't burn,
   // spawn-campers outlast sunrise)
   const safe = () => {
@@ -633,11 +674,13 @@ export async function burrowForNight(bot, mcData, log, force = false) {
       continue;
     }
     // whole column down to -6 must be solid AND diggable — an open cell
-    // means a cave (mobs), an undiggable cell means we can't get in
+    // means a cave (mobs), an undiggable cell means we can't get in.
+    // Logs/stems/leaves are a tree trunk or canopy, not ground — digging
+    // them drops the bot inside a giant trunk it can't time out of
     let solidCol = true;
     for (let dy = -1; dy >= -6; dy--) {
       const b = bot.blockAt(p.offset(0, dy, 0));
-      if (!diggable(b)) {
+      if (!diggable(b) || /_log$|_stem$|leaves$/.test(b?.name || "")) {
         solidCol = false;
         break;
       }
@@ -735,36 +778,51 @@ export async function burrowForNight(bot, mcData, log, force = false) {
   const feet = bot.entity.position.floored();
   let sealedCells = null;
   if (solid && dug >= 3) {
+    // pocket depth: a mob pressed against the single doorway wall reaches
+    // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
+    // out of reach; shallower pockets are carved only as a fallback
     for (const [px, pz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const cells = [
-        bot.blockAt(feet.offset(px, 0, pz)),
-        bot.blockAt(feet.offset(px, 1, pz)),
-        bot.blockAt(feet.offset(px * 2, 0, pz)),
-        bot.blockAt(feet.offset(px * 2, 1, pz)),
-      ];
-      // every pocket cell must be a diggable solid — an air cell means a
-      // cave pocket, and a cave means mobs
-      if (cells.some((c) => !diggable(c))) continue;
-      const doorwayFloor = bot.blockAt(feet.offset(px, -1, pz));
-      const farFloor = bot.blockAt(feet.offset(px * 2, -1, pz));
-      if (!doorwayFloor || doorwayFloor.name === "air") continue;
-      if (!farFloor || /air|lava|water|bedrock|magma_block/.test(farFloor.name)) continue;
-      let carved = true;
-      for (const c of cells) {
+      let carvedDepth = 0;
+      for (const depth of [4, 3, 2]) {
+        const cells = [];
+        for (let i = 1; i <= depth; i += 1) {
+          cells.push(bot.blockAt(feet.offset(px * i, 0, pz * i)));
+          cells.push(bot.blockAt(feet.offset(px * i, 1, pz * i)));
+        }
+        // every pocket cell must be a diggable solid — an air cell means a
+        // cave pocket, and a cave means mobs
+        if (cells.some((c) => !diggable(c))) continue;
+        const doorwayFloor = bot.blockAt(feet.offset(px, -1, pz));
+        const farFloor = bot.blockAt(feet.offset(px * depth, -1, pz * depth));
+        if (!doorwayFloor || doorwayFloor.name === "air") continue;
+        if (!farFloor || /air|lava|water|bedrock|magma_block/.test(farFloor.name)) continue;
+        let carved = true;
+        for (const c of cells) {
         const d = await executeAction(
           bot,
           { type: "dig", x: c.position.x, y: c.position.y, z: c.position.z, timeoutMs: 10000 },
           mcData
         );
-        if (!d.ok) {
-          carved = false;
-          break;
+          if (!d.ok) {
+            carved = false;
+            break;
+          }
         }
+        if (!carved) continue;
+        carvedDepth = depth;
+        break;
       }
-      if (!carved) continue;
+      if (!carvedDepth) continue;
       const step = await executeAction(
         bot,
-        { type: "goto", x: feet.x + px * 2 + 0.5, y: feet.y, z: feet.z + pz * 2 + 0.5, range: 0.5, timeoutMs: 6000 },
+        {
+          type: "goto",
+          x: feet.x + px * carvedDepth + 0.5,
+          y: feet.y,
+          z: feet.z + pz * carvedDepth + 0.5,
+          range: 0.5,
+          timeoutMs: 6000,
+        },
         mcData
       );
       if (!step.ok) continue;
@@ -785,7 +843,7 @@ export async function burrowForNight(bot, mcData, log, force = false) {
         { x: feet.x + px, y: feet.y, z: feet.z + pz },
         { x: feet.x + px, y: feet.y + 1, z: feet.z + pz },
       ];
-      log?.(`[burrow] sealed pocket ${px},${pz}`);
+      log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
       break;
     }
     if (!sealedCells) log?.("[burrow] no seal — staying in open shaft");
@@ -793,6 +851,18 @@ export async function burrowForNight(bot, mcData, log, force = false) {
   const t0 = Date.now();
   while (!safe() && Date.now() - t0 < 480000) {
     await sleep(4000);
+    // a camper at the open shaft mouth is in melee reach of the bottom —
+    // swing at it every loop instead of turtling forever. Bare fists lose
+    // trades to zombies, so only fight back with a real weapon
+    const camper = findHostile(bot, 5);
+    const armed = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+    if (camper && armed) {
+      try {
+        await bot.attack(camper);
+      } catch {
+        /* out of reach — keep waiting */
+      }
+    }
   }
   // dig out the sealed doorway, step back into the open shaft, then pillar
   // up the shaft to the surface (can't pillar inside the pocket — ceiling)
@@ -877,6 +947,17 @@ async function phaseWood(bot, mcData, state, log) {
   // Gather only if we lack materials for table+pick (table 4 + pick 3 + sticks from 2 planks ≈ 12 planks-eq)
   if (woodMat < 12 && logs < 3) {
     const rr = await punchNearbyLogs(bot, mcData, 6);
+    if (!rr.ok && /no path/i.test(String(rr.message || ""))) {
+      // every visible log is an unreachable cliff/water tree — walk to new
+      // ground instead of retrying the same target forever
+      state.woodNoPath = (state.woodNoPath || 0) + 1;
+      if (state.woodNoPath >= 5) {
+        state.woodNoPath = 0;
+        await wander(bot, mcData, 56);
+      }
+    } else if (rr.ok) {
+      state.woodNoPath = 0;
+    }
     if (!rr.ok) {
       // walk toward the nearest visible log — cliff spawns leave trees
       // visible but unreachable until the approach changes the space
@@ -975,6 +1056,12 @@ async function phaseWood(bot, mcData, state, log) {
 
   if (!hasAny(bot, ["wooden_axe", "stone_axe", "iron_axe", "diamond_axe"])) {
     await ensureCraft(bot, mcData, "wooden_axe", 1);
+  }
+
+  // a bare-handed bot loses every mob trade — a wooden sword costs 2 planks
+  // + 1 stick and turns early zombie fights winnable
+  if (!hasAny(bot, ["wooden_sword", "stone_sword", "iron_sword", "diamond_sword"])) {
+    await ensureCraft(bot, mcData, "wooden_sword", 1);
   }
 
   if (!hasPickaxe(bot)) {
@@ -1089,6 +1176,43 @@ async function phaseIron(bot, mcData, state, log) {
     // that's been the death loop all night
     const y = Math.floor(bot.entity.position.y);
     if (y > 16) {
+      // never descend wood-poor: at y≤16 there are no trees — sticks for iron
+      // tools and table/table-fuel must come down with us
+      const woodStock =
+        countItem(bot, (i) => i.name.includes("log")) + countItem(bot, (i) => i.name.endsWith("_planks"));
+      if (woodStock < 8) {
+        const w = await punchNearbyLogs(bot, mcData, 10);
+        if (!w.ok) {
+          const t = bot.findBlock({ matching: (b) => b && b.name.endsWith("_log"), maxDistance: 48 });
+          if (t) {
+            await executeAction(
+              bot,
+              { type: "goto", x: t.position.x, y: t.position.y, z: t.position.z, range: 6, timeoutMs: 15000 },
+              mcData
+            ).catch(() => {});
+          }
+        }
+        return { ok: true, phase: "iron", message: `pre-descend wood (${woodStock})` };
+      }
+      // mountains are iron-rich ABOVE ground in 1.18+: exposed ore on cliff
+      // faces beats a staircase through a mob cave — grab any visible iron
+      // ore first (exposed check = has an air-adjacent face, i.e. cliff wall)
+      const surfaceOre = bot.findBlock({
+        matching: (b) => {
+          if (!b) return false;
+          const blk = b.position ? b : bot.blockAt(b);
+          return blk && /iron_ore/.test(blk.name) && isExposedFace(bot, blk.position);
+        },
+        maxDistance: 24,
+      });
+      if (surfaceOre) {
+        const got = await executeAction(
+          bot,
+          { type: "collect", block: "iron_ore", count: 6, maxDistance: 24, timeoutMs: 25000 },
+          mcData
+        );
+        if (got.ok) return { ok: true, phase: "iron", message: `surface iron @y=${y}` };
+      }
       const d = await stairDown(bot, mcData, 8, log);
       if (d === 0) {
         // every direction may be mob-blocked — end the step so the combat
@@ -1122,6 +1246,23 @@ async function phaseIron(bot, mcData, state, log) {
       const danger = findHostile(bot, 8);
       if (danger) return { ok: true, phase: "iron", message: `descend pause (mob @${y})` };
       return { ok: true, phase: "iron", message: `descend y=${y}` };
+    }
+    // wood-starved underground: sticks/table-fuel need planks — climb back up
+    // the staircase we dug (pathfinder walks it like a corridor) to re-gear
+    const woodStock =
+      countItem(bot, (i) => i.name.includes("log")) + countItem(bot, (i) => i.name.endsWith("_planks"));
+    if (woodStock < 4) {
+      const p0 = bot.entity.position.floored();
+      const up = await executeAction(
+        bot,
+        { type: "goto", x: p0.x, y: p0.y + 24, z: p0.z, range: 4, timeoutMs: 25000 },
+        mcData
+      ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
+      if (Math.floor(bot.entity.position.y) > 16) {
+        return { ok: true, phase: "iron", message: "ascend for wood" };
+      }
+      // stair unreachable (sealed/mobbed) — keep strip-mining: coal still
+      // works as furnace fuel, it just can't make sticks
     }
     // quick surface-adjacent grab: tight collect only if ore is right there
     const before = raw;
@@ -1234,8 +1375,16 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
   const startY = Math.floor(bot.entity.position.y);
   while (Math.floor(bot.entity.position.y) > targetY + 1 && digs < maxDigs) {
     const feet = bot.entity.position.floored();
-    // Scan down a few blocks for solid ground to dig (player may float / stand in air cell)
+    // dig ONLY the floor cell directly under us: a gap of air between feet
+    // and the next solid is a cave — digging into it drops us onto a mob
+    // ledge (the y=59→58 death loop). Stop above caves and let the caller
+    // relocate instead of falling in.
     let blk = null;
+    const gap = bot.blockAt(feet.offset(0, -1, 0));
+    const under = bot.blockAt(feet.offset(0, -2, 0));
+    if (gap && (gap.name === "air" || gap.name === "cave_air" || gap.name === "void_air") && !under) {
+      return { ok: true, message: "cave below — stopping", digs, y: feet.y };
+    }
     for (let dy = 1; dy <= 4; dy++) {
       const cand = bot.blockAt(feet.offset(0, -dy, 0));
       if (!cand || cand.name === "air" || cand.name === "cave_air" || cand.name === "void_air") continue;

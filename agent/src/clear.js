@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -98,7 +98,10 @@ export class ClearRunner {
     this._deathHandler = () => {
       this.deaths += 1;
       this.state._diedAt = Date.now();
-      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}`);
+      const killer = this.combat?.getStats?.().lastTarget || "";
+      const p = this.bot.entity?.position;
+      const at = p ? ` @${p.x | 0},${p.y | 0},${p.z | 0}` : "";
+      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${at}`);
     };
     this._respawnHandler = () => {
       try {
@@ -187,7 +190,27 @@ export class ClearRunner {
         if (this._needRetreat && bot.entity) {
           this._needRetreat = false;
           if (isNight) {
-            this.log(`[clear] night respawn — burrowing over retreat`);
+            this.log(`[clear] night respawn — flee then burrow`);
+            // sprint away FIRST — digging a pocket takes ~10s bare-handed and
+            // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
+            const pf = bot.entity.position;
+            const fleeDirs = [
+              [30, 0],
+              [-30, 0],
+              [0, 30],
+              [0, -30],
+            ];
+            const [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
+            try {
+              await executeAction(
+                bot,
+                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 6, timeoutMs: 20000 },
+                this.mcData
+              );
+            } catch {
+              /* superseded — burrow anyway */
+            }
             try {
               await burrowForNight(bot, this.mcData, this.log);
             } catch (err) {
@@ -201,7 +224,7 @@ export class ClearRunner {
               [-60, 0],
               [0, -60],
             ];
-            const [dx, dz] = dirs[this.deaths % 4];
+            const [dx, dz] = pickDryDir(bot, dirs);
             this.log(`[clear] retreat ${dx},${dz} after death #${this.deaths}`);
             try {
               await executeAction(
@@ -245,7 +268,9 @@ export class ClearRunner {
           this._lastBurrow = Date.now();
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
           try {
-            await burrowForNight(bot, this.mcData, this.log);
+            // force=true for the daytime variant — a hostile is camped on us
+            // and the wait-until-safe logic is exactly what we need anyway
+            await burrowForNight(bot, this.mcData, this.log, !isNight);
           } catch (err) {
             this.log(`[clear] burrow fail: ${err?.message || err}`);
           }
@@ -282,6 +307,7 @@ export class ClearRunner {
           } catch (err) {
             step = { ok: false, phase: phaseBefore, message: `crash: ${err?.message || err}` };
             this.log(`[clear] STEP_CRASH ${step.message}`);
+            this.log(`[clear] STEP_CRASH_STACK ${err?.stack || "(no stack)"}`);
           }
         }
         const phaseAfter = detectPhase(bot);

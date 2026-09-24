@@ -486,6 +486,7 @@ export async function executeAction(bot, action, mcData) {
         return { ok: false, message: `unknown action type: ${type}` };
     }
   } catch (err) {
+    if (err?.stack) console.error(`[actions] ${type} crash: ${err.stack}`);
     return { ok: false, message: err.message || String(err) };
   }
 }
