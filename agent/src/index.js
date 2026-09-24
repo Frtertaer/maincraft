@@ -68,8 +68,11 @@ async function main() {
         (pre?.warning ? ` | note=${pre.warning}` : "")
     );
   } catch (err) {
+    // Non-fatal: a down API must not kill a marathon run. Planner and
+    // dialogue calls degrade on their own (controller carries progression);
+    // if the API comes back later, requests just start succeeding again.
     const code = err?.code ? ` [${err.code}]` : "";
-    throw new Error(`API preflight failed${code}: ${sanitizeForLog(err?.message || err)}`);
+    log(`WARN API preflight failed${code}: ${sanitizeForLog(err?.message || err)} — continuing degraded`);
   }
 
   const runtime = {
