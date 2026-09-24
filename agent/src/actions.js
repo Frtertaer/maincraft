@@ -29,7 +29,9 @@ async function cleanCraftArea(bot) {
   for (let s = 1; s <= gridEnd; s += 1) {
     if (win.slots?.[s]) {
       try {
-        await bot.clickWindow(s, 0, 1); // shift-click → moves to inventory range
+        // mineflayer's clickWindow awaits a server transaction ack — a
+        // dropped confirm hangs the whole run, so bound every click
+        await withTimeout(bot.clickWindow(s, 0, 1), 6000, "click timeout"); // shift-click → moves to inventory range
       } catch {
         /* slot already moved */
       }
@@ -41,7 +43,7 @@ async function cleanCraftArea(bot) {
     const target = empty >= 0 ? empty : win.slots.findIndex((s, i) => s && i >= (win.inventoryStart || 0) && s.type === win.selectedItem.type && s.count < 64);
     if (target < 0) break;
     try {
-      await bot.simpleClick.leftMouse(target);
+      await withTimeout(bot.simpleClick.leftMouse(target), 6000, "click timeout");
     } catch {
       break;
     }
@@ -461,8 +463,8 @@ export async function executeAction(bot, action, mcData) {
                 const inv = bot.inventory;
                 const slot = inv.slots.findIndex((s) => s);
                 if (slot >= 0) {
-                  await bot.clickWindow(slot, 0, 0);
-                  await bot.clickWindow(slot, 0, 0);
+                  await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+                  await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
                 }
               }
               await sleep(300);
@@ -509,8 +511,8 @@ export async function executeAction(bot, action, mcData) {
             } else {
               const slot = bot.inventory.slots.findIndex((s) => s);
               if (slot >= 0) {
-                await bot.clickWindow(slot, 0, 0);
-                await bot.clickWindow(slot, 0, 0);
+                await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+                await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
               }
             }
             for (let i = 0; i < 30 && after <= before; i++) {
