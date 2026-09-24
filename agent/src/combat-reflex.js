@@ -79,6 +79,11 @@ const NEVER_ATTACK = new Set([
   "interaction",
 ]);
 
+/** Mobs that kill an undergeared bot — never auto-engage without iron+
+ * weaponry. Enderman especially: engaging it means looking at it, which
+ * is exactly how a wooden-sword bot turns a neutral mob into a killer. */
+const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian"]);
+
 /** Higher = kill first */
 const THREAT_WEIGHT = {
   creeper: 100,
@@ -362,6 +367,7 @@ export class CombatReflex {
           /* if LOS check unsupported, keep the target */
         }
       }
+      if (OVERMATCHED.has(this._mobName(e)) && !this._isArmed()) continue;
       const score = this._threatScore(e, d);
       if (score > bestScore) {
         bestScore = score;
@@ -369,6 +375,11 @@ export class CombatReflex {
       }
     }
     return best;
+  }
+
+  _isArmed() {
+    const items = this.bot?.inventory?.items?.() || [];
+    return items.some((i) => /iron_sword|diamond_sword|netherite_sword|iron_axe|diamond_axe|netherite_axe|trident|bow|crossbow/.test(i.name));
   }
 
   _clearMotion() {

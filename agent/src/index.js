@@ -619,6 +619,11 @@ async function main() {
       }
     }, 15000);
 
+    bot._client?.on?.("error", (e) => {
+      if (/PartialRead|Parse error/i.test(String(e?.message || ""))) {
+        log(`[pkt] ${e?.field || "?"}: ${String(e?.message || "").slice(0, 140)}`);
+      }
+    });
     bot.on("kicked", (reason) => log(`Kicked: ${JSON.stringify(reason).slice(0, 500)}`));
     bot.on("error", (err) => log(`Bot error: ${err?.message || "unknown error"}`));
     bot.on("end", (reason) => {

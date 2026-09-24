@@ -1,8 +1,80 @@
 [
   {
+    "uuid": "f8858de8-743c-37c4-a7a3-b7c3c93eeaaf",
+    "name": "ProbeBot",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "c77cf5cb-be76-3f71-ac9a-33b7eef117bb",
+    "name": "ScafProbe",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "41247bab-aa16-3106-9e88-deffbd362a47",
+    "name": "BoatProbe4",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "6fcd0825-c988-39da-ac64-928a16fb97bb",
+    "name": "BoatProbe7",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
     "uuid": "53f927d4-9c5d-3cf4-a8de-133fd1b7468e",
     "name": "OpusBot",
     "level": 4,
     "bypassesPlayerLimit": true
+  },
+  {
+    "uuid": "c082bcb5-1532-3b56-bf95-cf5e3be79d1c",
+    "name": "BoatProbe2",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "9eacf3ec-8207-3467-8269-5cfc350247ec",
+    "name": "BoatProbe6",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "c135bb9f-b07c-3b61-90eb-afed0bfa9538",
+    "name": "BoatProbe3",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "2e1fd22f-efe1-379f-91c2-6c8f9455632a",
+    "name": "JumpProbe",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "0606aaff-9e6f-3b72-9e61-8f417f396572",
+    "name": "BoatProbe8",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "81f16d43-2da0-36f9-9d19-82f22165b2b1",
+    "name": "TowerProbe",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "4f27701e-0621-3064-add6-afaac84d90b7",
+    "name": "BoatProbe9",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "be7218f0-4f98-3d9f-854e-9cf1894c8bc8",
+    "name": "BoatProbe5",
+    "level": 4,
+    "bypassesPlayerLimit": false
   }
 ]

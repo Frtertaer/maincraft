@@ -114,7 +114,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
       const logs = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
       const planks = countItem(bot, (i) => i.name.includes("planks"));
       if (logs + planks < 4) {
-        const rr = await punchNearbyLogs(bot, mcData, 4);
+        const rr = await punchNearbyLogs(bot, mcData, 4, state);
         if (!rr.ok) {
           // tree visible but unreachable (cliff/lava spawn) — walk toward the
           // nearest log so the next attempt searches a different space
@@ -216,6 +216,19 @@ async function ensureCraft(bot, mcData, item, count = 1) {
   return executeAction(bot, { type: "craft", item, count }, mcData);
 }
 
+async function ensureSticks(bot, mcData, min = 4) {
+  if (countItem(bot, "stick") >= min) return { ok: true, message: "have sticks" };
+  if (countItem(bot, (i) => i.name.includes("planks")) < 2) {
+    const pl = await ensurePlanks(bot, mcData, 4);
+    if (!pl.ok && countItem(bot, (i) => i.name.includes("planks")) < 2) {
+      return { ok: false, message: pl.message || "need planks for sticks" };
+    }
+  }
+  const cr = await ensureCraft(bot, mcData, "stick", Math.max(4, min));
+  if (!cr.ok && countItem(bot, "stick") < 2) return { ok: false, message: `sticks: ${cr.message}` };
+  return { ok: true, message: "sticks ready" };
+}
+
 async function ensurePlanks(bot, mcData, min = 8) {
   if (countItem(bot, (i) => i.name.includes("planks")) >= min) return { ok: true };
   const logItem = bot.inventory.items().find((i) => i.name.includes("log") || i.name.endsWith("_wood"));
@@ -224,6 +237,22 @@ async function ensurePlanks(bot, mcData, min = 8) {
   // 1 log → 4 planks; craft enough
   const need = Math.max(1, Math.ceil((min - countItem(bot, (i) => i.name.includes("planks"))) / 4));
   return ensureCraft(bot, mcData, plank, Math.min(need * 4, 32));
+}
+
+// pick the table back up — a speedrun carries its station; leaving it
+// behind means every later 3x3 craft hunts a stale unreachable table
+async function pullTable(bot, mcData) {
+  const t = bot.findBlock({ matching: (b) => b?.name === "crafting_table", maxDistance: 6 });
+  if (!t) return;
+  try {
+    await executeAction(
+      bot,
+      { type: "dig", x: t.position.x, y: t.position.y, z: t.position.z, timeoutMs: 8000 },
+      mcData
+    );
+  } catch {
+    /* keep it for the next craft */
+  }
 }
 
 async function ensureTable(bot, mcData) {
@@ -392,11 +421,14 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         why.push(`${tag}:mob`);
         continue;
       }
-      // solid-rock only: air at the door/head cell means a cave mouth —
-      // stepping in lands us on a mob ledge (the mid-descent death loop).
-      // Only dirs that are fully enclosed diggable rock get stepped.
-      const doorHead = [bot.blockAt(p.offset(dx, 0, dz)), bot.blockAt(p.offset(dx, 1, dz))];
-      if (doorHead.some((c) => !c || !diggableBlock(bot, c))) {
+      // Reject a dir whose doorway is a hole ≥3 deep — door and two cells
+      // below it all air means a cliff edge or cave mouth, not a slope.
+      // Flat ground has a solid cell at -1 and is fine to step.
+      const doorAir = (dy) => {
+        const c = bot.blockAt(p.offset(dx, dy, dz));
+        return !c || /air|cave_air|void_air/.test(c.name);
+      };
+      if (doorAir(0) && doorAir(-1) && doorAir(-2)) {
         why.push(`${tag}:open`);
         continue;
       }
@@ -455,18 +487,18 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
           break;
         }
         // seal the stair behind us — a 1-high doorway slot is a walkable
-        // path mobs follow down (the skeleton-at-y29 lesson); one block at
-        // the old feet cell closes it, and we just dig it back out on return
+        // path mobs follow down (the skeleton-at-y29 lesson). Hang a block
+        // on the ceiling face of the doorway head cell. Fire-and-forget:
+        // placeBlock's 5s blockUpdate wait stalls every step while the
+        // placement itself usually lands anyway.
         const filler = bot.inventory
           .items()
           .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|deepslate|andesite|diorite|granite|tuff|blackstone|mud|clay/.test(i.name));
-        if (filler) {
+        const ceil = bot.blockAt(p.offset(dx, 2, dz));
+        if (filler && ceil && ceil.name !== "air") {
           try {
-            await executeAction(
-              bot,
-              { type: "place", item: filler.name, x: p.x, y: p.y, z: p.z, face: "top", timeoutMs: 6000 },
-              mcData
-            );
+            await bot.equip(filler, "hand");
+            await Promise.race([bot.placeBlock(ceil, new Vec3(0, -1, 0)).catch(() => {}), sleep(900)]);
           } catch {
             /* sealing is best-effort */
           }
@@ -626,9 +658,28 @@ export function pickDryDir(bot, dirs) {
   return best;
 }
 
-export async function burrowForNight(bot, mcData, log, force = false) {
+export async function burrowForNight(bot, mcData, log, force = false, _depth = 0) {
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
+  // a failed dig leaves the bot standing exposed — relocate to a different
+  // patch of ground and try the whole burrow again instead of giving up
+  const retryElsewhere = async (why) => {
+    if (_depth >= 2) return false;
+    log?.(`[burrow] ${why} — relocating`);
+    const p = bot.entity.position.floored();
+    const dirs = [[18, 0], [-18, 0], [0, 18], [0, -18]];
+    const [rx, rz] = pickDryDir(bot, dirs);
+    try {
+      await executeAction(
+        bot,
+        { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 },
+        mcData
+      );
+    } catch {
+      /* move didn't land — try the burrow from wherever we are */
+    }
+    return burrowForNight(bot, mcData, log, force, _depth + 1);
+  };
   const solid = bot.inventory
     .items()
     .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|planks|_log|blackstone/.test(i.name));
@@ -652,6 +703,21 @@ export async function burrowForNight(bot, mcData, log, force = false) {
       return hostile && e.position.distanceTo(bot.entity.position) < 16;
     });
   };
+  // Standing on jungle canopy: every candidate column below is leaves —
+  // drop through the foliage to the real ground first (leaves break
+  // instantly even by hand)
+  for (let i = 0; i < 18; i++) {
+    const p = bot.entity.position.floored();
+    const under = bot.blockAt(p.offset(0, -1, 0));
+    if (!under || !/leaves$/.test(under.name)) break;
+    const d = await executeAction(
+      bot,
+      { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 4000 },
+      mcData
+    );
+    if (!d.ok) break;
+    await sleep(120);
+  }
   // Try up to 9 candidate spots for a dig-down column: here, then east, west,
   // south, north at 3 and 6 blocks — the ground must be solid to -6.
   let entry = bot.entity.position.floored();
@@ -701,6 +767,16 @@ export async function burrowForNight(bot, mcData, log, force = false) {
       }
     }
   }
+  let dug = 0;
+  let needsShaft = true;
+  if (!spot && solid) {
+    // no diggable column — we're deep in a tunnel or on undiggable floor.
+    // The tunnel wall itself is the burrow: carve a sideways pocket at
+    // ground level (all diggable stone) instead of digging a shaft first
+    spot = bot.entity.position.floored();
+    needsShaft = false;
+    log?.("[burrow] no safe column — carving into tunnel wall");
+  }
   if (!spot) {
     // last resort: pillar up where we stand — mobs can't climb 6+ blocks
     // (skeletons can still shoot; still better than standing on the ground)
@@ -743,11 +819,10 @@ export async function burrowForNight(bot, mcData, log, force = false) {
       return true;
     }
     log?.("[burrow] pillar failed — staying up");
-    return false;
+    return retryElsewhere("pillar failed");
   }
   entry = spot;
-  let dug = 0;
-  for (let i = 0; i < 3; i++) {
+  if (needsShaft) for (let i = 0; i < 3; i++) {
     const feet = bot.entity.position.floored();
     const under = bot.blockAt(feet.offset(0, -1, 0));
     const below = bot.blockAt(feet.offset(0, -2, 0));
@@ -768,16 +843,16 @@ export async function burrowForNight(bot, mcData, log, force = false) {
     }
     dug += 1;
   }
-  if (dug < 2) {
-    log?.(`[burrow] only dug ${dug} — staying up`);
-    return false;
+  if (needsShaft && dug < 2) {
+    log?.(`[burrow] only dug ${dug}`);
+    return retryElsewhere(`only dug ${dug}`);
   }
   // seal the shelter: carve a 2-deep pocket sideways and wall its doorway
   // shut — works even when the shaft's top cell has no solid walls (cliff
   // lips). Returns sealed cells for the exit dig.
   const feet = bot.entity.position.floored();
   let sealedCells = null;
-  if (solid && dug >= 3) {
+  if (solid && (dug >= 3 || !needsShaft)) {
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
@@ -908,7 +983,7 @@ export async function burrowForNight(bot, mcData, log, force = false) {
   return true;
 }
 
-async function punchNearbyLogs(bot, mcData, need = 6) {
+async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   const logNames = [
     "oak_log",
     "spruce_log",
@@ -925,17 +1000,54 @@ async function punchNearbyLogs(bot, mcData, need = 6) {
     const rr = await executeAction(bot, { type: "collect", block: b, count: 4, maxDistance: 32 }, mcData);
     if (rr.ok) return rr;
   }
-  // Fallback: dig one log block by coords
+  // Fallback: dig one log block by coords — skip targets this spot already
+  // failed to path to and anything far below (cave-visible trunks the
+  // pathfinder can never reach from the surface)
+  const feet = bot.entity.position.floored();
   const block = bot.findBlock({
-    matching: (b) => b && (b.name.endsWith("_log") || b.name.endsWith("_stem")),
+    matching: (b) => {
+      const blk = b && b.position ? b : b && bot.blockAt(b);
+      if (!blk || !(blk.name.endsWith("_log") || blk.name.endsWith("_stem"))) return false;
+      if (blk.position.y <= feet.y - 12) return false;
+      return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
+    },
     maxDistance: 32,
   });
-  if (!block) return { ok: false, message: "no log block nearby" };
-  return executeAction(
+  if (!block) {
+    // nothing in scan range — wander toward new ground instead of stalling
+    if (state) {
+      state.noLogStreak = (state.noLogStreak || 0) + 1;
+      if (state.noLogStreak >= 3) {
+        const p = bot.entity.position.floored();
+        const dirs = [[40, 0], [-40, 0], [0, 40], [0, -40]];
+        const [wx, wz] = pickDryDir(bot, dirs);
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 5, timeoutMs: 20000 },
+            mcData
+          );
+        } catch {
+          /* wander blocked — retry from here */
+        }
+        state.noLogStreak = 0;
+        return { ok: true, message: "exploring for trees" };
+      }
+    }
+    return { ok: false, message: "no log block nearby" };
+  }
+  if (state) state.noLogStreak = 0;
+  const dig = await executeAction(
     bot,
     { type: "dig", x: block.position.x, y: block.position.y, z: block.position.z },
     mcData
   );
+  if (!dig.ok && /no path|timeout/i.test(String(dig.message || "")) && state) {
+    state.badDig = state.badDig || new Map();
+    const k = `${block.position.x},${block.position.y},${block.position.z}`;
+    state.badDig.set(k, (state.badDig.get(k) || 0) + 1);
+  }
+  return dig;
 }
 
 async function phaseWood(bot, mcData, state, log) {
@@ -946,7 +1058,7 @@ async function phaseWood(bot, mcData, state, log) {
 
   // Gather only if we lack materials for table+pick (table 4 + pick 3 + sticks from 2 planks ≈ 12 planks-eq)
   if (woodMat < 12 && logs < 3) {
-    const rr = await punchNearbyLogs(bot, mcData, 6);
+    const rr = await punchNearbyLogs(bot, mcData, 6, state);
     if (!rr.ok && /no path/i.test(String(rr.message || ""))) {
       // every visible log is an unreachable cliff/water tree — walk to new
       // ground instead of retrying the same target forever
@@ -979,6 +1091,9 @@ async function phaseWood(bot, mcData, state, log) {
       // nearest dropped log/plank item and let the pickup radius grab it
       const drop = Object.values(bot.entities || {}).find((e) => {
         if (!e?.position) return false;
+        // a drop far below the bot (its own death pile in a cave) is not
+        // retrievable by walking — chasing it traps progression underground
+        if (e.position.y < bot.entity.position.y - 8) return false;
         try {
           const d = e.getDroppedItem?.();
           if (!d || !/log|planks|stick/.test(String(d.name || ""))) return false;
@@ -1016,7 +1131,7 @@ async function phaseWood(bot, mcData, state, log) {
       return { ok: false, phase: "wood", message: `planks: ${pl.message}` };
     }
   } else if (woodMat < 8) {
-    const rr = await punchNearbyLogs(bot, mcData, 4);
+    const rr = await punchNearbyLogs(bot, mcData, 4, state);
     return {
       ok: rr.ok,
       phase: "wood",
@@ -1075,6 +1190,7 @@ async function phaseWood(bot, mcData, state, log) {
     /* ignore */
   }
 
+  await pullTable(bot, mcData);
   return { ok: true, phase: "wood", message: "wood tools ready", milestone: "WOOD_TOOLS" };
 }
 
@@ -1152,6 +1268,7 @@ async function phaseStone(bot, mcData, state, log) {
   if (!hasAny(bot, ["stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"])) {
     return { ok: false, phase: "stone", message: "still no stone pickaxe" };
   }
+  await pullTable(bot, mcData);
   return { ok: true, phase: "stone", message: "stone tools", milestone: "STONE_TOOLS" };
 }
 
@@ -1165,6 +1282,18 @@ async function phaseIron(bot, mcData, state, log) {
     if (pick) await bot.equip(pick, "hand");
   } catch {
     /* ignore */
+  }
+
+  // iron ore needs stone+ — a broken pick underground means rebuild one
+  // right here instead of strip-mining with a wooden pick forever
+  if (!hasAny(bot, ["stone_pickaxe", "iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"])) {
+    const st = await ensureSticks(bot, mcData, 2);
+    if (!st.ok) return { ok: false, phase: "iron", message: `pick remake sticks: ${st.message}` };
+    const t = await ensureTable(bot, mcData);
+    if (!t.ok) return { ok: false, phase: "iron", message: `pick remake table: ${t.message}` };
+    const cr = await ensureCraft(bot, mcData, "stone_pickaxe", 1);
+    if (!cr.ok) return { ok: false, phase: "iron", message: `pick remake: ${cr.message}` };
+    await pullTable(bot, mcData);
   }
 
   const ingots = countItem(bot, "iron_ingot");
@@ -1181,7 +1310,7 @@ async function phaseIron(bot, mcData, state, log) {
       const woodStock =
         countItem(bot, (i) => i.name.includes("log")) + countItem(bot, (i) => i.name.endsWith("_planks"));
       if (woodStock < 8) {
-        const w = await punchNearbyLogs(bot, mcData, 10);
+        const w = await punchNearbyLogs(bot, mcData, 10, state);
         if (!w.ok) {
           const t = bot.findBlock({ matching: (b) => b && b.name.endsWith("_log"), maxDistance: 48 });
           if (t) {
@@ -1316,11 +1445,12 @@ async function phaseIron(bot, mcData, state, log) {
       fuel = logItem?.name || "oak_planks";
     }
     const need = Math.min(8 - ingots, raw, 8);
-    await executeAction(
+    const sm = await executeAction(
       bot,
       { type: "smelt", input: "raw_iron", output: "iron_ingot", fuel, count: need },
       mcData
     );
+    if (!sm.ok) return { ok: false, phase: "iron", message: `smelt: ${sm.message}` };
     if (countItem(bot, "iron_ingot") < 3) {
       await executeAction(
         bot,
@@ -1334,6 +1464,12 @@ async function phaseIron(bot, mcData, state, log) {
       message: `smelt iron (ingots=${countItem(bot, "iron_ingot")})`,
       milestone: countItem(bot, "iron_ingot") > ingots ? "IRON_SMELT" : undefined,
     };
+  }
+
+  if (ingots < 3) {
+    // smelt gate above should have caught this — surface it instead of
+    // spinning on an uncraftable pick every step
+    return { ok: false, phase: "iron", message: `need ingots for tools (${ingots}/3)` };
   }
 
   // Craft iron tools — pick first (gate to diamond phase)

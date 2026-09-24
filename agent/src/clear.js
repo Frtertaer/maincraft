@@ -217,23 +217,31 @@ export class ClearRunner {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
           } else {
-            const p = bot.entity.position;
-            const dirs = [
-              [60, 0],
-              [0, 60],
-              [-60, 0],
-              [0, -60],
+            // day respawn: a camper (usually a skeleton in shade/water) can
+            // out-range any sprint — flee, then hide in a sealed pocket until
+            // it wanders off (the burrow wait is hostile-proximity based)
+            const pf = bot.entity.position;
+            const fleeDirs = [
+              [30, 0],
+              [-30, 0],
+              [0, 30],
+              [0, -30],
             ];
-            const [dx, dz] = pickDryDir(bot, dirs);
-            this.log(`[clear] retreat ${dx},${dz} after death #${this.deaths}`);
+            const [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
             try {
               await executeAction(
                 bot,
-                { type: "goto", x: p.x + dx, y: p.y, z: p.z + dz, range: 8, timeoutMs: 40000 },
+                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 6, timeoutMs: 20000 },
                 this.mcData
               );
             } catch {
-              /* superseded/failed — progress anyway */
+              /* superseded — burrow anyway */
+            }
+            try {
+              await burrowForNight(bot, this.mcData, this.log, true);
+            } catch (err) {
+              this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
           }
           // escape landed — reflexes back on for whatever chased us out here

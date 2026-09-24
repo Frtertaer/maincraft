@@ -361,7 +361,13 @@ export async function executeAction(bot, action, mcData) {
         if (!plan) return { ok: false, message: `bad craft plan for ${itemName}` };
 
         const before = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
-        await bot.craft(recipe, plan.repetitions, craftingTable);
+        await bot.craft(recipe, plan.repetitions, craftingTable).catch((err) => {
+        const inv = bot.inventory
+          .items()
+          .map((i) => `${i.name}x${i.count}`)
+          .join(",");
+        throw new Error(`${err?.message || err} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
+      });
         // Server-side inventory sync can lag the craft — poll briefly instead of one fixed sleep
         let after = before;
         for (let i = 0; i < 30 && after <= before; i++) {

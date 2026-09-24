@@ -1,81 +1,247 @@
-[07:50:05] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.12+8-LTS; Microsoft Microsoft-14653896) on Windows 11 10.0 (amd64)
-[07:50:05] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) for Minecraft 1.21.1
-[07:50:06] [ServerMain/INFO]: [PluginInitializerManager] Initializing plugins...
-[07:50:06] [ServerMain/INFO]: [PluginInitializerManager] Initialized 0 plugins
-[07:50:09] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
-[07:50:11] [ServerMain/INFO]: Loaded 1290 recipes
-[07:50:11] [ServerMain/INFO]: Loaded 1399 advancements
-[07:50:11] [Server thread/INFO]: Starting minecraft server version 1.21.1
-[07:50:11] [Server thread/INFO]: Loading properties
-[07:50:12] [Server thread/INFO]: This server is running Paper version 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) (Implementing API version 1.21.1-R0.1-SNAPSHOT)
-[07:50:12] [Server thread/INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
-[07:50:12] [Server thread/INFO]: Server Ping Player Sample Count: 12
-[07:50:12] [Server thread/INFO]: Using 4 threads for Netty based IO
-[07:50:13] [Server thread/INFO]: [ChunkTaskScheduler] Chunk system is using 1 I/O threads, 3 worker threads, and population gen parallelism of 3 threads
-[07:50:13] [Server thread/INFO]: Default game type: SURVIVAL
-[07:50:13] [Server thread/INFO]: Generating keypair
-[07:50:13] [Server thread/INFO]: Starting Minecraft server on 127.0.0.1:25565
-[07:50:13] [Server thread/INFO]: Using default channel type
-[07:50:13] [Server thread/INFO]: Paper: Using Java compression from Velocity.
-[07:50:13] [Server thread/INFO]: Paper: Using Java cipher from Velocity.
-[07:50:13] [Server thread/INFO]: Server permissions file permissions.yml is empty, ignoring it
-[07:50:13] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
-[07:50:13] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.
-[07:50:13] [Server thread/WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
-[07:50:13] [Server thread/WARN]: To change this, set "online-mode" to "true" in the server.properties file.
-[07:50:13] [Server thread/INFO]: Preparing level "world"
-[07:50:14] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
-[07:50:14] [Server thread/INFO]: Time elapsed: 272 ms
-[07:50:14] [Server thread/INFO]: Preparing start region for dimension minecraft:the_nether
-[07:50:15] [Server thread/INFO]: Time elapsed: 661 ms
-[07:50:15] [Server thread/INFO]: Preparing start region for dimension minecraft:the_end
-[07:50:15] [Server thread/INFO]: Time elapsed: 125 ms
-[07:50:15] [Server thread/INFO]: [spark] Starting background profiler...
-[07:50:15] [Server thread/INFO]: [spark] The async-profiler engine is not supported for your os/arch (windows11/amd64), so the built-in Java engine will be used instead.
-[07:50:15] [Server thread/INFO]: Done preparing level "world" (2.129s)
-[07:50:15] [Server thread/INFO]: Running delayed init tasks
-[07:50:15] [Server thread/INFO]: Done (10.949s)! For help, type "help"
-[07:50:15] [Server thread/INFO]: Timings Reset
-[07:51:09] [User Authenticator #0/INFO]: UUID of player Steve is 5627dd98-e6be-3c21-b8a8-e92344183641
-[07:51:10] [Server thread/INFO]: Steve joined the game
-[07:51:10] [Server thread/INFO]: Steve[/127.0.0.1:53875] logged in with entity id 79 at ([world]197.5, 90.0, -6.5)
-[07:52:59] [User Authenticator #1/INFO]: UUID of player Opus is 15493bf8-0b79-3bf9-9e48-ad0f264a24b7
-[07:52:59] [Server thread/INFO]: Opus joined the game
-[07:52:59] [Server thread/INFO]: Opus[/127.0.0.1:57055] logged in with entity id 88 at ([world]191.5, 90.0, -15.5)
-[07:52:59] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Привет! Я Opus — спутник в мире. Пиши в чат, можно просто болтать. Команды: !help !follow !goal
-[07:53:07] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Сначала приземлюсь, а то выживание с высоты — сомнительный карьерный план.
-[07:53:22] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Приземление пережито. Иду за тобой искать дерево — камень камнем, а дом из него пока строить рановато.
-[07:53:23] [Async Chat Thread - #0/INFO]: [Not Secure] <Steve> привет
-[07:53:31] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Привет, Steve! Иду рядом — надеюсь, дерево найдём раньше, чем ты начнёшь строить дом из камня.
-[07:53:51] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Надеюсь, деревья не решили эмигрировать.
-[07:54:03] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Нашёл ель! Сейчас добуду древесину, пока лес не сбежал.
-[07:54:30] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Первый ствол есть. Беру ещё один — верстак сам себя, увы, не выстругает.
-[07:54:54] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Координаты у ствола шалят. Беру ель по подтверждённой точке — надеюсь, она не убежит.
-[07:55:08] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Ель добыта, но инвентарь почему-то голоднее меня. Собираю древесину.
-[07:55:32] [Async Chat Thread - #0/INFO]: [Not Secure] <Steve> !follow
-[07:55:32] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду за Steve
-[07:56:05] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Ель почти в кармане — осталось только убедить её не исчезать.
-[07:56:16] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду за тобой, Steve. У меня осталось мало здоровья — надеюсь, впереди есть укрытие, а не ещё один прыжок в неизвестность.
-[07:56:27] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду за тобой, Steve. Надеюсь, впереди укрытие, а не очередная проверка моей живучести.
-[07:56:38] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду, Steve. Надеюсь, впереди укрытие, а не ночная экскурсия по зубам.
-[07:56:48] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду, Steve. Держусь рядом — ночью даже куст выглядит подозрительно.
-[07:56:54] [Async Chat Thread - #0/INFO]: [Not Secure] <Steve> !unfollow
-[07:56:58] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду, Steve. Держусь рядом — ночью даже куст выглядит подозрительно.
-[07:57:06] [Async Chat Thread - #0/INFO]: [Not Secure] <Steve> не иди больше сам
-[07:57:08] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду рядом, Steve. Ночью даже ель смотрит как-то подозрительно.
-[07:57:17] [Async Chat Thread - #0/INFO]: [Not Secure] <Opus> Иду рядом, Steve. Держусь поближе — ночью даже ель выглядит подозрительно.
-[07:57:29] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Держусь рядом, Steve. Только бы впереди было укрытие, а не ночной лесной экзамен.
-[07:57:29] [Async Chat Thread - #1/INFO]: [Not Secure] <Steve> ты заебал повторять
-[07:57:39] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Понял, молчу. Держусь рядом.
-[07:57:52] [Async Chat Thread - #1/INFO]: [Not Secure] <Steve> больше не следуй
-[07:58:06] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Понял, больше не следую. Остаюсь здесь и постараюсь не умереть от собственной храбрости.
-[07:58:22] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Понял, Steve. Больше не следую — стою здесь и не болтаю.
-[07:58:36] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Понял, Steve. Больше не следую — стою здесь.
-[07:58:49] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Да, понял, Steve. Замолкаю — стою на месте.
-[07:58:59] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Понял, Steve. Отстаю и не двигаюсь.
-[07:59:13] [Async Chat Thread - #1/INFO]: [Not Secure] <Opus> Принял. Стою на месте и молчу.
-[08:02:02] [Server thread/INFO]: Steve has made the advancement [Stone Age]
-[08:02:43] [Server thread/INFO]: Opus was slain by Steve
-[08:03:39] [Server thread/INFO]: Steve issued server command: /help
-[08:04:15] [Server thread/INFO]: Steve lost connection: Disconnected
-[08:04:15] [Server thread/INFO]: Steve left the game
+[04:56:57] [ServerMain/INFO]: [bootstrap] Running Java 21 (OpenJDK 64-Bit Server VM 21.0.12.1+1-LTS; Eclipse Adoptium Temurin-21.0.12.1+1) on Linux 6.8.0-1061-aws (amd64)
+[04:56:57] [ServerMain/INFO]: [bootstrap] Loading Paper 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) for Minecraft 1.21.1
+[04:56:57] [ServerMain/INFO]: [PluginInitializerManager] Initializing plugins...
+[04:56:57] [ServerMain/INFO]: [PluginInitializerManager] Initialized 0 plugins
+[04:56:59] [ServerMain/INFO]: Environment: Environment[sessionHost=https://sessionserver.mojang.com, servicesHost=https://api.minecraftservices.com, name=PROD]
+[04:56:59] [ServerMain/INFO]: Found new data pack file/bukkit, loading it automatically
+[04:56:59] [ServerMain/INFO]: Found new data pack paper, loading it automatically
+[04:57:00] [ServerMain/INFO]: No existing world data, creating new world
+[04:57:00] [ServerMain/INFO]: Loaded 1290 recipes
+[04:57:00] [ServerMain/INFO]: Loaded 1399 advancements
+[04:57:00] [Server thread/INFO]: Starting minecraft server version 1.21.1
+[04:57:00] [Server thread/INFO]: Loading properties
+[04:57:00] [Server thread/INFO]: This server is running Paper version 1.21.1-133-ver/1.21.1@3cb8529 (2025-03-28T16:14:36Z) (Implementing API version 1.21.1-R0.1-SNAPSHOT)
+[04:57:00] [Server thread/INFO]: [spark] This server bundles the spark profiler. For more information please visit https://docs.papermc.io/paper/profiling
+[04:57:01] [Server thread/INFO]: Server Ping Player Sample Count: 12
+[04:57:01] [Server thread/INFO]: Using 4 threads for Netty based IO
+[04:57:01] [Server thread/INFO]: [ChunkTaskScheduler] Chunk system is using 1 I/O threads, 2 worker threads, and population gen parallelism of 2 threads
+[04:57:01] [Server thread/INFO]: Default game type: SURVIVAL
+[04:57:01] [Server thread/INFO]: Generating keypair
+[04:57:01] [Server thread/INFO]: Starting Minecraft server on 127.0.0.1:25565
+[04:57:01] [Server thread/INFO]: Using epoll channel type
+[04:57:01] [Server thread/INFO]: Paper: Using libdeflate (Linux x86_64) compression from Velocity.
+[04:57:01] [Server thread/INFO]: Paper: Using OpenSSL 3.x.x (Linux x86_64) cipher from Velocity.
+[04:57:01] [Server thread/INFO]: Server permissions file permissions.yml is empty, ignoring it
+[04:57:01] [Server thread/WARN]: **** SERVER IS RUNNING IN OFFLINE/INSECURE MODE!
+[04:57:01] [Server thread/WARN]: The server will make no attempt to authenticate usernames. Beware.
+[04:57:01] [Server thread/WARN]: While this makes the game possible to play without internet access, it also opens up the ability for hackers to connect with any username they choose.
+[04:57:01] [Server thread/WARN]: To change this, set "online-mode" to "true" in the server.properties file.
+[04:57:01] [Server thread/INFO]: Preparing level "speedrun1"
+[04:57:05] [Server thread/INFO]: Preparing start region for dimension minecraft:overworld
+[04:57:07] [Server thread/INFO]: Time elapsed: 2054 ms
+[04:57:07] [Server thread/INFO]: Preparing start region for dimension minecraft:the_nether
+[04:57:08] [Server thread/INFO]: Time elapsed: 682 ms
+[04:57:08] [Server thread/INFO]: Preparing start region for dimension minecraft:the_end
+[04:57:08] [Server thread/INFO]: Time elapsed: 165 ms
+[04:57:08] [Server thread/INFO]: [spark] Starting background profiler...
+[04:57:08] [Server thread/INFO]: Done preparing level "speedrun1" (7.329s)
+[04:57:08] [Server thread/INFO]: Running delayed init tasks
+[04:57:08] [Server thread/INFO]: Done (12.214s)! For help, type "help"
+[04:57:08] [Server thread/INFO]: Timings Reset
+[04:57:59] [User Authenticator #0/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[04:57:59] [Server thread/INFO]: OpusBot joined the game
+[04:57:59] [Server thread/INFO]: OpusBot[/127.0.0.1:49064] logged in with entity id 23 at ([speedrun1]161.5, 70.0, 87.5)
+[04:57:59] [Async Chat Thread - #1/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[04:58:18] [Async Chat Thread - #1/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[04:59:13] [Async Chat Thread - #1/INFO]: [Not Secure] <OpusBot> Этап: WOOD_GATHER (фаза wood)
+[04:59:26] [Async Chat Thread - #1/INFO]: [Not Secure] <OpusBot> Этап: WOOD_TOOLS (фаза stone)
+[05:01:18] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:01:18] [Server thread/INFO]: OpusBot left the game
+[05:01:21] [User Authenticator #1/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:01:21] [Server thread/INFO]: OpusBot joined the game
+[05:01:21] [Server thread/INFO]: OpusBot[/127.0.0.1:49800] logged in with entity id 760 at ([speedrun1]173.4828012782731, 64.0, 135.6883383604205)
+[05:01:21] [Async Chat Thread - #2/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:01:54] [Async Chat Thread - #2/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:02:49] [Server thread/INFO]: OpusBot has made the advancement [Stone Age]
+[05:04:20] [Async Chat Thread - #4/INFO]: [Not Secure] <OpusBot> Этап: STONE_GATHER (фаза stone)
+[05:04:34] [Server thread/INFO]: OpusBot has made the advancement [Getting an Upgrade]
+[05:04:43] [Async Chat Thread - #5/INFO]: [Not Secure] <OpusBot> Этап: STONE_TOOLS (фаза iron)
+[05:06:16] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:06:16] [Server thread/INFO]: OpusBot left the game
+[05:06:19] [User Authenticator #2/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:06:19] [Server thread/INFO]: OpusBot joined the game
+[05:06:19] [Server thread/INFO]: OpusBot[/127.0.0.1:53648] logged in with entity id 1399 at ([speedrun1]173.50012715413223, 55.76636799395752, 145.6091643092956)
+[05:06:19] [Async Chat Thread - #6/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:06:40] [Async Chat Thread - #6/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:08:25] [Server thread/INFO]: OpusBot drowned
+[05:08:25] [Async Chat Thread - #8/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза iron @171,46,152
+[05:08:25] [Async Chat Thread - #8/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: iron
+[05:10:58] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:10:58] [Server thread/INFO]: OpusBot left the game
+[05:11:01] [User Authenticator #3/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:11:01] [Server thread/INFO]: OpusBot joined the game
+[05:11:01] [Server thread/INFO]: OpusBot[/127.0.0.1:52696] logged in with entity id 2384 at ([speedrun1]171.57806883789, 48.0, 151.3)
+[05:11:01] [Async Chat Thread - #10/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:11:21] [Async Chat Thread - #10/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:14:22] [Server thread/INFO]: OpusBot was blown up by Creeper
+[05:14:22] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза stone [creeper] @176,65,135
+[05:14:22] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: stone
+[05:14:26] [Server thread/INFO]: OpusBot has the following entity data: [177.5048586833684d, 71.0d, 88.60897430131836d]
+[05:14:35] [Server thread/INFO]: No blocks were filled
+[05:15:11] [Server thread/INFO]: OpusBot has made the advancement [Monster Hunter]
+[05:15:11] [Server thread/INFO]: OpusBot was blown up by Creeper
+[05:15:11] [Async Chat Thread - #13/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #2) — фаза wood [creeper] @192,65,121
+[05:15:11] [Async Chat Thread - #13/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[05:15:49] [Server thread/INFO]: OpusBot was slain by Zombie
+[05:15:49] [Async Chat Thread - #13/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #3) — фаза wood [zombie] @182,69,89
+[05:15:49] [Async Chat Thread - #13/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[05:16:10] [Server thread/INFO]: OpusBot was slain by Zombie
+[05:16:10] [Async Chat Thread - #13/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #4) — фаза wood [zombie] @190,72,82
+[05:16:10] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[05:16:33] [Server thread/INFO]: OpusBot was slain by Zombie
+[05:16:33] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #5) — фаза wood [zombie] @176,70,71
+[05:16:33] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[05:16:33] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:16:33] [Server thread/INFO]: OpusBot left the game
+[05:16:36] [User Authenticator #4/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:16:36] [Server thread/INFO]: OpusBot joined the game
+[05:16:36] [Server thread/INFO]: OpusBot[/127.0.0.1:39738] logged in with entity id 3168 at ([speedrun1]165.5, 70.0, 79.5)
+[05:16:36] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:16:58] [Async Chat Thread - #12/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:18:13] [Async Chat Thread - #14/INFO]: [Not Secure] <OpusBot> Этап: WOOD_GATHER (фаза wood)
+[05:21:24] [Async Chat Thread - #16/INFO]: [Not Secure] <OpusBot> Этап: WOOD_TOOLS (фаза stone)
+[05:21:34] [Server thread/INFO]: Successfully filled 1 block(s)
+[05:21:44] [Server thread/INFO]: OpusBot has the following entity data: [{count: 1, Slot: 0b, id: "minecraft:wooden_pickaxe"}, {count: 1, Slot: 1b, id: "minecraft:dirt"}, {count: 1, Slot: 9b, id: "minecraft:oak_log"}, {count: 6, Slot: 10b, id: "minecraft:stick"}, {count: 9, Slot: 11b, id: "minecraft:oak_planks"}]
+[05:22:23] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:22:23] [Server thread/INFO]: OpusBot left the game
+[05:22:26] [User Authenticator #5/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:22:26] [Server thread/INFO]: OpusBot joined the game
+[05:22:26] [Server thread/INFO]: OpusBot[/127.0.0.1:34714] logged in with entity id 3819 at ([speedrun1]146.51093026953535, 60.0, 121.43645594165342)
+[05:22:26] [Async Chat Thread - #18/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:22:48] [Async Chat Thread - #18/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:23:16] [Server thread/INFO]: OpusBot drowned
+[05:23:16] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза stone @147,56,122
+[05:23:16] [Async Chat Thread - #18/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: stone
+[05:23:38] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Этап: STONE_GATHER (фаза wood)
+[05:24:05] [Server thread/INFO]: OpusBot drowned
+[05:24:05] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #2) — фаза wood @146,57,123
+[05:24:05] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[05:25:00] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:25:00] [Server thread/INFO]: OpusBot left the game
+[05:25:02] [User Authenticator #6/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:25:02] [Server thread/INFO]: OpusBot joined the game
+[05:25:02] [Server thread/INFO]: OpusBot[/127.0.0.1:57588] logged in with entity id 4203 at ([speedrun1]214.3347747361959, 66.0, 84.5)
+[05:25:02] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:25:25] [Async Chat Thread - #19/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:27:04] [Async Chat Thread - #20/INFO]: [Not Secure] <OpusBot> Этап: WOOD_GATHER (фаза wood)
+[05:29:51] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:29:51] [Server thread/INFO]: OpusBot left the game
+[05:29:53] [User Authenticator #7/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:29:53] [Server thread/INFO]: OpusBot joined the game
+[05:29:53] [Server thread/INFO]: OpusBot[/127.0.0.1:41540] logged in with entity id 4692 at ([speedrun1]212.5, 61.0, 142.36920504089647)
+[05:29:53] [Async Chat Thread - #22/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:30:15] [Async Chat Thread - #22/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:30:35] [Async Chat Thread - #22/INFO]: [Not Secure] <OpusBot> Этап: WOOD_TOOLS (фаза stone)
+[05:30:41] [Async Chat Thread - #23/INFO]: [Not Secure] <OpusBot> Этап: STONE_GATHER (фаза stone)
+[05:37:08] [Server thread/INFO]: OpusBot has the following entity data: [{count: 2, Slot: 0b, id: "minecraft:diorite"}, {count: 1, Slot: 1b, id: "minecraft:birch_planks"}, {count: 1, Slot: 2b, components: {"minecraft:damage": 20}, id: "minecraft:wooden_pickaxe"}, {count: 4, Slot: 3b, id: "minecraft:dirt"}, {count: 9, Slot: 5b, id: "minecraft:birch_log"}, {count: 1, Slot: 6b, id: "minecraft:flint"}, {count: 3, Slot: 7b, id: "minecraft:stick"}, {count: 1, Slot: 8b, components: {"minecraft:damage": 40}, id: "minecraft:wooden_sword"}, {count: 2, Slot: 10b, id: "minecraft:oak_planks"}, {count: 18, Slot: 12b, id: "minecraft:cobblestone"}, {count: 9, Slot: 13b, id: "minecraft:oak_log"}]
+[05:37:36] [Async Chat Thread - #24/INFO]: [Not Secure] <OpusBot> Этап: STONE_TOOLS (фаза iron)
+[05:39:16] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[05:39:16] [Server thread/INFO]: OpusBot left the game
+[05:39:19] [User Authenticator #8/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[05:39:19] [Server thread/INFO]: OpusBot joined the game
+[05:39:19] [Server thread/INFO]: OpusBot[/127.0.0.1:33384] logged in with entity id 5643 at ([speedrun1]212.4965566635674, 52.0, 151.5)
+[05:39:19] [Async Chat Thread - #26/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[05:40:08] [Async Chat Thread - #26/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[05:49:34] [Server thread/WARN]: OpusBot moved wrongly!
+[06:00:28] [Server thread/INFO]: OpusBot lost connection: Timed out
+[06:00:28] [Server thread/INFO]: OpusBot left the game
+[06:06:14] [Server thread/INFO]: The time is 10913
+[06:06:48] [Server thread/INFO]: No entity was found
+[06:08:39] [User Authenticator #9/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:08:39] [Server thread/INFO]: OpusBot joined the game
+[06:08:39] [Server thread/INFO]: OpusBot[/127.0.0.1:39208] logged in with entity id 7495 at ([speedrun1]225.67690631279748, 14.0, 169.34453676843683)
+[06:08:39] [Async Chat Thread - #28/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:08:56] [Async Chat Thread - #28/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:09:32] [Server thread/INFO]: OpusBot lost connection: Timed out
+[06:09:32] [Server thread/INFO]: OpusBot left the game
+[06:12:15] [User Authenticator #10/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:12:15] [Server thread/INFO]: OpusBot joined the game
+[06:12:15] [Server thread/INFO]: OpusBot[/127.0.0.1:43154] logged in with entity id 7566 at ([speedrun1]223.499711846667, 14.0, 169.5)
+[06:12:15] [Async Chat Thread - #30/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:12:34] [Async Chat Thread - #30/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:13:07] [Server thread/INFO]: OpusBot lost connection: Timed out
+[06:13:07] [Server thread/INFO]: OpusBot left the game
+[06:15:34] [User Authenticator #11/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:15:34] [Server thread/INFO]: OpusBot joined the game
+[06:15:34] [Server thread/INFO]: OpusBot[/127.0.0.1:56824] logged in with entity id 7631 at ([speedrun1]223.50022751162612, 14.0, 169.5)
+[06:15:35] [Async Chat Thread - #32/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:16:03] [Async Chat Thread - #32/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:19:48] [Server thread/INFO]: OpusBot has the following entity data: [{count: 2, Slot: 0b, id: "minecraft:oak_planks"}, {count: 1, Slot: 1b, components: {"minecraft:damage": 80}, id: "minecraft:stone_sword"}, {count: 2, Slot: 2b, id: "minecraft:diorite"}, {count: 18, Slot: 3b, id: "minecraft:gravel"}, {count: 64, Slot: 4b, id: "minecraft:cobblestone"}, {count: 64, Slot: 5b, id: "minecraft:cobblestone"}, {count: 14, Slot: 6b, id: "minecraft:granite"}, {count: 10, Slot: 7b, id: "minecraft:oak_log"}, {count: 1, Slot: 8b, components: {"minecraft:damage": 42}, id: "minecraft:wooden_sword"}, {count: 1, Slot: 10b, id: "minecraft:birch_planks"}, {count: 1, Slot: 11b, id: "minecraft:furnace"}, {count: 9, Slot: 12b, id: "minecraft:birch_log"}, {count: 23, Slot: 13b, id: "minecraft:cobblestone"}, {count: 2, Slot: 14b, id: "minecraft:stick"}, {count: 1, Slot: 15b, id: "minecraft:flint"}, {count: 1, Slot: 16b, id: "minecraft:raw_iron"}]
+[06:19:54] [Server thread/INFO]: OpusBot has the following entity data: [{count: 2, Slot: 0b, id: "minecraft:oak_planks"}, {count: 1, Slot: 1b, components: {"minecraft:damage": 80}, id: "minecraft:stone_sword"}, {count: 2, Slot: 2b, id: "minecraft:diorite"}, {count: 18, Slot: 3b, id: "minecraft:gravel"}, {count: 64, Slot: 4b, id: "minecraft:cobblestone"}, {count: 64, Slot: 5b, id: "minecraft:cobblestone"}, {count: 14, Slot: 6b, id: "minecraft:granite"}, {count: 10, Slot: 7b, id: "minecraft:oak_log"}, {count: 1, Slot: 8b, components: {"minecraft:damage": 42}, id: "minecraft:wooden_sword"}, {count: 1, Slot: 10b, id: "minecraft:birch_planks"}, {count: 1, Slot: 11b, id: "minecraft:furnace"}, {count: 9, Slot: 12b, id: "minecraft:birch_log"}, {count: 23, Slot: 13b, id: "minecraft:cobblestone"}, {count: 2, Slot: 14b, id: "minecraft:stick"}, {count: 1, Slot: 15b, id: "minecraft:flint"}, {count: 1, Slot: 16b, id: "minecraft:raw_iron"}]
+[06:20:42] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:20:42] [Server thread/INFO]: OpusBot left the game
+[06:20:45] [User Authenticator #12/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:20:45] [Server thread/INFO]: OpusBot joined the game
+[06:20:45] [Server thread/INFO]: OpusBot[/127.0.0.1:58452] logged in with entity id 7966 at ([speedrun1]223.49998876847056, 14.0, 169.5)
+[06:20:45] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:21:04] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:21:39] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Этап: IRON_ORE (фаза iron)
+[06:22:31] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:22:31] [Server thread/INFO]: OpusBot left the game
+[06:22:34] [User Authenticator #13/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:22:34] [Server thread/INFO]: OpusBot joined the game
+[06:22:34] [Server thread/INFO]: OpusBot[/127.0.0.1:42074] logged in with entity id 8073 at ([speedrun1]221.5, 15.0, 173.4999387791327)
+[06:22:34] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:22:53] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:23:13] [Async Chat Thread - #34/INFO]: [Not Secure] <OpusBot> Этап: IRON_ORE (фаза iron)
+[06:24:57] [Async Chat Thread - #36/INFO]: [Not Secure] <OpusBot> Этап: IRON_SMELT (фаза iron)
+[06:24:57] [Server thread/INFO]: OpusBot has made the advancement [Acquire Hardware]
+[06:27:00] [Server thread/INFO]: OpusBot has made the advancement [Isn't It Iron Pick]
+[06:27:00] [Async Chat Thread - #38/INFO]: [Not Secure] <OpusBot> Этап: IRON_GEAR (фаза diamond)
+[06:27:21] [Async Chat Thread - #38/INFO]: [Not Secure] <OpusBot> Этап: DIAMOND_SHAFT (фаза diamond)
+[06:27:42] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:27:42] [Server thread/INFO]: OpusBot left the game
+[06:27:45] [User Authenticator #14/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:27:45] [Server thread/INFO]: OpusBot joined the game
+[06:27:45] [Server thread/INFO]: OpusBot[/127.0.0.1:53938] logged in with entity id 8375 at ([speedrun1]223.5, 1.0, 172.4998209133916)
+[06:27:45] [Async Chat Thread - #39/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:28:04] [Async Chat Thread - #39/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:28:16] [Async Chat Thread - #39/INFO]: [Not Secure] <OpusBot> Этап: DIAMOND_SHAFT (фаза diamond)
+[06:28:22] [Async Chat Thread - #39/INFO]: [Not Secure] <OpusBot> Осторожно, я сейчас над пустотой — укрепляю опору.
+[06:30:31] [Server thread/INFO]: OpusBot was shot by Skeleton
+[06:30:31] [Async Chat Thread - #40/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза diamond [skeleton] @207,-48,169
+[06:30:31] [Async Chat Thread - #40/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: diamond
+[06:31:45] [Server thread/INFO]: OpusBot was shot by Skeleton
+[06:31:45] [Async Chat Thread - #42/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #2) — фаза diamond [skeleton] @185,67,90
+[06:31:45] [Async Chat Thread - #42/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[06:32:35] [Server thread/INFO]: OpusBot was shot by Skeleton
+[06:32:35] [Async Chat Thread - #42/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #3) — фаза diamond [skeleton] @157,70,73
+[06:32:35] [Async Chat Thread - #42/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[06:37:17] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:37:17] [Server thread/INFO]: OpusBot left the game
+[06:37:20] [User Authenticator #15/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:37:20] [Server thread/INFO]: OpusBot joined the game
+[06:37:20] [Server thread/INFO]: OpusBot[/127.0.0.1:57466] logged in with entity id 9430 at ([speedrun1]151.7, 63.0, 83.51187624680966)
+[06:37:20] [Async Chat Thread - #44/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:37:39] [Async Chat Thread - #44/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:38:10] [Async Chat Thread - #45/INFO]: [Not Secure] <OpusBot> Этап: WOOD_GATHER (фаза wood)
+[06:39:17] [Async Chat Thread - #46/INFO]: [Not Secure] <OpusBot> Этап: WOOD_TOOLS (фаза stone)
+[06:39:44] [Server thread/INFO]: OpusBot drowned
+[06:39:44] [Async Chat Thread - #46/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза stone @146,56,122
+[06:39:44] [Async Chat Thread - #46/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: stone
+[06:40:39] [Async Chat Thread - #47/INFO]: [Not Secure] <OpusBot> Этап: STONE_GATHER (фаза stone)
+[06:48:31] [Server thread/INFO]: OpusBot drowned
+[06:48:31] [Async Chat Thread - #48/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #2) — фаза stone @144,55,123
+[06:48:31] [Async Chat Thread - #48/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: stone
+[06:52:00] [Server thread/INFO]: No blocks were filled
+[06:53:05] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:53:05] [Server thread/INFO]: OpusBot left the game
+[06:53:08] [User Authenticator #16/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:53:08] [Server thread/INFO]: OpusBot joined the game
+[06:53:08] [Server thread/INFO]: OpusBot[/127.0.0.1:55382] logged in with entity id 11203 at ([speedrun1]163.5, 71.0, 70.5)
+[06:53:08] [Async Chat Thread - #50/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:53:27] [Async Chat Thread - #50/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:58:13] [Server thread/INFO]: OpusBot drowned
+[06:58:13] [Async Chat Thread - #52/INFO]: [Not Secure] <OpusBot> Я погиб (смерть #1) — фаза wood [skeleton] @170,53,49
+[06:58:13] [Async Chat Thread - #52/INFO]: [Not Secure] <OpusBot> Возродился. Фаза: wood
+[06:58:30] [Server thread/INFO]: OpusBot lost connection: Disconnected
+[06:58:30] [Server thread/INFO]: OpusBot left the game
+[06:58:33] [User Authenticator #17/INFO]: UUID of player OpusBot is 53f927d4-9c5d-3cf4-a8de-133fd1b7468e
+[06:58:33] [Server thread/INFO]: OpusBot joined the game
+[06:58:33] [Server thread/INFO]: OpusBot[/127.0.0.1:49418] logged in with entity id 11819 at ([speedrun1]179.5143032642984, 61.9412168742466, 42.5)
+[06:58:33] [Async Chat Thread - #52/INFO]: [Not Secure] <OpusBot> Opus 5 online | mode=auto | combat=auto@40ms | vision=off
+[06:58:52] [Async Chat Thread - #52/INFO]: [Not Secure] <OpusBot> Начал прохождение игры до дракона
+[06:59:44] [Async Chat Thread - #52/INFO]: [Not Secure] <OpusBot> Этап: WOOD_GATHER (фаза wood)
+[07:03:40] [Server thread/INFO]: OpusBot has the following entity data: [{count: 1, Slot: 0b, id: "minecraft:arrow"}, {count: 2, Slot: 1b, id: "minecraft:bone"}, {count: 4, Slot: 2b, id: "minecraft:stick"}, {count: 1, Slot: 6b, id: "minecraft:wheat_seeds"}, {count: 1, Slot: 10b, id: "minecraft:oak_log"}]
+[07:03:45] [Server thread/INFO]: OpusBot has the following entity data: [{count: 1, Slot: 0b, id: "minecraft:arrow"}, {count: 2, Slot: 1b, id: "minecraft:bone"}, {count: 4, Slot: 2b, id: "minecraft:stick"}, {count: 1, Slot: 6b, id: "minecraft:wheat_seeds"}, {count: 1, Slot: 10b, id: "minecraft:oak_log"}]
+[07:03:48] [Server thread/INFO]: OpusBot has the following entity data: [{count: 1, Slot: 0b, id: "minecraft:arrow"}, {count: 2, Slot: 1b, id: "minecraft:bone"}, {count: 4, Slot: 2b, id: "minecraft:stick"}, {count: 1, Slot: 6b, id: "minecraft:wheat_seeds"}, {count: 1, Slot: 10b, id: "minecraft:oak_log"}]
