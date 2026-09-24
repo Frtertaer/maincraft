@@ -349,6 +349,33 @@ async function ensureTable(bot, mcData) {
     }
   }
 
+  // standing on a lone pillar/log/edge with no neighbor support — step off
+  // to a random nearby cell and rescan once
+  if (supportCandidates.length === 0) {
+    for (const [dx, dz] of [[3, 0], [-3, 0], [0, 3], [0, -3], [2, 2], [-2, -2]]) {
+      const spot = feet.offset(dx, -1, dz);
+      await executeAction(
+        bot,
+        { type: "goto", x: spot.x, y: spot.y, z: spot.z, range: 1, timeoutMs: 5000 },
+        mcData
+      ).catch(() => {});
+      const f2 = bot.entity.position.floored();
+      const u2 = bot.blockAt(f2.offset(0, -1, 0));
+      if (u2 && u2.name !== "air") {
+        for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const solid = bot.blockAt(f2.offset(ax, -1, az));
+          if (!solid || solid.name === "air" || solid.name === "cave_air") continue;
+          if (solid.boundingBox && solid.boundingBox !== "block") continue;
+          const above = bot.blockAt(solid.position.offset(0, 1, 0));
+          if (above && (above.name === "air" || above.name === "cave_air" || above.name === "snow")) {
+            supportCandidates.push(solid);
+          }
+        }
+        if (supportCandidates.length) break;
+      }
+    }
+  }
+
   let lastMsg = "no solid support";
   for (const solid of supportCandidates) {
     const target = solid.position.offset(0, 1, 0);
