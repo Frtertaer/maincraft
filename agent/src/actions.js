@@ -584,6 +584,11 @@ export async function executeAction(bot, action, mcData) {
         const itemName = action.item || action.block || action.name;
         const item = bot.inventory.items().find((i) => i.name === itemName || i.name.includes(itemName));
         if (!item) return { ok: false, message: `no block ${itemName}` };
+        // tools/weapons aren't placeable — a confused caller (LLM) picking a
+        // sword as filler gets a readable failure, not a server refuse
+        if (mcData?.blocksByName && !mcData.blocksByName[item.name]) {
+          return { ok: false, message: `${item.name} is not a placeable block` };
+        }
         const direction = faceVec(action.face || "top");
         const target = placementTarget(bot, action, direction);
         if (!target) return { ok: false, message: "no safe placement target; provide x,y,z" };
