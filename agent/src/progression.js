@@ -4,10 +4,14 @@
  */
 import pkgPathfinder from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
 
 const { goals } = pkgPathfinder;
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const PHASES = [
   "wood",
@@ -315,6 +319,32 @@ function stashKeepCount(name) {
   return 0; // unlisted junk → fully storable
 }
 
+// stash chests outlive the process (the world persists) — keep their
+// positions on disk so a restart/respawn can still find them
+const STASH_FILE = path.resolve(__dirname, "../../logs/stash.json");
+
+function stashLoadFile() {
+  try {
+    const a = JSON.parse(fs.readFileSync(STASH_FILE, "utf8"));
+    return Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function stashRecord(pos) {
+  try {
+    const list = stashLoadFile();
+    if (!list.some((p) => Math.abs(p.x - pos.x) < 2 && Math.abs(p.y - pos.y) < 2 && Math.abs(p.z - pos.z) < 2)) {
+      list.push({ x: pos.x, y: pos.y, z: pos.z, t: Date.now() });
+      fs.mkdirSync(path.dirname(STASH_FILE), { recursive: true });
+      fs.writeFileSync(STASH_FILE, JSON.stringify(list.slice(-40)));
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
 async function stashFindOrPlaceChest(bot, mcData, state) {
   // recorded stash position first — verify it still holds a chest
   if (state?.stash) {
@@ -322,9 +352,21 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
     if (b && b.name === "chest") return b;
     state.stash = null; // chest is gone — forget and re-place below
   }
+  // a chest from an earlier run near enough to inspect (blockAt needs loaded chunks)
+  const feet0 = bot.entity.position.floored();
+  for (const p of stashLoadFile()) {
+    const d = Math.hypot(p.x - feet0.x, p.z - feet0.z);
+    if (d > 24) continue;
+    const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
+    if (b?.name === "chest") {
+      if (state) state.stash = b.position;
+      return b;
+    }
+  }
   const near = bot.findBlock?.({ matching: (b) => b?.name === "chest", maxDistance: 8 });
   if (near) {
     if (state) state.stash = near.position.floored();
+    stashRecord(near.position.floored());
     return near;
   }
   if (countItem(bot, "chest") < 1) {
@@ -349,6 +391,7 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
       const b = bot.blockAt(cell.position);
       if (b?.name === "chest") {
         if (state) state.stash = b.position;
+        stashRecord(b.position);
         return b;
       }
     }
@@ -385,32 +428,49 @@ export async function stashDeposit(bot, mcData, log, state) {
 
 export async function stashRecover(bot, mcData, log, state) {
   try {
-    if (!state?.stash) return { ok: false, message: "no stash" };
-    const pos = state.stash;
-    const dist = bot.entity.position.distanceTo(pos.offset ? pos : new Vec3(pos.x, pos.y, pos.z));
-    if (dist > 160) return { ok: false, message: `stash too far (${Math.round(dist)}m)` };
-    await executeAction(
-      bot,
-      { type: "goto", x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5, range: 2, timeoutMs: 30000 },
-      mcData
-    );
-    const b = bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
-    if (!b || b.name !== "chest") {
-      state.stash = null;
-      return { ok: false, message: "stash chest gone" };
+    // candidates: the live state's stash, plus every disk-recorded chest —
+    // restarts drop state.stash but the chests are still in the world
+    const me = bot.entity.position;
+    const cands = [];
+    if (state?.stash) cands.push({ x: state.stash.x, y: state.stash.y, z: state.stash.z });
+    for (const p of stashLoadFile()) {
+      if (!cands.some((c) => Math.abs(c.x - p.x) < 2 && Math.abs(c.z - p.z) < 2)) cands.push(p);
     }
-    const chest = await pt(bot.openChest(b), 8000, "open chest");
+    const near = cands
+      .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
+      .filter((e) => e.d <= 160)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, 4);
+    if (!near.length) return { ok: false, message: "no stash" };
     let took = 0;
-    try {
-      for (const item of chest.containerItems()) {
-        await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
-        took += item.count;
+    for (const { p } of near) {
+      try {
+        await executeAction(
+          bot,
+          { type: "goto", x: p.x + 0.5, y: p.y, z: p.z + 0.5, range: 2, timeoutMs: 30000 },
+          mcData
+        );
+      } catch {
+        continue; // unreachable — try the next chest
       }
-    } finally {
-      chest.close();
+      const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
+      if (!b || b.name !== "chest") continue;
+      const chest = await pt(bot.openChest(b), 8000, "open chest");
+      try {
+        for (const item of chest.containerItems()) {
+          await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
+          took += item.count;
+        }
+      } finally {
+        chest.close();
+      }
     }
-    log?.(`[stash] recovered ${took} items`);
-    return { ok: true, message: `recovered ${took}` };
+    if (state?.stash) {
+      const b = bot.blockAt(new Vec3(state.stash.x, state.stash.y, state.stash.z));
+      if (!b || b.name !== "chest") state.stash = null;
+    }
+    if (took > 0) log?.(`[stash] recovered ${took} items`);
+    return took > 0 ? { ok: true, message: `recovered ${took}` } : { ok: false, message: "stashes empty" };
   } catch (err) {
     return { ok: false, message: `recover: ${err?.message || err}` };
   }
