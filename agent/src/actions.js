@@ -317,9 +317,22 @@ export async function executeAction(bot, action, mcData) {
         const item = mcData.itemsByName[itemName];
         if (!item) return { ok: false, message: `unknown item ${itemName}` };
 
-        // Prefer inventory 2x2 first; fall back to nearby crafting_table (3x3).
-        let craftingTable = null;
-        let recipes = bot.recipesFor(item.id, null, 1, null);
+        // Prefer a table within 6 for EVERY recipe — 2x2 crafts work in the
+        // 3x3 grid too, and the table gives us the resync-retry path (a
+        // reopened window forces the server to resend all slots). Inventory
+        // 2x2 is the fallback when no table is in reach.
+        let craftingTable =
+          typeof bot.findBlock === "function"
+            ? bot.findBlock({
+                matching: (b) => b && b.name === "crafting_table",
+                maxDistance: 6,
+              })
+            : null;
+        let recipes = craftingTable ? bot.recipesFor(item.id, null, 1, craftingTable) : [];
+        if (!recipes.length) {
+          craftingTable = null;
+          recipes = bot.recipesFor(item.id, null, 1, null);
+        }
         if (!recipes.length) {
           // Prefer closest table within 6, then 16 — avoid pathing across map to stale tables
           craftingTable =
@@ -331,6 +344,17 @@ export async function executeAction(bot, action, mcData) {
               message: `no recipe for ${itemName} (need crafting_table in world for 3x3)`,
             };
           }
+          craftingTable = bot.blockAt(craftingTable.position) || craftingTable;
+          recipes = bot.recipesFor(item.id, null, 1, craftingTable);
+          if (!recipes.length) {
+            return {
+              ok: false,
+              message: `no craftable recipe for ${itemName} at table (missing materials?)`,
+            };
+          }
+        }
+
+        if (craftingTable) {
           const dist = bot.entity.position.distanceTo(craftingTable.position.offset(0.5, 0.5, 0.5));
           if (dist > 3.2) {
             try {
@@ -347,13 +371,6 @@ export async function executeAction(bot, action, mcData) {
             }
           }
           craftingTable = bot.blockAt(craftingTable.position) || craftingTable;
-          recipes = bot.recipesFor(item.id, null, 1, craftingTable);
-          if (!recipes.length) {
-            return {
-              ok: false,
-              message: `no craftable recipe for ${itemName} at table (missing materials?)`,
-            };
-          }
         }
 
         const recipe = recipes[0];
@@ -361,18 +378,92 @@ export async function executeAction(bot, action, mcData) {
         if (!plan) return { ok: false, message: `bad craft plan for ${itemName}` };
 
         const before = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
-        await bot.craft(recipe, plan.repetitions, craftingTable).catch((err) => {
-        const inv = bot.inventory
-          .items()
-          .map((i) => `${i.name}x${i.count}`)
-          .join(",");
-        throw new Error(`${err?.message || err} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
-      });
+        // One resync-retry for "missing ingredient": a desynced client can
+        // think it lacks items the server knows it has. Reopening the table
+        // forces a full slot resend, then the craft goes through.
+        let craftErr = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          craftErr = null;
+          await withTimeout(bot.craft(recipe, plan.repetitions, craftingTable), 25000, `craft ${itemName} timeout`).catch(
+            (err) => {
+              craftErr = err;
+            }
+          );
+          if (!craftErr) break;
+          if (attempt === 0) {
+            try {
+              // a failed craft leaves ingredients stuck in the grid, where
+              // findInventoryItem can't see them — shift-click every grid
+              // slot back into inventory before retrying (grid slots: 1-9
+              // for a table window, 1-4 for the player window)
+              const win = bot.currentWindow || bot.inventory;
+              const gridEnd = craftingTable ? 9 : 4;
+              for (let s = 1; s <= gridEnd; s += 1) {
+                if (win.slots?.[s]) {
+                  try {
+                    await bot.clickWindow(s, 0, 1);
+                  } catch {
+                    /* slot moved already */
+                  }
+                }
+              }
+              if (craftingTable) {
+                const w = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
+                await sleep(400);
+                if (w) bot.closeWindow(w);
+              } else {
+                // no table for 2x2 — a pick+drop click forces the server to
+                // resend the player-window slots, repairing desynced state
+                const inv = bot.inventory;
+                const slot = inv.slots.findIndex((s) => s);
+                if (slot >= 0) {
+                  await bot.clickWindow(slot, 0, 0);
+                  await bot.clickWindow(slot, 0, 0);
+                }
+              }
+              await sleep(300);
+              continue;
+            } catch {
+              /* resync failed — report the original craft error */
+            }
+          }
+        }
+        if (craftErr) {
+          const inv = bot.inventory
+            .items()
+            .map((i) => `${i.name}x${i.count}`)
+            .join(",");
+          throw new Error(`${craftErr?.message || craftErr} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
+        }
         // Server-side inventory sync can lag the craft — poll briefly instead of one fixed sleep
         let after = before;
         for (let i = 0; i < 30 && after <= before; i++) {
           await sleep(150);
           after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+        }
+        // Still no change: the client may have dropped window packets entirely.
+        // Re-opening the crafting table forces the server to resend all slots,
+        // which repairs a desynced inventory before we declare failure.
+        if (after <= before) {
+          try {
+            if (craftingTable) {
+              const win = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
+              await sleep(400);
+              if (win) bot.closeWindow(win);
+            } else {
+              const slot = bot.inventory.slots.findIndex((s) => s);
+              if (slot >= 0) {
+                await bot.clickWindow(slot, 0, 0);
+                await bot.clickWindow(slot, 0, 0);
+              }
+            }
+            for (let i = 0; i < 10 && after <= before; i++) {
+              await sleep(150);
+              after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+            }
+          } catch {
+            /* resync failed — fall through to the failure verdict */
+          }
         }
         if (after <= before) {
           return {

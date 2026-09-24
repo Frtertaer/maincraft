@@ -379,7 +379,9 @@ export class CombatReflex {
 
   _isArmed() {
     const items = this.bot?.inventory?.items?.() || [];
-    return items.some((i) => /iron_sword|diamond_sword|netherite_sword|iron_axe|diamond_axe|netherite_axe|trident|bow|crossbow/.test(i.name));
+    // any real weapon — a stone sword still wins a knockback trade vs a
+    // creeper; bare hands lose it (underground deaths)
+    return items.some((i) => /_sword|_axe|trident|bow|crossbow/.test(i.name));
   }
 
   _clearMotion() {
@@ -746,7 +748,24 @@ export class CombatReflex {
 
     const name = tName;
 
-    // Creeper kite
+    // Bare hands lose every trade — never engage unarmed, just create
+    // distance (the respawn-camp death spiral lesson: punching a zombie
+    // bare-handed is a guaranteed loss)
+    if (!this._isArmed() && !isBossMobName(name)) {
+      this._lockedId = null;
+      this._engagedUntil = 0;
+      if (dist < 14) this._kiteAway(target);
+      return;
+    }
+
+    // Creeper kite — and bare hands never close on a bomb: no swing at
+    // all, just keep >4m until it de-aggros
+    if (EXPLODER.has(name) && !this._isArmed()) {
+      this._lockedId = null;
+      this._engagedUntil = 0;
+      if (dist < 12) this._kiteAway(target);
+      return;
+    }
     if (EXPLODER.has(name) && dist < this.cfg.kiteCreeperDistance) {
       this._stopBlock();
       this._kiteAway(target);

@@ -189,6 +189,18 @@ function hasPickaxe(bot) {
   return bot.inventory.items().some((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
 }
 
+// mineflayer calls that wait on server acks (equip/placeBlock) can hang
+// forever when the ack packet is lost — race every such call against a timer
+function pt(promise, timeoutMs, what) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${what} timeout`)), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 function findHostile(bot, range) {
   return Object.values(bot.entities || {}).find((e) => {
     if (!e?.position || e === bot.entity) return false;
@@ -497,7 +509,7 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         const ceil = bot.blockAt(p.offset(dx, 2, dz));
         if (filler && ceil && ceil.name !== "air") {
           try {
-            await bot.equip(filler, "hand");
+            await pt(bot.equip(filler, "hand"), 8000, "equip");
             await Promise.race([bot.placeBlock(ceil, new Vec3(0, -1, 0)).catch(() => {}), sleep(900)]);
           } catch {
             /* sealing is best-effort */
@@ -664,19 +676,50 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // a failed dig leaves the bot standing exposed — relocate to a different
   // patch of ground and try the whole burrow again instead of giving up
   const retryElsewhere = async (why) => {
-    if (_depth >= 2) return false;
+    if (_depth >= 4) return false;
     log?.(`[burrow] ${why} — relocating`);
     const p = bot.entity.position.floored();
-    const dirs = [[18, 0], [-18, 0], [0, 18], [0, -18]];
-    const [rx, rz] = pickDryDir(bot, dirs);
+    // a bare-handed bot can only shelter in soft ground — head for the
+    // nearest diggable surface block instead of wandering blindly
+    let target = null;
     try {
-      await executeAction(
-        bot,
-        { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 },
-        mcData
-      );
+      const soft = bot.findBlocks({
+        matching: (b) => {
+          const bb = b?.position ? b : bot.blockAt(b);
+          if (!bb || bb.name === "air" || /leaves|_log|water|lava/.test(bb.name)) return false;
+          const a1 = bot.blockAt(bb.position.offset(0, 1, 0));
+          const a2 = bot.blockAt(bb.position.offset(0, 2, 0));
+          return a1?.name === "air" && a2?.name === "air" && diggable(bb);
+        },
+        maxDistance: 40,
+        count: 6,
+      });
+      if (soft.length) target = soft[0];
     } catch {
-      /* move didn't land — try the burrow from wherever we are */
+      /* find failed — fall back to directional wander */
+    }
+    if (target) {
+      try {
+        await executeAction(
+          bot,
+          { type: "goto", x: target.x + 0.5, y: target.y + 1, z: target.z + 0.5, range: 1, timeoutMs: 15000 },
+          mcData
+        );
+      } catch {
+        /* move didn't land — try the burrow from wherever we are */
+      }
+    } else {
+      const dirs = [[18, 0], [-18, 0], [0, 18], [0, -18]];
+      const [rx, rz] = pickDryDir(bot, dirs);
+      try {
+        await executeAction(
+          bot,
+          { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 },
+          mcData
+        );
+      } catch {
+        /* move didn't land — try the burrow from wherever we are */
+      }
     }
     return burrowForNight(bot, mcData, log, force, _depth + 1);
   };
@@ -786,9 +829,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
       if (!ref || ref.name === "air") break;
       try {
-        await bot.equip(solid, "hand");
+        await pt(bot.equip(solid, "hand"), 8000, "equip");
         bot.setControlState("jump", true);
-        await bot.placeBlock(ref, new Vec3(0, 1, 0));
+        await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
         bot.setControlState("jump", false);
         raised += 1;
       } catch {
@@ -921,10 +964,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
       break;
     }
-    if (!sealedCells) log?.("[burrow] no seal — staying in open shaft");
+    if (!sealedCells) {
+      log?.("[burrow] no seal");
+      return retryElsewhere("no seal");
+    }
   }
   const t0 = Date.now();
-  while (!safe() && Date.now() - t0 < 480000) {
+  while (!safe() && Date.now() - t0 < 570000) {
     await sleep(4000);
     // a camper at the open shaft mouth is in melee reach of the bottom —
     // swing at it every loop instead of turtling forever. Bare fists lose
@@ -933,7 +979,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const armed = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
     if (camper && armed) {
       try {
-        await bot.attack(camper);
+        await pt(bot.attack(camper), 6000, "attack");
       } catch {
         /* out of reach — keep waiting */
       }
@@ -968,9 +1014,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
       if (!ref || ref.name === "air") break;
       try {
-        await bot.equip(solid, "hand");
+        await pt(bot.equip(solid, "hand"), 8000, "equip");
         bot.setControlState("jump", true);
-        await bot.placeBlock(ref, new Vec3(0, 1, 0));
+        await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
         bot.setControlState("jump", false);
         await sleep(250);
       } catch {
@@ -983,7 +1029,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   return true;
 }
 
-async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
+export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   const logNames = [
     "oak_log",
     "spruce_log",
@@ -1185,7 +1231,7 @@ async function phaseWood(bot, mcData, state, log) {
 
   try {
     const pick = bot.inventory.items().find((i) => i.name.includes("pickaxe"));
-    if (pick) await bot.equip(pick, "hand");
+    if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
   } catch {
     /* ignore */
   }
@@ -1201,7 +1247,7 @@ async function phaseStone(bot, mcData, state, log) {
   }
   try {
     const pick = bot.inventory.items().find((i) => i.name.includes("pickaxe"));
-    if (pick) await bot.equip(pick, "hand");
+    if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
   } catch {
     /* ignore */
   }
@@ -1279,7 +1325,7 @@ async function phaseIron(bot, mcData, state, log) {
       bot.inventory.items().find((i) => i.name === "iron_pickaxe") ||
       bot.inventory.items().find((i) => i.name === "stone_pickaxe") ||
       bot.inventory.items().find((i) => i.name.includes("pickaxe"));
-    if (pick) await bot.equip(pick, "hand");
+    if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
   } catch {
     /* ignore */
   }
@@ -1494,7 +1540,7 @@ async function phaseIron(bot, mcData, state, log) {
   }
   try {
     const pick = bot.inventory.items().find((i) => i.name === "iron_pickaxe");
-    if (pick) await bot.equip(pick, "hand");
+    if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
     await equipBestWeapon(bot);
   } catch {
     /* ignore */
@@ -1566,7 +1612,7 @@ async function digInReach(bot, block, timeoutMs = 10000, combat = null) {
       bot.inventory.items().find((i) => i.name.includes("iron_pickaxe")) ||
       bot.inventory.items().find((i) => i.name.includes("pickaxe"));
     if (pick && bot.heldItem?.name !== pick.name) {
-      await bot.equip(pick, "hand");
+      await pt(bot.equip(pick, "hand"), 8000, "equip");
     }
   } catch {
     /* ignore equip */
@@ -1715,7 +1761,7 @@ async function phaseDiamond(bot, mcData, state, log) {
     const pick =
       bot.inventory.items().find((i) => i.name.includes("diamond_pickaxe")) ||
       bot.inventory.items().find((i) => i.name.includes("iron_pickaxe"));
-    if (pick) await bot.equip(pick, "hand");
+    if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
   } catch {
     /* ignore */
   }
@@ -1944,7 +1990,7 @@ async function phaseStronghold(bot, mcData, state, log) {
     try {
       const eye = bot.inventory.items().find((i) => i.name === "ender_eye");
       if (eye) {
-        await bot.equip(eye, "hand");
+        await pt(bot.equip(eye, "hand"), 8000, "equip");
         // look up slightly and throw
         await bot.look(bot.entity.yaw, -0.4, true);
         bot.activateItem();

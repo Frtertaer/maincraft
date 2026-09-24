@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -195,21 +195,28 @@ export class ClearRunner {
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
             const fleeDirs = [
-              [30, 0],
-              [-30, 0],
-              [0, 30],
-              [0, -30],
+              [70, 0],
+              [-70, 0],
+              [0, 70],
+              [0, -70],
             ];
             const [fdx, fdz] = pickDryDir(bot, fleeDirs);
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
             try {
               await executeAction(
                 bot,
-                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 6, timeoutMs: 20000 },
+                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
                 this.mcData
               );
             } catch {
               /* superseded — burrow anyway */
+            }
+            try {
+              // bare-handed on stone ground the burrow can't dig — punch a
+              // few logs first so planks exist for the pillar fallback
+              await punchNearbyLogs(bot, this.mcData, 4);
+            } catch {
+              /* no tree in reach — burrow anyway */
             }
             try {
               await burrowForNight(bot, this.mcData, this.log);
@@ -222,17 +229,17 @@ export class ClearRunner {
             // it wanders off (the burrow wait is hostile-proximity based)
             const pf = bot.entity.position;
             const fleeDirs = [
-              [30, 0],
-              [-30, 0],
-              [0, 30],
-              [0, -30],
+              [70, 0],
+              [-70, 0],
+              [0, 70],
+              [0, -70],
             ];
             const [fdx, fdz] = pickDryDir(bot, fleeDirs);
             this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
             try {
               await executeAction(
                 bot,
-                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 6, timeoutMs: 20000 },
+                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
                 this.mcData
               );
             } catch {
@@ -278,7 +285,15 @@ export class ClearRunner {
           try {
             // force=true for the daytime variant — a hostile is camped on us
             // and the wait-until-safe logic is exactly what we need anyway
-            await burrowForNight(bot, this.mcData, this.log, !isNight);
+            const burrowed = await burrowForNight(bot, this.mcData, this.log, !isNight);
+            // Night burrow gave up entirely (no diggable ground anywhere):
+            // surface work in the dark is a death loop — keep looking for
+            // shelter instead of falling through to the phase step.
+            if (!burrowed && isNight) {
+              this.log(`[clear] no shelter — waiting out the night`);
+              this._lastBurrow = 0;
+              await sleep(15000);
+            }
           } catch (err) {
             this.log(`[clear] burrow fail: ${err?.message || err}`);
           }
