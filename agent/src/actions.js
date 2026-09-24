@@ -19,6 +19,35 @@ function invItems(bot) {
   return bot.inventory.items();
 }
 
+// A craft aborted mid-click (timeout, thrown error) strands ingredients in
+// the grid slots and on the cursor — invisible to findInventoryItem and to
+// every later craft. Drag every grid slot and the cursor item back into the
+// inventory range before the next attempt.
+async function cleanCraftArea(bot) {
+  const win = bot.currentWindow || bot.inventory;
+  const gridEnd = win === bot.inventory ? 4 : Math.min(9, (win.inventoryStart || 10) - 1);
+  for (let s = 1; s <= gridEnd; s += 1) {
+    if (win.slots?.[s]) {
+      try {
+        await bot.clickWindow(s, 0, 1); // shift-click → moves to inventory range
+      } catch {
+        /* slot already moved */
+      }
+    }
+  }
+  // cursor may still hold an item — drop it onto any inventory slot it fits in
+  for (let tries = 0; tries < 4 && win.selectedItem; tries += 1) {
+    const empty = win.firstEmptyInventorySlot?.() ?? win.slots.findIndex((s, i) => !s && i >= (win.inventoryStart || 0));
+    const target = empty >= 0 ? empty : win.slots.findIndex((s, i) => s && i >= (win.inventoryStart || 0) && s.type === win.selectedItem.type && s.count < 64);
+    if (target < 0) break;
+    try {
+      await bot.simpleClick.leftMouse(target);
+    } catch {
+      break;
+    }
+  }
+}
+
 const CONTAINER_BLOCKS = new Set([
   "chest",
   "trapped_chest",
@@ -400,6 +429,9 @@ export async function executeAction(bot, action, mcData) {
         let craftErr = null;
         for (let attempt = 0; attempt < 2; attempt += 1) {
           craftErr = null;
+          // a previous aborted craft may have left ingredients in the grid or
+          // on the cursor — evacuate before every attempt
+          await cleanCraftArea(bot).catch(() => {});
           await withTimeout(bot.craft(recipe, plan.repetitions, craftingTable), 25000, `craft ${itemName} timeout`).catch(
             (err) => {
               craftErr = err;
@@ -408,21 +440,7 @@ export async function executeAction(bot, action, mcData) {
           if (!craftErr) break;
           if (attempt === 0) {
             try {
-              // a failed craft leaves ingredients stuck in the grid, where
-              // findInventoryItem can't see them — shift-click every grid
-              // slot back into inventory before retrying (grid slots: 1-9
-              // for a table window, 1-4 for the player window)
-              const win = bot.currentWindow || bot.inventory;
-              const gridEnd = craftingTable ? 9 : 4;
-              for (let s = 1; s <= gridEnd; s += 1) {
-                if (win.slots?.[s]) {
-                  try {
-                    await bot.clickWindow(s, 0, 1);
-                  } catch {
-                    /* slot moved already */
-                  }
-                }
-              }
+              await cleanCraftArea(bot);
               if (craftingTable) {
                 const w = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
                 await sleep(400);

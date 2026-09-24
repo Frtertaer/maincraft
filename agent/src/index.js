@@ -587,6 +587,9 @@ async function main() {
 
     const session = { bot, brain: null, mcData: null, ended: false };
     runtime.session = session;
+    // inspector/debug probes read live state through here
+    globalThis.__bot = bot;
+    globalThis.__session = session;
 
     // Chunk columns accumulate forever — unload ones far from the bot so
     // exploring/mining does not grow the heap until OOM.
