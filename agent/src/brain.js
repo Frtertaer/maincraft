@@ -3,7 +3,7 @@ import { buildWorldState, stateToText } from "./world.js";
 import { executeAction } from "./actions.js";
 import { MantellaConversation } from "./mantella/conversation.js";
 
-const SYSTEM_RU = `Ты — Opus, автономный персонаж в Minecraft Java.
+const SYSTEM_RU = `Ты — {{BOT_NAME}}, автономный персонаж в Minecraft Java.
 Ты управляешь ботом через JSON-действие (одно за шаг).
 Отвечай ТОЛЬКО валидным JSON-объектом без markdown-обёртки (или с \`\`\`json).
 
@@ -149,7 +149,7 @@ export class Brain {
     this.mcData = mcData;
     this.log = log || console.log;
     this.mode = cfg.agent.mode || "hybrid";
-    this.goal = "осмотреться и начать выживание";
+    this.goal = cfg.agent?.goal || "осмотреться и начать выживание";
     this.plan = ["оценить безопасность и ресурсы", "добыть дерево", "сделать базовые инструменты"];
     this.lastThink = null;
     this.visionEnabled = Boolean(cfg.vision?.enabled);
@@ -173,6 +173,10 @@ export class Brain {
     this.running = false;
     this._timer = null;
     this.combat = null;
+    /** True while a user-defined script command drives the bot; the LLM loop waits. */
+    this.externalBusy = false;
+    /** Optional observer (desktop app bridge) called after every decision. */
+    this.onStep = null;
     this.mantella = null;
     if (cfg.mantella?.enabled || cfg.agent?.companionMode) {
       this.mantella = new MantellaConversation({ bot, cfg, log: this.log, llm: this.llm });
@@ -256,8 +260,11 @@ export class Brain {
     const spoken = String(text || "").trim().slice(0, 256);
     if (!spoken) return false;
     try {
+      // Tells the app bridge this line is character speech (voiced), not a system acknowledgement.
+      this.bot.__speechNext = true;
       this.bot.chat(spoken);
     } catch {
+      this.bot.__speechNext = false;
       return false;
     }
     this._recordSay(spoken);
@@ -330,7 +337,7 @@ export class Brain {
 
   async step() {
     this.tick += 1;
-    if (this.paused) return;
+    if (this.paused || this.externalBusy) return;
     if (!this.bot.entity) return;
     const budgetError = this._budgetError();
     if (budgetError) {
@@ -413,9 +420,10 @@ export class Brain {
 
     const persona = String(this.cfg.agent?.persona || "").trim();
     const companion = Boolean(this.cfg.agent?.companionMode);
-    let system = SYSTEM_RU;
-    if (companion) system = SYSTEM_RU + "\n" + COMPANION_EXTRA;
-    if (persona) system += `\n\nPersona / характер:\n${persona.slice(0, 800)}`;
+    const baseSystem = SYSTEM_RU.replace("{{BOT_NAME}}", this.cfg.agent?.botName || "Opus");
+    let system = baseSystem;
+    if (companion) system = baseSystem + "\n" + COMPANION_EXTRA;
+    if (persona) system += `\n\nPersona / характер:\n${persona.slice(0, 6000)}`;
 
     // Mantella-style long-term memory + world context block
     let mantellaBlock = "";
@@ -521,6 +529,22 @@ export class Brain {
     const exec = await executeAction(this.bot, action, this.mcData);
     this.lastAction = { action, result: exec, usage: result.usage, model: result.model };
     this.lastError = exec.ok ? null : exec.message;
+    try {
+      this.onStep?.({
+        tick: this.tick,
+        think: this.lastThink,
+        goal: this.goal,
+        plan: this.plan,
+        command: activeCommandText,
+        action,
+        ok: Boolean(exec.ok),
+        result: String(exec.message || "").slice(0, 300),
+        vision: Boolean(imageBase64),
+        tokens: usageTokenCount(result.usage),
+      });
+    } catch {
+      /* observers must not break the loop */
+    }
 
     this.history.push({
       t: this.tick,
@@ -540,7 +564,7 @@ export class Brain {
     if (hasCommand) {
       this.commandTurns += 1;
       const actionDoneType = String(action.type || "").toLowerCase();
-      const isSocialChat = /сказал в игровом чате/i.test(String(activeCommandText || ""));
+      const isSocialChat = /сказал (?:в игровом чате|тебе)|сказал голосом/i.test(String(activeCommandText || ""));
       const socialChitChatDone =
         isSocialChat &&
         didSpeak &&

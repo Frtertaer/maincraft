@@ -4,12 +4,13 @@ import { LlmClient } from "./llm.js";
 const cfg = loadConfig();
 const llm = new LlmClient(cfg);
 
-const who = await llm.whoami();
+const who = await llm.preflight(cfg.api.preflight);
 const bal = who.balance || {};
 console.log(
   JSON.stringify(
     {
       ok: who.ok,
+      preflight: cfg.api.preflight,
       model_config: cfg.api.model,
       models_on_key: who.models?.slice?.(0, 8) || who.models,
       tokens_remaining: bal.tokens_remaining,

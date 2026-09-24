@@ -118,7 +118,7 @@ async function main() {
   let llmOk = false;
   try {
     const llm = new LlmClient(cfg);
-    await llm.whoami();
+    await llm.preflight(cfg.api.preflight);
     llmOk = true;
     brain = new Brain({ bot, llm, cfg, mcData, log });
     brain.setMode("auto");

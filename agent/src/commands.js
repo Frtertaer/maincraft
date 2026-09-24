@@ -2,7 +2,41 @@
  * Parse player chat / console into agent control.
  * Prefixes: !  or  Opus,  or  @Opus  or  bot name
  */
-export function parseCommand(message, botName = "Opus") {
+/** Canonical form of a trigger phrase: lowercase, ё→е, no leading "!", no punctuation. */
+export function normalizeTrigger(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/^[!/\s]+/, "")
+    .replace(/[.,!?;:«»"'()\[\]{}]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Find the user-defined command whose trigger starts the message (longest trigger wins).
+ * Plain, un-addressed chat only matches commands that opted in with matchPlain.
+ */
+export function matchCustomCommand(body, customCommands = [], { addressed = true } = {}) {
+  const norm = normalizeTrigger(body);
+  if (!norm) return null;
+  let best = null;
+  for (const command of customCommands || []) {
+    if (!command || command.enabled === false) continue;
+    if (!addressed && !command.matchPlain) continue;
+    for (const trigger of command.triggers || []) {
+      if (!trigger) continue;
+      if (norm !== trigger && !norm.startsWith(`${trigger} `)) continue;
+      if (best && trigger.length <= best.trigger.length) continue;
+      const words = String(body).trim().replace(/^[!/\s]+/, "").split(/\s+/);
+      const args = words.slice(trigger.split(" ").length).join(" ").trim().slice(0, 300);
+      best = { command, trigger, args };
+    }
+  }
+  return best;
+}
+
+export function parseCommand(message, botName = "Opus", customCommands = []) {
   if (!message || typeof message !== "string") return null;
   const raw = message.trim();
   if (!raw) return null;
@@ -21,6 +55,11 @@ export function parseCommand(message, botName = "Opus") {
       .replace(new RegExp(`^@?${name}[,:]?\\s*`, "i"), "")
       .replace(new RegExp(`^${name}\\s*,\\s*`, "i"), "")
       .trim();
+  }
+
+  if (customCommands?.length) {
+    const hit = matchCustomCommand(body, customCommands, { addressed });
+    if (hit) return { type: "custom", ...hit };
   }
 
   if (!addressed && !raw.startsWith("!")) {

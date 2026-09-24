@@ -1,0 +1,152 @@
+@import '@fontsource-variable/onest/index.css';
+@import '@fontsource/pixelify-sans/400.css';
+@import '@fontsource/pixelify-sans/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
+/*
+  Maincraft visual language: "a torch in the mine".
+  Deepslate darkness, parchment text, one warm torchlight accent.
+  Minecraft shows up in details (pixel icons, faces, vitals), never as cartoon chrome.
+*/
+:root {
+  --bg: #101112;
+  --bg-sunken: #0a0b0c;
+  --panel: #161819;
+  --panel-2: #1c1f21;
+  --panel-3: #24282b;
+  --line: #262a2e;
+  --line-2: #33383d;
+  --line-3: #454b51;
+
+  --text: #ece6da;
+  --text-2: #a8a195;
+  --text-3: #6f6a62;
+
+  --torch: #f2a53a;
+  --torch-hi: #ffc46e;
+  --torch-lo: #a8641a;
+  --torch-ink: #1f1407;
+  --torch-wash: rgba(242, 165, 58, 0.1);
+
+  --emerald: #3ecf8e;
+  --emerald-wash: rgba(62, 207, 142, 0.12);
+  --redstone: #ec5040;
+  --redstone-wash: rgba(236, 80, 64, 0.12);
+  --lapis: #6b9cf2;
+  --lapis-wash: rgba(107, 156, 242, 0.12);
+  --gold: #e8c547;
+
+  --font-ui: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-pixel: 'Pixelify Sans', 'Onest Variable', monospace;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 10px;
+
+  --titlebar: 40px;
+  --sidebar: 232px;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: 'ss01', 'cv05';
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgba(242, 165, 58, 0.35);
+  color: var(--text);
+}
+
+a {
+  color: var(--torch);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--torch);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border: 3px solid var(--bg);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-3);
+}
+
+.pixelated {
+  image-rendering: pixelated;
+  shape-rendering: crispEdges;
+}
+
+.selectable {
+  user-select: text;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

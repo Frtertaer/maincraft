@@ -243,6 +243,23 @@ export class LlmClient {
   }
 
   /**
+   * Provider-aware readiness check before the bot joins the world.
+   * whoami: legacy proxy balance/model check; models: official GET /v1/models; none: skip.
+   */
+  async preflight(mode = "whoami") {
+    if (mode === "none") return { ok: true, skipped: true };
+    if (mode === "whoami") return this.whoami();
+    const data = await this.#requestJson(
+      "models",
+      "/v1/models",
+      { method: "GET", headers: this.#headers() },
+      { timeoutMs: this.whoamiTimeoutMs, idempotent: true }
+    );
+    const available = modelIds(data.data ?? data.models);
+    return { ok: true, models: available, modelListed: available.includes(this.model) };
+  }
+
+  /**
    * @param {object} opts
    * @param {string} opts.system
    * @param {Array} opts.messages - Anthropic messages
