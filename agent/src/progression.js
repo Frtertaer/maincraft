@@ -1096,6 +1096,93 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   return true;
 }
 
+// Bed-first night survival: a placed bed + sleep skips the whole night in
+// seconds instead of ~9 minutes sealed in a pocket. Order: sleep in a bed
+// already placed → craft one from hunted wool + planks → caller falls back
+// to burrowing. Kills the respawn-at-night death spiral on open terrain.
+export async function ensureBedAndSleep(bot, mcData, log, state = null) {
+  const tod = bot.time?.timeOfDay;
+  if (tod == null || tod < 12541) return { ok: false, message: "not night" };
+  const woolCount = () => countItem(bot, (i) => /(?:^|_)wool$/.test(i.name));
+  const bedItem = () =>
+    bot.inventory.items().find((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name));
+  const bedBlock = () =>
+    bot.findBlock({
+      matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+      maxDistance: 12,
+    });
+
+  if (!bedBlock()) {
+    if (!bedItem()) {
+      // hunt sheep until 3 wool — fists work, a few hits each
+      for (let i = 0; i < 5 && woolCount() < 3; i++) {
+        const r = await executeAction(
+          bot,
+          { type: "attack", name: "sheep", maxDurationMs: 12000, maxDistance: 48 },
+          mcData
+        ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
+        if (!r.ok) break; // no sheep in range — give up early
+      }
+      if (woolCount() >= 3) {
+        if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3 && countItem(bot, (i) => i.name.endsWith("_log")) > 0) {
+          const logName =
+            bot.inventory
+              .items()
+              .find((i) => i.name.endsWith("_log"))
+              ?.name.replace("_log", "_planks") || "oak_planks";
+          await ensureCraft(bot, mcData, logName, 4).catch(() => {});
+        }
+        if (countItem(bot, (i) => i.name.endsWith("_planks")) >= 3) {
+          const wool =
+            bot.inventory.items().find((i) => /wool$/.test(i.name) && i.count >= 3) ||
+            bot.inventory.items().find((i) => /wool$/.test(i.name));
+          const color = wool ? wool.name.replace("_wool", "") : "white";
+          const t = await ensureTable(bot, mcData);
+          if (t.ok) await ensureCraft(bot, mcData, `${color}_bed`, 1).catch(() => {});
+        }
+      }
+    }
+    const bi = bedItem();
+    if (bi && !bedBlock()) {
+      const p = bot.entity.position.floored();
+      for (const [px, pz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+        [2, 0],
+        [0, 2],
+      ]) {
+        const ground = bot.blockAt(p.offset(px, -1, pz));
+        const spot = bot.blockAt(p.offset(px, 0, pz));
+        const head = bot.blockAt(p.offset(px, 1, pz));
+        if (ground && !/air|water|lava/.test(ground.name) && spot?.name === "air" && head?.name === "air") {
+          const placed = await executeAction(
+            bot,
+            { type: "place", item: bi.name, x: p.x + px, y: p.y, z: p.z + pz, face: "top", timeoutMs: 8000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (placed.ok) break;
+        }
+      }
+    }
+  }
+  if (!bedBlock()) return { ok: false, message: "no bed" };
+  // sleep — fails fast if monsters nearby (vanilla rule), caller burrows then
+  const s = await executeAction(
+    bot,
+    { type: "sleep", maxDistance: 16, timeoutMs: 20000 },
+    mcData
+  ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
+  if (s.ok) {
+    log?.("[bed] sleeping — skipping night");
+    const t1 = Date.now();
+    while ((bot.time?.timeOfDay ?? 0) >= 12541 && Date.now() - t1 < 60000) await sleep(1000);
+    return { ok: true, message: "slept through the night" };
+  }
+  return { ok: false, message: s.message || "sleep failed" };
+}
+
 export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   const logNames = [
     "oak_log",

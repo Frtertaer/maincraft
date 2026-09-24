@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -219,7 +219,11 @@ export class ClearRunner {
               /* no tree in reach — burrow anyway */
             }
             try {
-              await burrowForNight(bot, this.mcData, this.log);
+              // bed beats burrow: sheep are everywhere near spawn and a
+              // slept night skips the whole exposure window
+              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+              if (slept.ok) this.log(`[clear] ${slept.message}`);
+              else await burrowForNight(bot, this.mcData, this.log);
             } catch (err) {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
@@ -283,9 +287,19 @@ export class ClearRunner {
           this._lastBurrow = Date.now();
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
           try {
+            // bed first on real nights — a slept night is ~30s of exposure
+            // vs ~9.5min sealed; burrow remains the fallback
+            let burrowed = false;
+            if (isNight) {
+              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+              if (slept.ok) {
+                this.log(`[clear] ${slept.message}`);
+                burrowed = true; // night is over — treat as sheltered
+              }
+            }
             // force=true for the daytime variant — a hostile is camped on us
             // and the wait-until-safe logic is exactly what we need anyway
-            const burrowed = await burrowForNight(bot, this.mcData, this.log, !isNight);
+            if (!burrowed) burrowed = await burrowForNight(bot, this.mcData, this.log, !isNight);
             // Night burrow gave up entirely (no diggable ground anywhere):
             // surface work in the dark is a death loop — keep looking for
             // shelter instead of falling through to the phase step.
