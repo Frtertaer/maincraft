@@ -1112,6 +1112,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
     }
   }
+  // campers re-close during the ~15s climb-out — hold the pocket until the
+  // mouth is clear (or ~2min passes) before breaking the seal
+  const tHold = Date.now();
+  while (findHostile(bot, 10) && Date.now() - tHold < 120000) {
+    const camper = findHostile(bot, 5);
+    const armed2 = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+    if (camper && armed2) {
+      try {
+        await pt(bot.attack(camper), 6000, "attack");
+      } catch {
+        /* out of reach — keep waiting */
+      }
+    }
+    await sleep(3000);
+  }
   // dig out the sealed doorway, step back into the open shaft, then pillar
   // up the shaft to the surface (can't pillar inside the pocket — ceiling)
   if (sealedCells?.length) {
