@@ -272,8 +272,12 @@ export class ClearRunner {
             ];
             // a camper reads the deterministic dry-dir exit — after a couple
             // of spawn-camp deaths, rotate the escape instead of running the
-            // same bearing into the same arrow
-            const [fdx, fdz] = this.deaths >= 2 ? fleeDirs[this.deaths % fleeDirs.length] : pickDryDir(bot, fleeDirs);
+            // same bearing into the same arrow; still prefer the drier of
+            // two fresh directions so we don't flee straight into a river
+            const [fdx, fdz] =
+              this.deaths >= 2
+                ? pickDryDir(bot, [fleeDirs[this.deaths % 4], fleeDirs[(this.deaths + 1) % 4]])
+                : pickDryDir(bot, fleeDirs);
             this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
             await sprintBurst(fdx, fdz).catch(() => {});
             try {
