@@ -1071,6 +1071,39 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         mcData
       );
       if (!step.ok) continue;
+      // never seal a hostile inside the pocket with us — check the corridor
+      // (a mob walled into a 1x2 burrow kills us point-blank before dawn)
+      const inside = Object.values(bot.entities || {}).some((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || e.displayName || "").toLowerCase();
+        if (
+          !(
+            e.kind === "Hostile mobs" ||
+            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+          )
+        )
+          return false;
+        const ex = e.position.x - feet.x;
+        const ez = e.position.z - feet.z;
+        const fwd = px * ex + pz * ez;
+        const lat = Math.abs(px * ez - pz * ex);
+        return fwd >= -0.5 && fwd < carvedDepth + 3 && lat < 1.5;
+      });
+      if (inside) {
+        const armed3 = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+        if (armed3) {
+          const t = findHostile(bot, 6);
+          if (t) {
+            try {
+              await pt(bot.attack(t), 8000, "attack");
+            } catch {
+              /* swung and missed — next pocket dir may be clean anyway */
+            }
+          }
+          continue;
+        }
+        continue; // bare hands — this pocket is a coffin, try the next dir
+      }
       // wall the doorway: feet cell via floor ref, head cell via the new block
       const p1 = await executeAction(
         bot,
