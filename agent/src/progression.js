@@ -571,6 +571,27 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
     // bad() treats air/liquid as bad — an open cell ahead is a cave mouth,
     // and a mob standing near the step cell is an ambush; both rotate
     if (bad(f1) || bad(h1) || !floor || /lava|water|air/.test(floor.name) || mobNear(p.offset(dx, 0, dz))) {
+      // small-gap pass-through: if the cell ahead is air but its floor is
+      // solid and a diggable wall resumes within 2 blocks, it is a narrow
+      // fissure — walk it and keep stripping on the far side. A wider
+      // opening is a real cave mouth: rotate away as before.
+      const wallResumes =
+        floor &&
+        !/lava|water|air/.test(floor.name) &&
+        (bad(f1) || bad(h1)) &&
+        !mobNear(p.offset(dx, 0, dz)) &&
+        (!bad(bot.blockAt(p.offset(dx * 2, 0, dz * 2))) || !bad(bot.blockAt(p.offset(dx * 2, 1, dz * 2))));
+      if (wallResumes) {
+        const hop = await executeAction(
+          bot,
+          { type: "goto", x: p.x + dx + 0.5, y: p.y, z: p.z + dz + 0.5, range: 0.7, timeoutMs: 6000 },
+          mcData
+        );
+        if (hop.ok) {
+          i -= 1;
+          continue;
+        }
+      }
       dirIdx = (dirIdx + 1) % 4;
       [dx, dz] = dirs[dirIdx];
       i -= 1;
