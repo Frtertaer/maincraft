@@ -90,7 +90,8 @@
     "enabled": true,
     "host": "127.0.0.1",
     "port": 3007,
-    "firstPerson": true
+    "firstPerson": false,
+    "viewDistance": 8
   },
   "clear": {
     "maxMs": 43200000

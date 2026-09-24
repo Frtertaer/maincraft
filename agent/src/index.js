@@ -156,6 +156,7 @@ async function main() {
           host: cfg.viewer.host,
           port: cfg.viewer.port,
           firstPerson: cfg.viewer.firstPerson,
+          viewDistance: cfg.viewer.viewDistance,
         });
         log(`Viewer: ${viewer.url} (loopback only)`);
       } catch (err) {

@@ -411,6 +411,7 @@ function normalizeViewerConfig(cfg) {
   }
   viewer.port = numberAt(viewer.port, 3007, "viewer.port", { min: 1024, max: 65535, integer: true });
   viewer.firstPerson = boolAt(viewer.firstPerson, true, "viewer.firstPerson");
+  viewer.viewDistance = numberAt(viewer.viewDistance, 6, "viewer.viewDistance", { min: 2, max: 16, integer: true });
   cfg.viewer = viewer;
 }
 
