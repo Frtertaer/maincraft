@@ -3,6 +3,22 @@ import { Vec3 } from "vec3";
 
 const { goals, Movements } = pkgPathfinder;
 
+// While a container window is open the server addresses slot updates to it,
+// not window 0 — bot.inventory drifts (crafted items look missing). The open
+// window's inventory range is the fresh view.
+function invItems(bot) {
+  const win = bot.currentWindow;
+  if (
+    win &&
+    win !== bot.inventory &&
+    typeof win.inventoryStart === "number" &&
+    win.inventoryStart < (win.slots?.length || 0)
+  ) {
+    return win.slots.slice(win.inventoryStart).filter(Boolean);
+  }
+  return bot.inventory.items();
+}
+
 const CONTAINER_BLOCKS = new Set([
   "chest",
   "trapped_chest",
@@ -377,7 +393,7 @@ export async function executeAction(bot, action, mcData) {
         const plan = computeCraftPlan(recipe, count);
         if (!plan) return { ok: false, message: `bad craft plan for ${itemName}` };
 
-        const before = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
+        const before = invItems(bot).reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
         // One resync-retry for "missing ingredient": a desynced client can
         // think it lacks items the server knows it has. Reopening the table
         // forces a full slot resend, then the craft goes through.
@@ -429,8 +445,7 @@ export async function executeAction(bot, action, mcData) {
           }
         }
         if (craftErr) {
-          const inv = bot.inventory
-            .items()
+          const inv = invItems(bot)
             .map((i) => `${i.name}x${i.count}`)
             .join(",");
           throw new Error(`${craftErr?.message || craftErr} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
@@ -439,7 +454,7 @@ export async function executeAction(bot, action, mcData) {
         let after = before;
         for (let i = 0; i < 30 && after <= before; i++) {
           await sleep(150);
-          after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+          after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
         }
         // Still no change: the client may have dropped window packets entirely.
         // Re-opening the crafting table forces the server to resend all slots,
@@ -459,7 +474,7 @@ export async function executeAction(bot, action, mcData) {
             }
             for (let i = 0; i < 10 && after <= before; i++) {
               await sleep(150);
-              after = bot.inventory.items().reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+              after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
             }
           } catch {
             /* resync failed — fall through to the failure verdict */

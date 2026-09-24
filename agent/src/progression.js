@@ -26,9 +26,26 @@ export const PHASES = [
   "clear",
 ];
 
+// While a container window is open the server sends slot updates to that
+// window — bot.inventory (window 0) silently drifts (crafts look like they
+// produce nothing, items appear missing). The open window's inventory
+// range is the fresh view; prefer it for counting.
+export function inventoryItems(bot) {
+  const win = bot.currentWindow;
+  if (
+    win &&
+    win !== bot.inventory &&
+    typeof win.inventoryStart === "number" &&
+    win.inventoryStart < (win.slots?.length || 0)
+  ) {
+    return win.slots.slice(win.inventoryStart).filter(Boolean);
+  }
+  return bot.inventory.items();
+}
+
 export function countItem(bot, pred) {
   let n = 0;
-  for (const it of bot.inventory.items()) {
+  for (const it of inventoryItems(bot)) {
     if (typeof pred === "string") {
       if (it.name === pred || it.name.includes(pred)) n += it.count;
     } else if (pred(it)) n += it.count;
