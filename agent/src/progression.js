@@ -1378,24 +1378,37 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     maxDistance: 32,
   });
   if (!block) {
-    // nothing in scan range — wander toward new ground instead of stalling
+    // nothing in scan range — wander toward new ground instead of stalling.
+    // Keep one heading and grow the leap each streak: a tree-poor basin
+    // can span 200m+, and random 40m hops just ping-pong inside it.
     if (state) {
       state.noLogStreak = (state.noLogStreak || 0) + 1;
       if (state.noLogStreak >= 3) {
         const p = bot.entity.position.floored();
-        const dirs = [[40, 0], [-40, 0], [0, 40], [0, -40]];
-        const [wx, wz] = pickDryDir(bot, dirs);
+        if (!state.wanderDir) {
+          const dirs = [
+            [60, 0],
+            [-60, 0],
+            [0, 60],
+            [0, -60],
+          ];
+          state.wanderDir = pickDryDir(bot, dirs);
+        }
+        const hop = Math.min(60 + Math.floor(state.noLogStreak / 3) * 30, 180);
+        const wx = Math.sign(state.wanderDir[0]) * hop;
+        const wz = Math.sign(state.wanderDir[1]) * hop;
         try {
           await executeAction(
             bot,
-            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 5, timeoutMs: 20000 },
+            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 5, timeoutMs: 25000 },
             mcData
           );
         } catch {
-          /* wander blocked — retry from here */
+          /* wander blocked — try the next heading */
+          state.wanderDir = null;
         }
-        state.noLogStreak = 0;
-        return { ok: true, message: "exploring for trees" };
+        state.noLogStreak = 1;
+        return { ok: true, message: `exploring for trees (${hop}m)` };
       }
     }
     return { ok: false, message: "no log block nearby" };
