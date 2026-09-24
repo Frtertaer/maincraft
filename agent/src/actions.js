@@ -512,13 +512,16 @@ export async function executeAction(bot, action, mcData) {
       }
 
       case "eat": {
+        const FOOD =
+          /cooked|beef|pork|bread|apple|carrot|potato|baked|chicken|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit/;
+        const wanted = action.item ? String(action.item) : null;
         const foods = bot.inventory
           .items()
-          .filter((i) => bot.food < 20 && (i.name.includes("beef") || i.name.includes("pork") || i.name.includes("bread") || i.name.includes("apple") || i.name.includes("carrot") || i.name.includes("potato") || i.name.includes("chicken") || i.name.includes("cod") || i.name.includes("salmon") || i.name.includes("cookie") || i.name.includes("melon") || i.name.includes("pie") || i.name.includes("stew") || i.name.includes("berries")));
+          .filter((i) => bot.food < 20 && FOOD.test(i.name) && (!wanted || i.name === wanted));
         const food = foods[0];
         if (!food) return { ok: false, message: "no food" };
-        await bot.equip(food, "hand");
-        await bot.consume();
+        await withTimeout(bot.equip(food, "hand"), 8000, "equip timeout");
+        await withTimeout(bot.consume(), 10000, "consume timeout");
         return { ok: true, message: `ate ${food.name}` };
       }
 

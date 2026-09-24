@@ -1096,6 +1096,58 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   return true;
 }
 
+// Food management: starvation is what actually kills the marathon run —
+// at foodLevel 0 the bot can't sprint and sits at ~0.5hp where any damage
+// is fatal. Eat carried food first; when empty, hunt farm animals and eat
+// the drops raw (safe raw: beef/pork/mutton/rabbit/cod/salmon — raw
+// chicken's hunger effect makes it a last resort).
+const EDIBLE_FOOD =
+  /cooked|beef|pork|bread|apple|carrot|potato|baked|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit/;
+const SAFE_RAW = /beef|porkchop|mutton|^rabbit$|raw_rabbit|cod|salmon/;
+
+export async function ensureFed(bot, mcData, log, state = null) {
+  if (bot.food == null || bot.food >= 14) return { ok: true, ate: false };
+  let ate = false;
+  // eat whatever's edible, preferring cooked/carried food
+  for (let i = 0; i < 6 && bot.food < 19; i++) {
+    const f =
+      bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name)) ||
+      bot.inventory.items().find((i) => SAFE_RAW.test(i.name)) ||
+      (bot.food <= 8 ? bot.inventory.items().find((i) => /chicken/.test(i.name)) : null);
+    if (!f) break;
+    const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch((e) => ({
+      ok: false,
+      message: e?.message || String(e),
+    }));
+    if (r.ok) {
+      ate = true;
+      log?.(`[food] ate ${f.name} (food=${bot.food})`);
+    } else break;
+  }
+  if (bot.food >= 10) return { ok: true, ate };
+  // hunt: chase down farm animals within 48 — each kill ~1-3 raw meat
+  for (const prey of ["cow", "pig", "sheep", "rabbit", "chicken"]) {
+    if (bot.food >= 12) break;
+    for (let i = 0; i < 3 && bot.food < 12; i++) {
+      const r = await executeAction(
+        bot,
+        { type: "attack", name: prey, maxDurationMs: 14000, maxDistance: 48 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!r.ok) break;
+      await sleep(400);
+      const got = bot.inventory.items().find((i) => SAFE_RAW.test(i.name) || EDIBLE_FOOD.test(i.name));
+      if (got && bot.food < 19) {
+        const e = await executeAction(bot, { type: "eat", item: got.name, timeoutMs: 12000 }, mcData).catch(() => ({
+          ok: false,
+        }));
+        if (e.ok) ate = true;
+      }
+    }
+  }
+  return { ok: bot.food > 4, ate };
+}
+
 // Bed-first night survival: a placed bed + sleep skips the whole night in
 // seconds instead of ~9 minutes sealed in a pocket. Order: sleep in a bed
 // already placed → craft one from hunted wool + planks → caller falls back

@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -269,6 +269,17 @@ export class ClearRunner {
           continue;
         }
         yieldCount = 0;
+        // Food: foodLevel 0 means no sprint and ~0.5hp — starvation is the
+        // quiet killer of the marathon. Eat carried food or hunt animals.
+        if (bot.food != null && bot.food < 14 && Date.now() - (this._lastFood || 0) > 25000) {
+          this._lastFood = Date.now();
+          try {
+            const fed = await ensureFed(bot, this.mcData, this.log, this.state);
+            if (fed?.ate) this.log(`[clear] ate (food=${bot.food})`);
+          } catch {
+            /* food err — continue */
+          }
+        }
         // Survival for surface phases: burrow at night (mobs will come), and
         // also in daylight when a hostile is camped nearby and the run has
         // died before — creepers/spiders don't burn at dawn.
