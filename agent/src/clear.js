@@ -264,30 +264,41 @@ export class ClearRunner {
             // out-range any sprint — flee, then hide in a sealed pocket until
             // it wanders off (the burrow wait is hostile-proximity based)
             const pf = bot.entity.position;
-            const fleeDirs = [
-              [70, 0],
-              [-70, 0],
-              [0, 70],
-              [0, -70],
-            ];
-            // a camper reads the deterministic dry-dir exit — after a couple
-            // of spawn-camp deaths, rotate the escape instead of running the
-            // same bearing into the same arrow; still prefer the drier of
-            // two fresh directions so we don't flee straight into a river
-            const [fdx, fdz] =
-              this.deaths >= 2
-                ? pickDryDir(bot, [fleeDirs[this.deaths % 4], fleeDirs[(this.deaths + 1) % 4]])
-                : pickDryDir(bot, fleeDirs);
-            this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
-            await sprintBurst(fdx, fdz).catch(() => {});
-            try {
-              await executeAction(
-                bot,
-                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
-                this.mcData
-              );
-            } catch {
-              /* superseded — burrow anyway */
+            // hostile already in arrow range at respawn: fleeing draws the
+            // kill-window open — burrow on the spot instead of sprinting past
+            const respawnHostile = Object.values(bot.entities || {}).some((e) => {
+              const n = String(e?.name || "");
+              const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+              return hostile && e.position.distanceTo(bot.entity.position) < 20;
+            });
+            if (!respawnHostile) {
+              const fleeDirs = [
+                [70, 0],
+                [-70, 0],
+                [0, 70],
+                [0, -70],
+              ];
+              // a camper reads the deterministic dry-dir exit — after a couple
+              // of spawn-camp deaths, rotate the escape instead of running the
+              // same bearing into the same arrow; still prefer the drier of
+              // two fresh directions so we don't flee straight into a river
+              const [fdx, fdz] =
+                this.deaths >= 2
+                  ? pickDryDir(bot, [fleeDirs[this.deaths % 4], fleeDirs[(this.deaths + 1) % 4]])
+                  : pickDryDir(bot, fleeDirs);
+              this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
+              await sprintBurst(fdx, fdz).catch(() => {});
+              try {
+                await executeAction(
+                  bot,
+                  { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
+                  this.mcData
+                );
+              } catch {
+                /* superseded — burrow anyway */
+              }
+            } else {
+              this.log(`[clear] hostile at spawn — burrowing in place`);
             }
             try {
               // a camper at spawn survives every respawn — a bed activate
