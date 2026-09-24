@@ -1015,7 +1015,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           if (!bb || bb.name === "air" || /leaves|_log|water|lava/.test(bb.name)) return false;
           const a1 = bot.blockAt(bb.position.offset(0, 1, 0));
           const a2 = bot.blockAt(bb.position.offset(0, 2, 0));
-          return a1?.name === "air" && a2?.name === "air" && diggable(bb);
+          if (a1?.name !== "air" || a2?.name !== "air") return false;
+          // two diggable cells below too — grass-over-stone tops dig one
+          // layer then stall on the same mountain that just failed
+          return diggable(bb) && diggable(bot.blockAt(bb.position.offset(0, -1, 0))) && diggable(bot.blockAt(bb.position.offset(0, -2, 0)));
         },
         maxDistance: 40,
         count: 6,
@@ -1049,9 +1052,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     }
     return burrowForNight(bot, mcData, log, force, _depth + 1);
   };
-  const solid = bot.inventory
+  // re-fetched lazily — a bare-handed start has nothing, but digging the
+  // pocket itself drops dirt/blocks that can then seal the doorway
+  let solid = bot.inventory
     .items()
     .find((i) => !!mcData.blocksByName[i.name]);
+  const refreshSolid = () => {
+    // always re-find: items() hands out fresh objects, the old ref's count
+    // never updates — a fully-consumed stack would still look usable
+    solid = bot.inventory.items().find((i) => !!mcData.blocksByName[i.name]);
+    return solid;
+  };
   const danger = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
   // diggable = terrain the bot can actually break with what it carries —
   // mineflayer's b.diggable doesn't account for harvestTools, so check by
@@ -1138,7 +1149,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   }
   let dug = 0;
   let needsShaft = true;
-  if (!spot && solid) {
+  if (!spot && refreshSolid()) {
     // no diggable column — we're deep in a tunnel or on undiggable floor.
     // The tunnel wall itself is the burrow: carve a sideways pocket at
     // ground level (all diggable stone) instead of digging a shaft first
@@ -1151,7 +1162,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // (skeletons can still shoot; still better than standing on the ground)
     log?.("[burrow] no safe column — pillaring up");
     let raised = 0;
-    for (let i = 0; i < 7 && solid; i++) {
+    for (let i = 0; i < 7 && refreshSolid(); i++) {
       const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
       if (!ref || ref.name === "air") break;
       try {
@@ -1166,8 +1177,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
         bot.setControlState("jump", false);
         raised += 1;
-      } catch {
+      } catch (e) {
         bot.setControlState("jump", false);
+        log?.(`[burrow] pillar err: ${e?.message || e}`);
         break;
       }
       await sleep(250);
@@ -1242,7 +1254,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // lips). Returns sealed cells for the exit dig.
   const feet = bot.entity.position.floored();
   let sealedCells = null;
-  if (solid && (dug >= 3 || !needsShaft)) {
+  const sealWhy = {};
+  const sealMiss = (why) => {
+    sealWhy[why] = (sealWhy[why] || 0) + 1;
+  };
+  if (refreshSolid() && (dug >= 3 || !needsShaft)) {
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
@@ -1256,11 +1272,20 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
         // every pocket cell must be a diggable solid — an air cell means a
         // cave pocket, and a cave means mobs
-        if (cells.some((c) => !diggable(c))) continue;
+        if (cells.some((c) => !diggable(c))) {
+          sealMiss("undiggable");
+          continue;
+        }
         const doorwayFloor = bot.blockAt(feet.offset(px, -1, pz));
         const farFloor = bot.blockAt(feet.offset(px * depth, -1, pz * depth));
-        if (!doorwayFloor || doorwayFloor.name === "air") continue;
-        if (!farFloor || /air|lava|water|bedrock|magma_block/.test(farFloor.name)) continue;
+        if (!doorwayFloor || doorwayFloor.name === "air") {
+          sealMiss("doorway-floor-air");
+          continue;
+        }
+        if (!farFloor || /air|lava|water|bedrock|magma_block/.test(farFloor.name)) {
+          sealMiss("far-floor-open");
+          continue;
+        }
         let carved = true;
         for (const c of cells) {
         const d = await executeAction(
@@ -1273,7 +1298,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             break;
           }
         }
-        if (!carved) continue;
+        if (!carved) {
+          sealMiss("dig-fail");
+          continue;
+        }
         carvedDepth = depth;
         break;
       }
@@ -1290,7 +1318,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         },
         mcData
       );
-      if (!step.ok) continue;
+      if (!step.ok) {
+        sealMiss("step-in-fail");
+        continue;
+      }
       // never seal a hostile inside the pocket with us — check the corridor
       // (a mob walled into a 1x2 burrow kills us point-blank before dawn)
       const inside = Object.values(bot.entities || {}).some((e) => {
@@ -1320,8 +1351,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               /* swung and missed — next pocket dir may be clean anyway */
             }
           }
+          sealMiss("mob-inside");
           continue;
         }
+        sealMiss("mob-inside");
         continue; // bare hands — this pocket is a coffin, try the next dir
       }
       // wall the doorway: feet cell via floor ref, head cell via the new block
@@ -1330,13 +1363,19 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         { type: "place", item: solid.name, x: feet.x + px, y: feet.y, z: feet.z + pz, face: "top", timeoutMs: 8000 },
         mcData
       );
-      if (!p1.ok) continue;
+      if (!p1.ok) {
+        sealMiss(`place1: ${String(p1.message || "").slice(0, 40)}`);
+        continue;
+      }
       const p2 = await executeAction(
         bot,
         { type: "place", item: solid.name, x: feet.x + px, y: feet.y + 1, z: feet.z + pz, face: "top", timeoutMs: 8000 },
         mcData
       );
-      if (!p2.ok) continue;
+      if (!p2.ok) {
+        sealMiss(`place2: ${String(p2.message || "").slice(0, 40)}`);
+        continue;
+      }
       sealedCells = [
         { x: feet.x + px, y: feet.y, z: feet.z + pz },
         { x: feet.x + px, y: feet.y + 1, z: feet.z + pz },
@@ -1345,7 +1384,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       break;
     }
     if (!sealedCells) {
-      log?.("[burrow] no seal");
+      const why = Object.entries(sealWhy)
+        .map(([k, n]) => `${k}x${n}`)
+        .join(",");
+      log?.(`[burrow] no seal${why ? ` (${why})` : ""}${!solid ? " — no blocks" : ""}`);
       return retryElsewhere("no seal");
     }
   }
