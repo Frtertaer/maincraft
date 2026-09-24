@@ -524,6 +524,13 @@ export async function executeAction(bot, action, mcData) {
           }
         }
         if (after <= before) {
+          // final grace: the server's set_slot burst can land well after the
+          // resync — one long sleep + recount catches stragglers before a
+          // false-negative verdict burns a retry and a stuck tick
+          await sleep(2500);
+          after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+        }
+        if (after <= before) {
           const win = bot.currentWindow;
           const winDump = win
             ? ` win=${win.type} slots=[${(win.slots || [])
