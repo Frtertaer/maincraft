@@ -978,7 +978,7 @@ export function pickDryDir(bot, dirs) {
   return best;
 }
 
-export async function burrowForNight(bot, mcData, log, force = false, _depth = 0) {
+export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
   // a failed dig leaves the bot standing exposed — relocate to a different
@@ -1038,28 +1038,46 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         /* move didn't land — try the burrow from wherever we are */
       }
     } else {
-      // a bare-handed bot on rock has no shelter option but soft ground —
-      // 18m hops never leave a mountain ridge; escalate the wander with
-      // depth so each failure travels meaningfully farther
-      const hop = 18 + _depth * 24;
-      const dirs = [
-        [hop, 0],
-        [-hop, 0],
-        [0, hop],
-        [0, -hop],
-      ];
-      const [rx, rz] = pickDryDir(bot, dirs);
-      try {
-        await executeAction(
-          bot,
-          { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 + _depth * 8000 },
-          mcData
-        );
-      } catch {
-        /* move didn't land — try the burrow from wherever we are */
+      // memory beats a blind hop: spots where logs were punched before
+      // grew on diggable dirt — walk toward the closest one when in reach
+      const site = (state?.logSites || [])
+        .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+        .filter((e) => e.d > 24 && e.d < 160)
+        .sort((a, b) => a.d - b.d)[0]?.s;
+      if (site) {
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: site.x + 0.5, y: site.y, z: site.z + 0.5, range: 3, timeoutMs: 12000 + _depth * 8000 },
+            mcData
+          );
+        } catch {
+          /* move didn't land — try the burrow from wherever we are */
+        }
+      } else {
+        // a bare-handed bot on rock has no shelter option but soft ground —
+        // 18m hops never leave a mountain ridge; escalate the wander with
+        // depth so each failure travels meaningfully farther
+        const hop = 18 + _depth * 24;
+        const dirs = [
+          [hop, 0],
+          [-hop, 0],
+          [0, hop],
+          [0, -hop],
+        ];
+        const [rx, rz] = pickDryDir(bot, dirs);
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 + _depth * 8000 },
+            mcData
+          );
+        } catch {
+          /* move didn't land — try the burrow from wherever we are */
+        }
       }
     }
-    return burrowForNight(bot, mcData, log, force, _depth + 1);
+    return burrowForNight(bot, mcData, log, force, _depth + 1, state);
   };
   // re-fetched lazily — a bare-handed start has nothing, but digging the
   // pocket itself drops dirt/blocks that can then seal the doorway
