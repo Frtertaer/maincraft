@@ -1002,13 +1002,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       log?.(`[burrow] cave below at dy=-2 — stopping on ceiling`);
       break;
     }
-    const d = await executeAction(
-      bot,
-      { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 10000 },
-      mcData
-    );
-    if (!d.ok) {
-      log?.(`[burrow] dig fail: ${d.message}`);
+    // a falling block (gravel/sand) invalidates the dig target mid-swing —
+    // "Digging aborted" — but the settled block at the same cell is a fine
+    // target, so retry a few times before giving up on the shaft
+    let d = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      d = await executeAction(
+        bot,
+        { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 10000 },
+        mcData
+      );
+      if (d.ok || !/abort/i.test(String(d?.message || ""))) break;
+      await sleep(250);
+    }
+    if (!d?.ok) {
+      log?.(`[burrow] dig fail: ${d?.message}`);
       break;
     }
     dug += 1;
