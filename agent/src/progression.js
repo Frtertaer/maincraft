@@ -549,7 +549,7 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         // placement itself usually lands anyway.
         const filler = bot.inventory
           .items()
-          .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|deepslate|andesite|diorite|granite|tuff|blackstone|mud|clay/.test(i.name));
+          .find((i) => !!mcData.blocksByName[i.name]);
         const ceil = bot.blockAt(p.offset(dx, 2, dz));
         if (filler && ceil && ceil.name !== "air") {
           try {
@@ -797,7 +797,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       triedLogs = true;
       const hasMat = bot.inventory
         .items()
-        .some((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|planks|_log|blackstone/.test(i.name));
+        .some((i) => !!mcData.blocksByName[i.name]);
       if (!hasMat) {
         try {
           await punchNearbyLogs(bot, mcData, 4, null);
@@ -852,7 +852,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   };
   const solid = bot.inventory
     .items()
-    .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|planks|_log|blackstone/.test(i.name));
+    .find((i) => !!mcData.blocksByName[i.name]);
   const danger = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
   // diggable = terrain the bot can actually break with what it carries —
   // mineflayer's b.diggable doesn't account for harvestTools, so check by
