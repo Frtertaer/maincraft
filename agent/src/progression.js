@@ -958,6 +958,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       try {
         await pt(bot.equip(solid, "hand"), 8000, "equip");
         bot.setControlState("jump", true);
+        // placing on top of the block we stand on is refused while our body
+        // still occupies that cell — wait until the jump lifts us clear
+        const lift = Date.now();
+        while (bot.entity.position.y < ref.position.y + 1.15 && Date.now() - lift < 900) {
+          await sleep(40);
+        }
         await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
         bot.setControlState("jump", false);
         raised += 1;
