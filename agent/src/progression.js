@@ -1233,8 +1233,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
     } else break;
   }
   if (bot.food >= 10) return { ok: true, ate };
-  // hunt: chase down farm animals within 48 — each kill ~1-3 raw meat
-  for (const prey of ["cow", "pig", "sheep", "rabbit", "chicken"]) {
+  // hunt: chase down farm animals within 48 — each kill ~1-3 raw meat.
+  // Zombies count when starving: rotten_flesh restores 4 food (the 30%
+  // hunger-effect risk beats guaranteed starvation at food=0).
+  const starving = bot.food <= 4;
+  const preyList = starving ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"] : ["cow", "pig", "sheep", "rabbit", "chicken"];
+  for (const prey of preyList) {
     if (bot.food >= 12) break;
     for (let i = 0; i < 3 && bot.food < 12; i++) {
       const r = await executeAction(
@@ -1244,7 +1248,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
       ).catch(() => ({ ok: false }));
       if (!r.ok) break;
       await sleep(400);
-      const got = bot.inventory.items().find((i) => SAFE_RAW.test(i.name) || EDIBLE_FOOD.test(i.name));
+      const got = bot.inventory
+        .items()
+        .find((i) => SAFE_RAW.test(i.name) || EDIBLE_FOOD.test(i.name) || (starving && i.name === "rotten_flesh"));
       if (got && bot.food < 19) {
         const e = await executeAction(bot, { type: "eat", item: got.name, timeoutMs: 12000 }, mcData).catch(() => ({
           ok: false,
@@ -1253,6 +1259,35 @@ export async function ensureFed(bot, mcData, log, state = null) {
       }
     }
   }
+  // nothing edible in range — starve-walk: animals render within a few
+  // chunks, so keep moving along one heading until something spawns
+  if (bot.food <= 4 && state) {
+    const p = bot.entity.position.floored();
+    if (!state.foodWanderDir) {
+      state.foodWanderDir = pickDryDir(bot, [
+        [60, 0],
+        [-60, 0],
+        [0, 60],
+        [0, -60],
+      ]);
+    }
+    await executeAction(
+      bot,
+      {
+        type: "goto",
+        x: p.x + state.foodWanderDir[0],
+        y: p.y,
+        z: p.z + state.foodWanderDir[1],
+        range: 8,
+        timeoutMs: 20000,
+      },
+      mcData
+    ).catch(() => {
+      state.foodWanderDir = null;
+    });
+    return { ok: true, ate, message: "starve-walk" };
+  }
+  if (state) state.foodWanderDir = null;
   return { ok: bot.food > 4, ate };
 }
 
