@@ -1196,9 +1196,13 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     "pale_oak_log",
   ];
   // Prefer small collect batches (less pathfinder thrash / OOM)
+  const logCount = () => countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
   for (const b of logNames) {
+    const before = logCount();
     const rr = await executeAction(bot, { type: "collect", block: b, count: 4, maxDistance: 32 }, mcData);
-    if (rr.ok) return rr;
+    // collect resolves ok even when it gathered nothing — a 0-gain 'ok'
+    // must not early-return or the tree-less spot never triggers a wander
+    if (rr.ok && logCount() > before) return rr;
   }
   // Fallback: dig one log block by coords — skip targets this spot already
   // failed to path to and anything far below (cave-visible trunks the
