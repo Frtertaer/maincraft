@@ -22,3 +22,9 @@ opus4.8api.txt
 agent/probe-*.cjs
 agent/bcheck.cjs
 *.heapsnapshot
+
+# runtime
+logs/
+server/
+agent/logs/
+/tmp/
