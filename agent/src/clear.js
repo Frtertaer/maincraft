@@ -220,6 +220,7 @@ export class ClearRunner {
           // died mid-shelter — flag lives on the bot object, reflex must be
           // free again at respawn
           bot._inShelter = false;
+          bot._burrowActive = false;
           if (isNight) {
             this.log(`[clear] night respawn — flee then burrow`);
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
@@ -366,6 +367,10 @@ export class ClearRunner {
         ) {
           this._lastBurrow = Date.now();
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
+          // park the reflex for the whole attempt: a hostile in range makes
+          // its engage-goto supersede every burrow hop — the bot cycles in
+          // place next to the mob instead of sealing or relocating
+          bot._burrowActive = true;
           try {
             // bed first on real nights — a slept night is ~30s of exposure
             // vs ~9.5min sealed; burrow remains the fallback. In daylight it
@@ -392,6 +397,8 @@ export class ClearRunner {
             }
           } catch (err) {
             this.log(`[clear] burrow fail: ${err?.message || err}`);
+          } finally {
+            bot._burrowActive = false;
           }
           continue;
         }

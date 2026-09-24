@@ -643,7 +643,10 @@ export class CombatReflex {
     // Sheltered (sealed burrow pocket / night pillar): hostiles are behind
     // walls we can't path to — engaging only pathfinds against the seal or
     // walks us off the edge. The shelter's own wait-loop handles campers.
-    if (bot._inShelter) {
+    if (bot._inShelter || bot._burrowActive) {
+      // _burrowActive: mid-burrow the reflex's engage-gotos supersede every
+      // relocate/carve hop — the bot hot-loops standing still next to the
+      // mob it can't outrun anyway. Parked until the burrow resolves.
       this._lockedId = null;
       this._stopBlock();
       return;
