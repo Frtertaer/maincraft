@@ -404,7 +404,7 @@ export async function executeAction(bot, action, mcData) {
           // opens with server-authoritative slots, while the always-open
           // player inventory can carry stale state (the desync class that
           // produces phantom "missing ingredient" failures)
-          const nearby = bot.findBlock({ matching: (b) => b && b.name === "crafting_table", maxDistance: 16 });
+          const nearby = bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table", maxDistance: 16 });
           if (nearby) {
             craftingTable = bot.blockAt(nearby.position) || nearby;
             const tableRecipes = bot.recipesFor(item.id, null, 1, craftingTable);
