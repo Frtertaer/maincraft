@@ -188,6 +188,17 @@ function hasPickaxe(bot) {
   return bot.inventory.items().some((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
 }
 
+function findHostile(bot, range) {
+  return Object.values(bot.entities || {}).find((e) => {
+    if (!e?.position || e === bot.entity) return false;
+    const n = String(e.name || e.displayName || "").toLowerCase();
+    const hostile =
+      e.kind === "Hostile mobs" ||
+      /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+    return hostile && e.position.distanceTo(bot.entity.position) < range;
+  });
+}
+
 async function ensureCraft(bot, mcData, item, count = 1) {
   return executeAction(bot, { type: "craft", item, count }, mcData);
 }
@@ -351,6 +362,22 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         why.push(`${tag}:drop`);
         continue;
       }
+      // don't dig into a mob's lap: hostile entities load through walls, so
+      // anything within 12 of the door cell is a real ambush risk
+      const door = p.offset(dx, 0, dz);
+      const ambush = Object.values(bot.entities || {}).some((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || e.displayName || "").toLowerCase();
+        return (
+          (e.kind === "Hostile mobs" ||
+            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
+          e.position.distanceTo(door) < 12
+        );
+      });
+      if (ambush) {
+        why.push(`${tag}:mob`);
+        continue;
+      }
       // clear the doorway column: headroom (+1), feet (0), floor (-1) —
       // without +1 a solid ceiling leaves a 1-high slot the pathfinder
       // can never enter (the goto-timeout loop seen on mountain slopes)
@@ -399,6 +426,29 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         stepped = true;
         dug += 1;
         path?.push({ x: p.x + dx, y: p.y - 1, z: p.z + dz });
+        // landed in a mob's lap — bail the staircase so the step ends and the
+        // combat reflex fights before we dig the next level down
+        if (findHostile(bot, 7)) {
+          log?.(`[stairDown] ambush at landing ${p.x + dx},${landY},${p.z + dz} — breaking`);
+          break;
+        }
+        // seal the stair behind us — a 1-high doorway slot is a walkable
+        // path mobs follow down (the skeleton-at-y29 lesson); one block at
+        // the old feet cell closes it, and we just dig it back out on return
+        const filler = bot.inventory
+          .items()
+          .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|deepslate|andesite|diorite|granite|tuff|blackstone|mud|clay/.test(i.name));
+        if (filler) {
+          try {
+            await executeAction(
+              bot,
+              { type: "place", item: filler.name, x: p.x, y: p.y, z: p.z, face: "top", timeoutMs: 6000 },
+              mcData
+            );
+          } catch {
+            /* sealing is best-effort */
+          }
+        }
         break;
       }
       if (/superseded/i.test(String(stepIn.message || ""))) superseded = true;
@@ -437,12 +487,24 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
   let mined = 0;
   let oreHits = 0;
   let spins = 0;
+  const mobNear = (cell) =>
+    Object.values(bot.entities || {}).some((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      const n = String(e.name || e.displayName || "").toLowerCase();
+      return (
+        (e.kind === "Hostile mobs" ||
+          /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
+        e.position.distanceTo(cell) < 10
+      );
+    });
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
     const floor = bot.blockAt(p.offset(dx, -1, dz));
     const f1 = bot.blockAt(p.offset(dx, 0, dz));
     const h1 = bot.blockAt(p.offset(dx, 1, dz));
-    if (bad(f1) || (h1 && h1.name !== "air" && bad(h1)) || !floor || /lava|water|air/.test(floor.name)) {
+    // bad() treats air/liquid as bad — an open cell ahead is a cave mouth,
+    // and a mob standing near the step cell is an ambush; both rotate
+    if (bad(f1) || bad(h1) || !floor || /lava|water|air/.test(floor.name) || mobNear(p.offset(dx, 0, dz))) {
       dirIdx = (dirIdx + 1) % 4;
       [dx, dz] = dirs[dirIdx];
       i -= 1;
@@ -516,9 +578,9 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
 // Night survival: dig a straight 1x1 shaft down (~8s, no walkable path for
 // mobs to follow), cap the opening with one block, wait for dawn, then pillar
 // back out. Returns true when it burrowed.
-export async function burrowForNight(bot, mcData, log) {
+export async function burrowForNight(bot, mcData, log, force = false) {
   const tod = bot.time?.timeOfDay;
-  if (tod == null || tod < 12541) return false;
+  if (!force && (tod == null || tod < 12541)) return false;
   const solid = bot.inventory
     .items()
     .find((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|planks|_log|blackstone/.test(i.name));
@@ -831,6 +893,34 @@ async function phaseWood(bot, mcData, state, log) {
       }
     }
     const now = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
+    if (rr.ok && now <= logs) {
+      // dug logs but the drops landed somewhere unreachable — walk onto the
+      // nearest dropped log/plank item and let the pickup radius grab it
+      const drop = Object.values(bot.entities || {}).find((e) => {
+        if (!e?.position) return false;
+        try {
+          const d = e.getDroppedItem?.();
+          if (!d || !/log|planks|stick/.test(String(d.name || ""))) return false;
+          return e.position.distanceTo(bot.entity.position) < 20;
+        } catch {
+          return false;
+        }
+      });
+      if (drop) {
+        await executeAction(
+          bot,
+          {
+            type: "goto",
+            x: drop.position.x,
+            y: drop.position.y,
+            z: drop.position.z,
+            range: 1.2,
+            timeoutMs: 12000,
+          },
+          mcData
+        ).catch(() => {});
+      }
+    }
     return {
       ok: rr.ok || now > logs,
       phase: "wood",
@@ -914,14 +1004,14 @@ async function phaseStone(bot, mcData, state, log) {
   }
 
   await ensureTable(bot, mcData);
-  const cobble = countItem(bot, "cobblestone");
-  if (cobble < 12) {
+  const cobble = countItem(bot, (i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name));
+  if (cobble < 8) {
     // Only target stone with an exposed face — buried blocks can't be dug from outside
     const stonePos = bot
       .findBlocks({
-        matching: (b) => b && (b.name === "stone" || b.name === "cobblestone" || b.name === "deepslate"),
-        maxDistance: 16,
-        count: 6,
+        matching: (b) => b && /^(stone|cobblestone|cobbled_deepslate|deepslate|blackstone)$/.test(b.name),
+        maxDistance: 20,
+        count: 10,
       })
       .filter((pos) => isExposedFace(bot, pos));
     let dug = 0;
@@ -939,7 +1029,7 @@ async function phaseStone(bot, mcData, state, log) {
     } catch {
       /* ignore */
     }
-    const now = countItem(bot, "cobblestone");
+    const now = countItem(bot, (i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name));
     return {
       ok: true,
       phase: "stone",
@@ -1001,6 +1091,16 @@ async function phaseIron(bot, mcData, state, log) {
     if (y > 16) {
       const d = await stairDown(bot, mcData, 8, log);
       if (d === 0) {
+        // every direction may be mob-blocked — end the step so the combat
+        // reflex clears the doorway before we try to dig through again
+        const doorBlock = findHostile(bot, 10);
+        if (doorBlock) {
+          state.mobDoorBlocks = (state.mobDoorBlocks || 0) + 1;
+          if (state.mobDoorBlocks < 4) {
+            return { ok: true, phase: "iron", message: `descend door-blocked y=${y}` };
+          }
+          state.mobDoorBlocks = 0;
+        }
         // cave floor — nothing to staircase into; drop straight down instead
         const s = await digStaircaseDown(bot, mcData, 14, 8);
         if (s.digs === 0) {
@@ -1017,6 +1117,10 @@ async function phaseIron(bot, mcData, state, log) {
         }
         return { ok: true, phase: "iron", message: `descend y=${y}→${s.y}` };
       }
+      // landings can drop into open caves full of mobs — end the step so the
+      // combat reflex gets a clean turn before we dig deeper
+      const danger = findHostile(bot, 8);
+      if (danger) return { ok: true, phase: "iron", message: `descend pause (mob @${y})` };
       return { ok: true, phase: "iron", message: `descend y=${y}` };
     }
     // quick surface-adjacent grab: tight collect only if ore is right there
@@ -1046,7 +1150,7 @@ async function phaseIron(bot, mcData, state, log) {
   if (ingots < 8 && raw > 0) {
     await ensureTable(bot, mcData);
     if (countItem(bot, "furnace") < 1 && !bot.findBlock({ matching: (b) => b?.name === "furnace", maxDistance: 12 })) {
-      if (countItem(bot, "cobblestone") >= 8) {
+      if (countItem(bot, (i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name)) >= 8) {
         await ensureCraft(bot, mcData, "furnace", 1);
       }
     }
