@@ -1638,7 +1638,18 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     const rr = await executeAction(bot, { type: "collect", block: b, count: 4, maxDistance: 32 }, mcData);
     // collect resolves ok even when it gathered nothing — a 0-gain 'ok'
     // must not early-return or the tree-less spot never triggers a wander
-    if (rr.ok && logCount() > before) return rr;
+    if (rr.ok && logCount() > before) {
+      // remember productive ground — a treeless streak walks back here
+      if (state) {
+        state.logSites = state.logSites || [];
+        const f = bot.entity.position.floored();
+        if (!state.logSites.some((s) => Math.hypot(s.x - f.x, s.z - f.z) < 24)) {
+          state.logSites.push({ x: f.x, y: f.y, z: f.z });
+          if (state.logSites.length > 8) state.logSites.shift();
+        }
+      }
+      return rr;
+    }
   }
   // Fallback: dig one log block by coords — skip targets this spot already
   // failed to path to and anything far below (cave-visible trunks the
@@ -1661,6 +1672,24 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
       state.noLogStreak = (state.noLogStreak || 0) + 1;
       if (state.noLogStreak >= 3) {
         const p = bot.entity.position.floored();
+        // ground that produced logs before beats a blind heading
+        const site = (state.logSites || [])
+          .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+          .filter((e) => e.d > 30 && e.d < 400)
+          .sort((a, b) => a.d - b.d)[0];
+        if (site) {
+          try {
+            await executeAction(
+              bot,
+              { type: "goto", x: site.s.x, y: site.s.y, z: site.s.z, range: 6, timeoutMs: 40000 },
+              mcData
+            );
+            state.noLogStreak = 1;
+            return { ok: true, message: `back to log site (${Math.round(site.d)}m)` };
+          } catch {
+            /* unreachable — fall through to the wander */
+          }
+        }
         if (!state.wanderDir) {
           const dirs = [
             [60, 0],
