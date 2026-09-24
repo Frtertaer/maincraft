@@ -1038,12 +1038,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         /* move didn't land — try the burrow from wherever we are */
       }
     } else {
-      const dirs = [[18, 0], [-18, 0], [0, 18], [0, -18]];
+      // a bare-handed bot on rock has no shelter option but soft ground —
+      // 18m hops never leave a mountain ridge; escalate the wander with
+      // depth so each failure travels meaningfully farther
+      const hop = 18 + _depth * 24;
+      const dirs = [
+        [hop, 0],
+        [-hop, 0],
+        [0, hop],
+        [0, -hop],
+      ];
       const [rx, rz] = pickDryDir(bot, dirs);
       try {
         await executeAction(
           bot,
-          { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 },
+          { type: "goto", x: p.x + rx + 0.5, y: p.y, z: p.z + rz + 0.5, range: 3, timeoutMs: 12000 + _depth * 8000 },
           mcData
         );
       } catch {
