@@ -1,0 +1,59 @@
+appId: com.maincraft.app
+productName: Maincraft
+copyright: Maincraft contributors
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**
+  - resources/**
+  - package.json
+
+asarUnpack:
+  - resources/**
+
+# The Node agent runs as a separate process with Electron's embedded Node, so it ships
+# next to app.asar in resources/agent. `npm run agent:bundle` prepares it; afterPack copies it.
+afterPack: scripts/after-pack.cjs
+
+# No native modules in the app itself; the agent bundle is installed for the target OS.
+npmRebuild: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  executableName: Maincraft
+  artifactName: Maincraft-Setup-${version}.${ext}
+
+nsis:
+  # One click: install for the current user, no admin rights, no questions.
+  oneClick: true
+  perMachine: false
+  allowElevation: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Maincraft
+  runAfterFinish: true
+  deleteAppDataOnUninstall: false
+  language: '1049'
+
+linux:
+  target:
+    - AppImage
+  category: Game
+  artifactName: Maincraft-${version}.${ext}
+
+mac:
+  target:
+    - dmg
+  category: public.app-category.games
+  artifactName: Maincraft-${version}.${ext}
+
+publish:
+  provider: github
+  owner: frtertaer
+  repo: maincraft
+  releaseType: release

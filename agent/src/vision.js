@@ -1,6 +1,13 @@
 import fs from "fs";
 import path from "path";
-import { renderBotPov } from "./vision-render.js";
+
+// node-canvas is a native module; load it only when a viewer frame is requested so a
+// missing/incompatible binary disables vision instead of preventing the bot from starting.
+let renderBotPovPromise = null;
+function loadRenderer() {
+  renderBotPovPromise ??= import("./vision-render.js").then((mod) => mod.renderBotPov);
+  return renderBotPovPromise;
+}
 
 function isInside(parent, candidate) {
   const relative = path.relative(path.resolve(parent), path.resolve(candidate));
@@ -49,6 +56,7 @@ export function createVisionProvider(cfg, log = console.log) {
 
   async function fromViewer() {
     if (!botRef?.entity || !botRef.world) return null;
+    const renderBotPov = await loadRenderer();
     const rendered = renderBotPov(botRef, {
       width: cfg.vision.width,
       height: cfg.vision.height,

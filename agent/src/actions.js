@@ -311,11 +311,18 @@ export async function executeAction(bot, action, mcData) {
       }
 
       case "eat": {
-        const foods = bot.inventory
-          .items()
-          .filter((i) => bot.food < 20 && (i.name.includes("beef") || i.name.includes("pork") || i.name.includes("bread") || i.name.includes("apple") || i.name.includes("carrot") || i.name.includes("potato") || i.name.includes("chicken") || i.name.includes("cod") || i.name.includes("salmon") || i.name.includes("cookie") || i.name.includes("melon") || i.name.includes("pie") || i.name.includes("stew") || i.name.includes("berries")));
-        const food = foods[0];
-        if (!food) return { ok: false, message: "no food" };
+        if (bot.food >= 20) return { ok: false, message: "not hungry" };
+        const wanted = action.item || action.name;
+        const food = wanted
+          ? bot.inventory.items().find((i) => i.name === wanted)
+          : pickBestFood(bot);
+        if (!food) {
+          const onlyHated = bot.inventory.items().some((i) => isHatedFood(i.name));
+          return { ok: false, message: onlyHated ? "only food I hate; will eat it only when starving" : "no food" };
+        }
+        if (isHatedFood(food.name) && bot.food > 6) {
+          return { ok: false, message: `refused ${food.name}: the character hates it` };
+        }
         await bot.equip(food, "hand");
         await bot.consume();
         return { ok: true, message: `ate ${food.name}` };
@@ -777,7 +784,30 @@ export async function equipBestShield(bot) {
   }
 }
 
+const EDIBLE = /^(cooked_[a-z_]+|bread|apple|golden_apple|enchanted_golden_apple|carrot|golden_carrot|potato|baked_potato|melon_slice|sweet_berries|glow_berries|beetroot|dried_kelp|cookie|pumpkin_pie|mushroom_stew|beetroot_soup|rabbit_stew|suspicious_stew|honey_bottle|beef|porkchop|mutton|chicken|rabbit|cod|salmon|tropical_fish|rotten_flesh|spider_eye|chorus_fruit)$/;
+const foodPreferences = { favorite: new Set(), hated: new Set() };
+
+/** Character taste set by the desktop app: favourites are eaten first, hated food only when starving. */
+export function setFoodPreferences({ favorite = [], hated = [] } = {}) {
+  foodPreferences.favorite = new Set(favorite.map(String));
+  foodPreferences.hated = new Set(hated.map(String));
+}
+
+export function isHatedFood(name) {
+  return foodPreferences.hated.has(String(name || ""));
+}
+
 export function pickBestFood(bot) {
+  const items = bot.inventory.items();
+  const starving = Number(bot.food) <= 6;
+  const favourite = items.find((i) => foodPreferences.favorite.has(i.name));
+  if (favourite) return favourite;
+  const pick = pickBestFoodByQuality(items.filter((i) => !foodPreferences.hated.has(i.name)));
+  if (pick) return pick;
+  return starving ? items.find((i) => foodPreferences.hated.has(i.name) && EDIBLE.test(i.name)) || null : null;
+}
+
+function pickBestFoodByQuality(items) {
   const preferred = [
     "golden_apple",
     "enchanted_golden_apple",
@@ -793,7 +823,6 @@ export function pickBestFood(bot) {
     "carrot",
     "cooked_rabbit",
   ];
-  const items = bot.inventory.items();
   for (const name of preferred) {
     const hit = items.find((i) => i.name === name);
     if (hit) return hit;

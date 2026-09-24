@@ -1,11 +1,12 @@
-import { parseCommand, HELP_TEXT } from "./commands.js";
-import { extractJsonObject } from "./llm.js";
+import { parseCommand, HELP_TEXT, normalizeTrigger, matchCustomCommand } from "./commands.js";
+import { extractJsonObject, LlmClient } from "./llm.js";
 import {
   computeCraftPlan,
   executeAction,
   normalizeActionCount,
   selectNearestCombatTarget,
   pickBestFood,
+  setFoodPreferences,
 } from "./actions.js";
 import { buildWorldState, isHazardBlockName, isHostileMobName, spatialSnapshot } from "./world.js";
 import {
@@ -61,13 +62,16 @@ check("craft invalid count", normalizeActionCount(-3, 1, 64) === null);
 let recipeQuery = null;
 let craftCall = null;
 const recipe = { result: { count: 4 } };
+let craftedSticks = 0;
 const craftBot = {
+  inventory: { items: () => (craftedSticks ? [{ name: "stick", count: craftedSticks }] : []) },
   recipesFor(itemId, metadata, minResultCount, table) {
     recipeQuery = { itemId, metadata, minResultCount, table };
     return [recipe];
   },
   async craft(selectedRecipe, repetitions, table) {
     craftCall = { selectedRecipe, repetitions, table };
+    craftedSticks += repetitions * selectedRecipe.result.count;
   },
 };
 const craftResult = await executeAction(
@@ -77,7 +81,7 @@ const craftResult = await executeAction(
 );
 check(
   "craft action uses output count",
-  craftResult.ok && recipeQuery?.minResultCount === 8 && craftCall?.repetitions === 2,
+  craftResult.ok && recipeQuery?.minResultCount === 1 && craftCall?.repetitions === 2 && craftedSticks === 8,
   JSON.stringify({ craftResult, recipeQuery, craftCall })
 );
 
@@ -114,6 +118,13 @@ const foodBot = {
   },
 };
 check("pickBestFood prefers cooked_beef", pickBestFood(foodBot)?.name === "cooked_beef");
+setFoodPreferences({ favorite: ["bread"], hated: ["cooked_beef"] });
+const tasteBot = { food: 14, inventory: { items: () => [{ name: "cooked_beef" }, { name: "bread" }] } };
+check("favourite food first", pickBestFood(tasteBot)?.name === "bread");
+const hatedOnly = { food: 14, inventory: { items: () => [{ name: "cooked_beef" }] } };
+check("hated food refused when not starving", pickBestFood(hatedOnly) === null);
+check("hated food eaten when starving", pickBestFood({ ...hatedOnly, food: 4 })?.name === "cooked_beef");
+setFoodPreferences({});
 
 check("boss names", isBossMobName("warden") && isBossMobName("wither") && isBossMobName("ender_dragon"));
 
@@ -411,6 +422,78 @@ try {
   visionScreenRejected = true;
 }
 check("desktop screen capture rejected", visionScreenRejected);
+
+// ---- desktop-app integration: custom commands, providers ----
+check("normalizeTrigger", normalizeTrigger("  !Построй ДОМ, ёлка ") === "построй дом елка");
+const customList = [
+  { id: "home", name: "Дом", triggers: ["дом", "построй дом"], kind: "ai", prompt: "build", enabled: true },
+  { id: "dance", name: "Танец", triggers: ["танцуй"], kind: "script", steps: [{ type: "wait" }], matchPlain: true },
+];
+const hitLong = matchCustomCommand("построй дом у реки", customList);
+check("custom longest trigger + args", hitLong?.command.id === "home" && hitLong.trigger === "построй дом" && hitLong.args === "у реки", JSON.stringify(hitLong));
+check("custom trigger needs word boundary", matchCustomCommand("домик", customList) === null);
+check("custom plain chat needs matchPlain", matchCustomCommand("дом", customList, { addressed: false }) === null);
+check("custom plain chat opt-in", matchCustomCommand("танцуй!", customList, { addressed: false })?.command.id === "dance");
+check("parse !custom", parseCommand("!дом", "Opus", customList)?.type === "custom");
+check("parse addressed custom", parseCommand("Opus, построй дом", "Opus", customList)?.command?.id === "home");
+check("parse plain non-command stays null", parseCommand("привет", "Opus", customList) === null);
+check("builtin still works with customs", parseCommand("!status", "Opus", customList)?.type === "status");
+
+const baseCfg = () => {
+  const copy = JSON.parse(JSON.stringify({ ...cfgVisionOk, commands: undefined }));
+  // drop fields derived by the first validation so each variant is normalized from scratch
+  for (const key of ["preflight", "loopback", "keyOptional", "keyFileResolved"]) delete copy.api[key];
+  return copy;
+};
+const withCommands = validateConfig({
+  ...baseCfg(),
+  commands: {
+    custom: [
+      { id: "a", name: "A", triggers: ["!Копай"], kind: "script", steps: [{ type: "collect", block: "oak_log", count: 3 }] },
+      { id: "b", name: "B", triggers: ["off"], kind: "ai", prompt: "x", enabled: false },
+    ],
+  },
+});
+check(
+  "config normalizes custom commands",
+  withCommands.commands.custom.length === 1 && withCommands.commands.custom[0].triggers[0] === "копай",
+  JSON.stringify(withCommands.commands)
+);
+let badStepRejected = false;
+try {
+  validateConfig({ ...baseCfg(), commands: { custom: [{ id: "x", triggers: ["x"], kind: "script", steps: [{ type: "rm_rf" }] }] } });
+} catch {
+  badStepRejected = true;
+}
+check("config rejects unknown script action", badStepRejected);
+
+const official = validateConfig({
+  ...baseCfg(),
+  api: { ...baseCfg().api, baseUrl: "https://api.anthropic.com", allowedHosts: ["api.anthropic.com"], model: "claude-sonnet-5" },
+});
+check("official API uses models preflight", official.api.preflight === "models" && official.api.loopback === false);
+const local = validateConfig({
+  ...baseCfg(),
+  api: { ...baseCfg().api, baseUrl: "http://127.0.0.1:11434", allowedHosts: ["127.0.0.1"], allowCustomHost: true },
+});
+check("local http provider allowed", local.api.loopback === true && local.api.keyOptional === true && local.api.preflight === "none");
+let remoteHttpRejected = false;
+try {
+  validateConfig({ ...baseCfg(), api: { ...baseCfg().api, baseUrl: "http://evil.example", allowedHosts: ["evil.example"], allowCustomHost: true } });
+} catch {
+  remoteHttpRejected = true;
+}
+check("remote plain http rejected", remoteHttpRejected);
+
+const modelsClient = new LlmClient(
+  { api: { ...official.api, apiKey: "sk-ant-test-0000000000000000" } },
+  {
+    fetchImpl: async (url) =>
+      new Response(JSON.stringify({ data: [{ id: "claude-sonnet-5" }] }), { status: 200, headers: { "content-type": "application/json" } }),
+  }
+);
+const pre = await modelsClient.preflight("models");
+check("preflight models", pre.ok && pre.modelListed === true, JSON.stringify(pre));
 
 console.log(
   JSON.stringify({

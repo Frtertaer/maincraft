@@ -2,13 +2,25 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
+import { normalizeTrigger } from "./commands.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, "..");
 export const PROJECT = path.resolve(ROOT, "..");
+/** Writable directory for logs, vision frames and companion memory (the desktop app points it at userData). */
+export const LOGS_DIR = process.env.MAINCRAFT_LOGS_DIR
+  ? path.resolve(process.env.MAINCRAFT_LOGS_DIR)
+  : path.resolve(PROJECT, "logs");
 
-const PINNED_API_HOSTS = Object.freeze(["api.cheat-ai.shop"]);
+const PINNED_API_HOSTS = Object.freeze(["api.cheat-ai.shop", "api.anthropic.com"]);
+const LOOPBACK_HOSTS = Object.freeze(["127.0.0.1", "localhost", "[::1]", "::1"]);
 const KEY_PATTERN = /^sk-[A-Za-z0-9._-]{16,}$/;
+const LOOSE_KEY_PATTERN = /^[\x21-\x7e]{1,512}$/;
+const PREFLIGHT_MODES = Object.freeze(["whoami", "models", "none"]);
+
+export function isLoopbackHost(hostname) {
+  return LOOPBACK_HOSTS.includes(String(hostname || "").toLowerCase());
+}
 
 function loadJson(filePath) {
   try {
@@ -85,7 +97,11 @@ function normalizeApiConfig(cfg) {
   } catch {
     throw new Error("api.baseUrl must be a valid URL");
   }
-  if (baseUrl.protocol !== "https:") throw new Error("api.baseUrl must use HTTPS");
+  const loopback = isLoopbackHost(baseUrl.hostname);
+  // Plain HTTP is only acceptable for a model server on this machine (Ollama, LM Studio, a local proxy).
+  if (baseUrl.protocol !== "https:" && !(loopback && baseUrl.protocol === "http:")) {
+    throw new Error("api.baseUrl must use HTTPS (plain HTTP is allowed only for localhost)");
+  }
   if (baseUrl.username || baseUrl.password || baseUrl.search || baseUrl.hash) {
     throw new Error("api.baseUrl must not contain credentials, query, or fragment");
   }
@@ -111,6 +127,14 @@ function normalizeApiConfig(cfg) {
 
   baseUrl.pathname = baseUrl.pathname.replace(/\/+$/, "");
   api.baseUrl = baseUrl.toString().replace(/\/$/, "");
+  api.loopback = loopback;
+  // whoami is a proprietary endpoint of the original proxy; the official API exposes /v1/models.
+  const defaultPreflight =
+    hostname === "api.cheat-ai.shop" ? "whoami" : hostname === "api.anthropic.com" ? "models" : "none";
+  api.preflight = stringAt(api.preflight ?? defaultPreflight, "api.preflight", { max: 20 }).toLowerCase();
+  if (!PREFLIGHT_MODES.includes(api.preflight)) {
+    throw new Error(`api.preflight must be ${PREFLIGHT_MODES.join("|")}`);
+  }
   api.allowedHosts = [...new Set(allowedHosts)];
   api.allowCustomHost = allowCustomHost;
   api.model = stringAt(api.model, "api.model", { max: 120 });
@@ -186,6 +210,7 @@ function normalizeApiConfig(cfg) {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(api.keyEnv)) {
     throw new Error("api.keyEnv must be an environment variable name");
   }
+  api.keyOptional = boolAt(api.keyOptional, loopback, "api.keyOptional");
   api.keyFile = api.keyFile ?? "~/Desktop/opus4.8api.txt";
   api.keyFileResolved = expandPath(api.keyFile);
   if (isPathInside(PROJECT, api.keyFileResolved)) {
@@ -250,8 +275,9 @@ function normalizeAgentConfig(cfg) {
     agent.persona ??
       "Ты живой спутник в Minecraft: дружелюбный, с характером, отвечаешь по-русски в чат, исследуешь мир рядом с игроком.",
     "agent.persona",
-    { max: 800 }
+    { max: 6000 }
   );
+  agent.goal = agent.goal == null || agent.goal === "" ? null : stringAt(agent.goal, "agent.goal", { max: 300 });
   agent.trustOfflineUsernames = boolAt(
     agent.trustOfflineUsernames,
     false,
@@ -262,8 +288,9 @@ function normalizeAgentConfig(cfg) {
   }
   agent.controllerUsers = agent.controllerUsers.map((name, i) => {
     const normalized = stringAt(name, `agent.controllerUsers[${i}]`, { max: 16 });
+    if (normalized === "*") return "*";
     if (!/^[A-Za-z0-9_]{1,16}$/.test(normalized)) {
-      throw new Error(`agent.controllerUsers[${i}] is not a valid Java username`);
+      throw new Error(`agent.controllerUsers[${i}] is not a valid Java username (or *)`);
     }
     return normalized;
   });
@@ -280,6 +307,20 @@ function normalizeAgentConfig(cfg) {
     }
     return normalized;
   });
+  const food = objectAt(agent.foodPreferences ?? {}, "agent.foodPreferences");
+  const foodList = (value, label) => {
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.length > 64) throw new Error(`${label} must be an array (max 64)`);
+    return value.map((name, i) => {
+      const id = stringAt(name, `${label}[${i}]`, { max: 64 });
+      if (!/^[a-z0-9_]+$/.test(id)) throw new Error(`${label}[${i}] must be a minecraft item id`);
+      return id;
+    });
+  };
+  agent.foodPreferences = {
+    favorite: foodList(food.favorite, "agent.foodPreferences.favorite"),
+    hated: foodList(food.hated, "agent.foodPreferences.hated"),
+  };
   if (agent.companionMode) {
     // companion defaults: talk + hybrid survival unless explicitly overridden later
     if (!agent.allowPlayerChat) agent.allowPlayerChat = true;
@@ -376,8 +417,12 @@ function normalizeVisionConfig(cfg) {
   });
   vision.fov = numberAt(vision.fov, Math.PI / 2.4, "vision.fov", { min: 0.5, max: 2.2 });
   vision.saveDebugFrame = boolAt(vision.saveDebugFrame, true, "vision.saveDebugFrame");
-  vision.captureRoot = path.resolve(PROJECT, "logs");
-  vision.capturePath = path.resolve(ROOT, stringAt(vision.capturePath, "vision.capturePath"));
+  vision.captureRoot = LOGS_DIR;
+  const capture = stringAt(vision.capturePath ?? "vision_frame.jpg", "vision.capturePath");
+  if (path.isAbsolute(capture)) vision.capturePath = path.normalize(capture);
+  // A bare file name, or any relative path when the app relocates logs, lands in the logs directory.
+  else if (!/[\\/]/.test(capture) || process.env.MAINCRAFT_LOGS_DIR) vision.capturePath = path.join(LOGS_DIR, path.basename(capture));
+  else vision.capturePath = path.resolve(ROOT, capture);
   if (!isPathInside(vision.captureRoot, vision.capturePath)) {
     throw new Error("vision.capturePath must stay inside the project logs directory");
   }
@@ -465,6 +510,78 @@ function normalizeCombatConfig(cfg) {
   cfg.combat = combat;
 }
 
+/** Action types a user-defined script step may use (same vocabulary as the LLM, plus ask_ai). */
+export const SCRIPT_STEP_TYPES = Object.freeze([
+  "chat", "wait", "stop", "idle", "look", "goto", "follow", "come", "dig", "collect", "craft",
+  "equip", "toss", "eat", "attack", "smelt", "use_item", "use_block", "sleep", "wake",
+  "container_list", "container_take", "container_put", "place", "set_goal", "ask_ai",
+]);
+
+function normalizeScriptStep(step, label) {
+  objectAt(step, label);
+  const type = stringAt(step.type, `${label}.type`, { max: 40 }).toLowerCase();
+  if (!SCRIPT_STEP_TYPES.includes(type)) throw new Error(`${label}.type is not a supported action: ${type}`);
+  const out = { type };
+  const entries = Object.entries(step).filter(([key]) => key !== "type");
+  if (entries.length > 16) throw new Error(`${label} has too many parameters`);
+  for (const [key, value] of entries) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(key)) throw new Error(`${label} has an invalid parameter name`);
+    if (value == null || value === "") continue;
+    if (typeof value === "string") out[key] = value.slice(0, 500);
+    else if (typeof value === "number" && Number.isFinite(value)) out[key] = value;
+    else if (typeof value === "boolean") out[key] = value;
+    else throw new Error(`${label}.${key} must be a string, number or boolean`);
+  }
+  return out;
+}
+
+function normalizeCommandsConfig(cfg) {
+  const commands = objectAt(cfg.commands ?? {}, "commands");
+  commands.custom = normalizeCustomCommands(commands.custom ?? []);
+  cfg.commands = commands;
+}
+
+/** Validate user-defined commands (also used when the desktop app hot-swaps them). */
+export function normalizeCustomCommands(list) {
+  if (!Array.isArray(list) || list.length > 200) {
+    throw new Error("commands.custom must be an array with at most 200 entries");
+  }
+  return list
+    .map((raw, i) => {
+      const label = `commands.custom[${i}]`;
+      objectAt(raw, label);
+      const id = stringAt(raw.id ?? `command_${i}`, `${label}.id`, { max: 64 });
+      const name = stringAt(raw.name ?? id, `${label}.name`, { max: 80 });
+      if (!Array.isArray(raw.triggers)) throw new Error(`${label}.triggers must be an array`);
+      const triggers = [
+        ...new Set(raw.triggers.map((t, j) => normalizeTrigger(stringAt(t, `${label}.triggers[${j}]`, { max: 60 })))),
+      ].filter(Boolean);
+      if (triggers.length < 1 || triggers.length > 12) throw new Error(`${label} needs 1-12 trigger phrases`);
+      const kind = stringAt(raw.kind ?? "ai", `${label}.kind`, { max: 10 }).toLowerCase();
+      if (!["ai", "script"].includes(kind)) throw new Error(`${label}.kind must be ai or script`);
+      const access = stringAt(raw.access ?? "controllers", `${label}.access`, { max: 20 }).toLowerCase();
+      if (!["controllers", "everyone"].includes(access)) throw new Error(`${label}.access must be controllers or everyone`);
+      const steps =
+        kind === "script"
+          ? (Array.isArray(raw.steps) ? raw.steps : []).slice(0, 50).map((st, j) => normalizeScriptStep(st, `${label}.steps[${j}]`))
+          : [];
+      if (kind === "script" && steps.length === 0) throw new Error(`${label} script needs at least one step`);
+      return {
+        id,
+        name,
+        triggers,
+        kind,
+        access,
+        enabled: boolAt(raw.enabled, true, `${label}.enabled`),
+        matchPlain: boolAt(raw.matchPlain, false, `${label}.matchPlain`),
+        reply: raw.reply ? stringAt(raw.reply, `${label}.reply`, { min: 0, max: 256 }) : "",
+        prompt: kind === "ai" ? stringAt(raw.prompt, `${label}.prompt`, { max: 2000 }) : "",
+        steps,
+      };
+    })
+    .filter((command) => command.enabled);
+}
+
 export function validateConfig(cfg) {
   objectAt(cfg, "config");
   normalizeApiConfig(cfg);
@@ -473,21 +590,28 @@ export function validateConfig(cfg) {
   normalizeVisionConfig(cfg);
   normalizeViewerConfig(cfg);
   normalizeCombatConfig(cfg);
+  normalizeCommandsConfig(cfg);
   return cfg;
 }
 
 function loadApiKey(api) {
+  const pattern = api.loopback ? LOOSE_KEY_PATTERN : KEY_PATTERN;
   const envValue = process.env[api.keyEnv]?.trim();
   if (envValue) {
-    if (!KEY_PATTERN.test(envValue)) throw new Error(`${api.keyEnv} does not contain a valid API key`);
+    if (!pattern.test(envValue)) throw new Error(`${api.keyEnv} does not contain a valid API key`);
     return { value: envValue, source: `environment variable ${api.keyEnv}` };
+  }
+
+  if (api.keyOptional) {
+    // Local model servers (Ollama, LM Studio) accept any placeholder key.
+    return { value: "local-no-key", source: "not required for a local model server" };
   }
 
   if (!fs.existsSync(api.keyFileResolved)) {
     throw new Error(`API key unavailable: set ${api.keyEnv} or create the configured key file outside the project`);
   }
   const lines = fs.readFileSync(api.keyFileResolved, "utf8").split(/\r?\n/).map((line) => line.trim());
-  const value = lines.find((line) => KEY_PATTERN.test(line));
+  const value = lines.find((line) => pattern.test(line));
   if (!value) throw new Error("Configured API key file does not contain a valid key");
   return { value, source: "external key file" };
 }

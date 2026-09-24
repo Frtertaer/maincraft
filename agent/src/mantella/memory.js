@@ -9,10 +9,9 @@
  */
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { LOGS_DIR } from "../config.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_ROOT = path.resolve(__dirname, "../../../logs/mantella-memory");
+const DEFAULT_ROOT = path.join(LOGS_DIR, "mantella-memory");
 
 export function sanitizeId(value) {
   return String(value || "default")

@@ -4,14 +4,15 @@ import pkgCollect from "mineflayer-collectblock";
 import pkgTool from "mineflayer-tool";
 import minecraftData from "minecraft-data";
 import readline from "readline";
-import { loadConfig } from "./config.js";
+import { loadConfig, normalizeCustomCommands } from "./config.js";
 import { LlmClient, sanitizeForLog } from "./llm.js";
 import { Brain } from "./brain.js";
 import { parseCommand, HELP_TEXT } from "./commands.js";
-import { setupMovements, executeAction } from "./actions.js";
+import { setupMovements, executeAction, setFoodPreferences } from "./actions.js";
 import { createVisionProvider } from "./vision.js";
 import { startLocalViewer } from "./local-viewer.js";
 import { CombatReflex } from "./combat-reflex.js";
+import { bridge, botSnapshot } from "./app-bridge.js";
 
 const pathfinder = pkgPathfinder.pathfinder || pkgPathfinder.default?.pathfinder || pkgPathfinder;
 const collectPlugin = pkgCollect.plugin || pkgCollect.default?.plugin || pkgCollect.default || pkgCollect;
@@ -26,7 +27,16 @@ function log(...args) {
 function isController(cfg, username) {
   if (!cfg.agent.allowPlayerCommands) return false;
   const wanted = String(username || "").toLowerCase();
-  return cfg.agent.controllerUsers.some((name) => name.toLowerCase() === wanted);
+  return cfg.agent.controllerUsers.some((name) => name === "*" || name.toLowerCase() === wanted);
+}
+
+/** Fill {player} {args} {bot} {px} {py} {pz} placeholders in a user-defined command. */
+function fillTemplate(value, vars) {
+  if (typeof value !== "string") return value;
+  return value.replace(/\{(player|args|bot|px|py|pz)(?:\|([^}]*))?\}/g, (_, key, fallback) => {
+    const filled = String(vars[key] ?? "").trim();
+    return filled || String(fallback ?? "");
+  });
 }
 
 /** Free-chat companions (neuro-Skyrim style), not only !commands. */
@@ -53,21 +63,25 @@ function reconnectDelay(cfg, attempt) {
 async function main() {
   const cfg = loadConfig();
   const llm = new LlmClient(cfg);
+  setFoodPreferences(cfg.agent.foodPreferences);
 
   log(`Config ${cfg._configPath || "config.json"}`);
   log(
     `Vision default source=${cfg.vision.source} enabled=${cfg.vision.enabled} everyNTicks=${cfg.vision.everyNTicks}`
   );
-  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model}…`);
+  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model} preflight=${cfg.api.preflight}…`);
+  bridge.emit("lifecycle", { state: "api-check" });
   try {
-    await llm.whoami();
+    await llm.preflight(cfg.api.preflight);
     log(
       `API ready | exact_model=${cfg.api.model} | session_requests=${cfg.api.budget.maxRequestsPerSession} | session_tokens=${cfg.api.budget.maxTokensPerSession}`
     );
   } catch (err) {
     const code = err?.code ? ` [${err.code}]` : "";
+    bridge.emit("lifecycle", { state: "error", reason: "api", message: sanitizeForLog(err?.message || err) });
     throw new Error(`API preflight failed${code}: ${sanitizeForLog(err?.message || err)}`);
   }
+  bridge.emit("lifecycle", { state: "api-ready" });
 
   const runtime = {
     session: null,
@@ -88,6 +102,7 @@ async function main() {
   }
 
   function stopSession(session) {
+    if (session?.statusTimer) clearInterval(session.statusTimer);
     session?.brain?.stop();
     session?.combat?.stop();
     closeViewer(session?.bot);
@@ -108,11 +123,13 @@ async function main() {
     }
     if (reconnect.maxAttempts > 0 && runtime.reconnectAttempts >= reconnect.maxAttempts) {
       log(`Reconnect limit reached (${reconnect.maxAttempts}). Exiting.`);
+      bridge.emit("lifecycle", { state: "error", reason: "reconnect-limit", message: reason });
       finishProcess(2);
       return;
     }
     runtime.reconnectAttempts += 1;
     const delay = reconnectDelay(cfg, runtime.reconnectAttempts);
+    bridge.emit("lifecycle", { state: "reconnecting", attempt: runtime.reconnectAttempts, delayMs: delay, message: reason });
     log(`Reconnect ${runtime.reconnectAttempts} in ${delay}ms (${reason}).`);
     runtime.reconnectTimer = setTimeout(() => {
       runtime.reconnectTimer = null;
@@ -139,6 +156,7 @@ async function main() {
     setupMovements(bot, session.mcData);
     runtime.reconnectAttempts = 0;
     log(`Spawned at ${bot.entity.position} | version=${bot.version}`);
+    let viewerUrl = null;
 
     if (cfg.viewer.enabled) {
       try {
@@ -148,6 +166,7 @@ async function main() {
           port: cfg.viewer.port,
           firstPerson: cfg.viewer.firstPerson,
         });
+        viewerUrl = viewer.url;
         log(`Viewer: ${viewer.url} (loopback only)`);
       } catch (err) {
         log(`Viewer failed (optional): ${err?.message || "unknown error"}`);
@@ -174,7 +193,19 @@ async function main() {
     }
     session.combat.start();
     session.brain.combat = session.combat;
+    session.brain.onStep = (info) => bridge.emit("step", info);
     session.brain.start();
+
+    bridge.emit("lifecycle", { state: "spawned", viewerUrl, version: bot.version, username: bot.username });
+    if (bridge.enabled) {
+      const pushStatus = () => {
+        if (runtime.session !== session || session.ended) return;
+        const snapshot = botSnapshot(bot, session.brain, session.combat);
+        if (snapshot) bridge.emit("status", { status: snapshot, apiBudget: llm.getBudgetState() });
+      };
+      pushStatus();
+      session.statusTimer = setInterval(pushStatus, 1500);
+    }
 
     if (cfg.agent.announceOnSpawn) {
       if (cfg.agent.companionMode) {
@@ -202,7 +233,20 @@ async function main() {
       log(`[security] ignored whisper from ${username}`);
       return;
     }
-    const command = parseCommand(message, cfg.agent.botName);
+    const command = parseCommand(message, cfg.agent.botName, cfg.commands?.custom);
+
+    // user-defined commands carry their own access level
+    if (command?.type === "custom") {
+      const allowed = command.command.access === "everyone" || isController(cfg, username);
+      if (!allowed) {
+        log(`[security] ignored custom command "${command.command.name}" from ${username}`);
+        return;
+      }
+      void applyCommand(session, command, username, source).catch((err) => {
+        log(`[command] ${sanitizeForLog(err?.message || err)}`);
+      });
+      return;
+    }
 
     // !commands / Opus, … — only controllers
     if (command && command.type !== "direct") {
@@ -332,7 +376,7 @@ async function main() {
         brain.queueCommand(`Твоя новая цель: ${command.goal}. Начни выполнять.`, username);
         break;
       case "vision":
-        if (source !== "console") {
+        if (source !== "console" && source !== "app") {
           log(`[security] denied vision toggle from ${username}; use the local console`);
           return;
         }
@@ -366,6 +410,9 @@ async function main() {
         brain.resume();
         brain.queueCommand(command.text, username);
         log(`[cmd] queued from ${username}`);
+        break;
+      case "custom":
+        await runCustomCommand(session, command, username);
         break;
       case "listen": {
         // Whisper STT via voice sidecar
@@ -420,6 +467,102 @@ async function main() {
     }
   }
 
+  async function runCustomCommand(session, hit, username) {
+    const { bot, brain, mcData } = session;
+    const def = hit.command;
+    const player = username === "console" || username === "app" ? cfg.agent.controllerUsers.find((n) => n !== "*") || username : username;
+    const playerEntity = bot.players?.[player]?.entity;
+    const vars = {
+      player,
+      args: hit.args || "",
+      bot: bot.username,
+      px: playerEntity ? Math.round(playerEntity.position.x) : "",
+      py: playerEntity ? Math.round(playerEntity.position.y) : "",
+      pz: playerEntity ? Math.round(playerEntity.position.z) : "",
+    };
+    log(`[custom] "${def.name}" (${def.kind}) from ${username} args="${sanitizeForLog(vars.args, 80)}"`);
+    bridge.emit("command", { id: def.id, name: def.name, from: username, state: "started" });
+    brain.resume();
+    if (def.reply) {
+      bot.__speechNext = true;
+      bot.chat(fillTemplate(def.reply, vars).slice(0, 256));
+    }
+
+    if (def.kind === "ai") {
+      brain.queueCommand(fillTemplate(def.prompt, vars), player);
+      bridge.emit("command", { id: def.id, name: def.name, from: username, state: "queued" });
+      return;
+    }
+
+    // Deterministic script: run steps in order; the LLM loop waits until it finishes.
+    brain.externalBusy = true;
+    let failed = null;
+    try {
+      for (const [index, raw] of def.steps.entries()) {
+        if (runtime.session !== session || session.ended) return;
+        const step = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, fillTemplate(v, vars)]));
+        for (const key of ["x", "y", "z", "count", "ms", "distance", "range", "maxDurationMs", "maxDistance"]) {
+          if (typeof step[key] === "string" && step[key].trim() !== "" && Number.isFinite(Number(step[key]))) {
+            step[key] = Number(step[key]);
+          }
+        }
+        if (step.type === "ask_ai") {
+          brain.queueCommand(String(step.prompt || step.text || ""), player);
+          continue;
+        }
+        if (step.type === "set_goal") {
+          brain.setGoal(step.goal || step.text || "");
+          continue;
+        }
+        if (step.type === "chat" || step.type === "say") bot.__speechNext = true;
+        const result = await executeAction(bot, step, mcData);
+        bot.__speechNext = false;
+        log(`[custom] step ${index + 1}/${def.steps.length} ${step.type}: ${result.ok ? "ok" : result.message}`);
+        if (!result.ok && !step.continueOnError) {
+          failed = `шаг ${index + 1} (${step.type}): ${result.message}`;
+          break;
+        }
+      }
+    } finally {
+      brain.externalBusy = false;
+    }
+    bridge.emit("command", {
+      id: def.id,
+      name: def.name,
+      from: username,
+      state: failed ? "failed" : "done",
+      message: failed || null,
+    });
+    if (failed) bot.chat(`Не вышло: ${failed}`.slice(0, 256));
+  }
+
+  /** Message from the desktop app user (typed or spoken) — trusted like the console. */
+  function handleAppMessage(text, username) {
+    const session = runtime.session;
+    if (!session?.brain) return;
+    const clean = String(text || "").trim().slice(0, 400);
+    if (!clean) return;
+    const speaker = /^[A-Za-z0-9_]{1,16}$/.test(String(username || "")) ? username : "app";
+    const command = parseCommand(clean, cfg.agent.botName, cfg.commands?.custom);
+    if (command && command.type !== "direct") {
+      void applyCommand(session, command, speaker, "app").catch((err) => log(`[app] ${sanitizeForLog(err?.message || err)}`));
+      return;
+    }
+    const body = command?.type === "direct" ? command.text : clean;
+    session.brain.resume();
+    try {
+      session.brain.mantella?.onPlayerChat(speaker, body);
+    } catch {
+      /* memory is best effort */
+    }
+    session.brain.queueCommand(
+      `Игрок ${speaker} сказал тебе: «${body}». Ответь как персонаж в поле say (коротко, по-русски). ` +
+        `Если просят действие — сделай action; если просто разговор — say + idle/look/follow по смыслу.`,
+      speaker
+    );
+    log(`[app] from ${speaker}: ${sanitizeForLog(body, 120)}`);
+  }
+
   function connectBot() {
     if (runtime.stopping || runtime.session) return;
     log(
@@ -442,10 +585,29 @@ async function main() {
       return;
     }
 
-    const session = { bot, brain: null, mcData: null, ended: false };
+    const session = { bot, brain: null, mcData: null, ended: false, statusTimer: null };
     runtime.session = session;
+    bridge.emit("lifecycle", { state: "connecting", host: cfg.minecraft.host, port: cfg.minecraft.port });
 
-    bot.on("kicked", (reason) => log(`Kicked: ${JSON.stringify(reason).slice(0, 500)}`));
+    // Mirror everything the bot writes to chat into the app feed; brain speech is flagged for TTS.
+    // bot.chat only exists once the chat plugin is injected at login.
+    bot.once("login", () => {
+      if (typeof bot.chat !== "function" || bot.__chatMirrored) return;
+      const rawChat = bot.chat.bind(bot);
+      bot.__chatMirrored = true;
+      bot.chat = (text) => {
+        const speech = bot.__speechNext === true;
+        bot.__speechNext = false;
+        bridge.emit("say", { text: String(text ?? "").slice(0, 256), speech });
+        return rawChat(text);
+      };
+    });
+
+    bot.on("kicked", (reason) => {
+      log(`Kicked: ${JSON.stringify(reason).slice(0, 500)}`);
+      bridge.emit("lifecycle", { state: "kicked", message: JSON.stringify(reason).slice(0, 300) });
+    });
+    bot.on("death", () => bridge.emit("event", { kind: "death", text: "погиб" }));
     bot.on("error", (err) => log(`Bot error: ${err?.message || "unknown error"}`));
     bot.on("end", (reason) => {
       if (session.ended) return;
@@ -453,6 +615,7 @@ async function main() {
       stopSession(session);
       if (runtime.session === session) runtime.session = null;
       log(`Disconnected: ${reason}`);
+      bridge.emit("lifecycle", { state: "disconnected", message: String(reason || "") });
       scheduleReconnect(String(reason || "connection ended"));
     });
 
@@ -476,7 +639,9 @@ async function main() {
       });
     });
     bot.on("chat", (username, message) => {
-      if (username !== bot.username) handleIncoming(session, username, message, "player");
+      if (username === bot.username) return;
+      bridge.emit("chat", { username, message: String(message ?? "").slice(0, 256), source: "player" });
+      handleIncoming(session, username, message, "player");
     });
     bot.on("whisper", (username, message) => {
       handleIncoming(session, username, message, "whisper");
@@ -492,6 +657,7 @@ async function main() {
     runtime.session = null;
     stopSession(session);
     rl.close();
+    bridge.emit("lifecycle", { state: "exiting" });
     if (session?.bot) disconnectBot(session.bot, "local shutdown");
     finishProcess(code);
   }
@@ -510,12 +676,80 @@ async function main() {
       else connectBot();
       return;
     }
-    const command = parseCommand(text.startsWith("!") ? text : `!${text}`, cfg.agent.botName);
+    const command = parseCommand(text.startsWith("!") ? text : `!${text}`, cfg.agent.botName, cfg.commands?.custom);
     if (!command) return;
     void applyCommand(runtime.session, command, "console", "console").catch((err) => {
       log(`[console] ${sanitizeForLog(err?.message || err)}`);
     });
   });
+
+  /** Live update from the app after the user edits the character or commands. */
+  function applyReconfigure(patch) {
+    const session = runtime.session;
+    const agent = patch.agent && typeof patch.agent === "object" ? patch.agent : {};
+    if (typeof agent.persona === "string") cfg.agent.persona = agent.persona.slice(0, 6000);
+    if (agent.foodPreferences && typeof agent.foodPreferences === "object") {
+      const ids = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && /^[a-z0-9_]{1,64}$/.test(x)).slice(0, 64) : []);
+      cfg.agent.foodPreferences = { favorite: ids(agent.foodPreferences.favorite), hated: ids(agent.foodPreferences.hated) };
+      setFoodPreferences(cfg.agent.foodPreferences);
+    }
+    if (Number.isInteger(agent.tickMs) && agent.tickMs >= 1000 && agent.tickMs <= 3600000) cfg.agent.tickMs = agent.tickMs;
+    const users = (v) =>
+      Array.isArray(v) ? v.filter((n) => n === "*" || /^[A-Za-z0-9_]{1,16}$/.test(String(n))).slice(0, 32) : null;
+    const controllers = users(agent.controllerUsers);
+    if (controllers?.length) cfg.agent.controllerUsers = controllers;
+    const chatters = users(agent.chatUsers);
+    if (chatters?.length) cfg.agent.chatUsers = chatters;
+    if (patch.commands && Array.isArray(patch.commands.custom)) {
+      cfg.commands = { ...(cfg.commands || {}), custom: normalizeCustomCommands(patch.commands.custom) };
+    }
+    if (session?.brain) {
+      if (typeof agent.mode === "string") {
+        try {
+          session.brain.setMode(agent.mode);
+        } catch {
+          /* keep current mode */
+        }
+      }
+      if (typeof agent.goal === "string" && agent.goal.trim() && agent.goal !== session.brain.goal) {
+        session.brain.setGoal(agent.goal);
+      }
+    }
+    const combatMode = patch.combat?.mode;
+    if (typeof combatMode === "string" && session?.combat) {
+      try {
+        session.combat.setMode(combatMode);
+      } catch {
+        /* keep current combat mode */
+      }
+    }
+    log(`[app] reconfigured: persona=${cfg.agent.persona.length}ch commands=${cfg.commands?.custom?.length ?? 0} tick=${cfg.agent.tickMs}ms`);
+    bridge.emit("reconfigured", { commands: cfg.commands?.custom?.length ?? 0 });
+  }
+
+  bridge.onMessage((message) => {
+    switch (message.type) {
+      case "reconfigure":
+        try {
+          applyReconfigure(message);
+        } catch (err) {
+          log(`[app] reconfigure rejected: ${sanitizeForLog(err?.message || err)}`);
+        }
+        break;
+      case "console":
+        rl.emit("line", String(message.text || ""));
+        break;
+      case "player-say":
+        handleAppMessage(message.text, message.username);
+        break;
+      case "shutdown":
+        void shutdown(0);
+        break;
+      default:
+        break;
+    }
+  });
+  bridge.onDisconnect(() => void shutdown(0));
 
   process.once("SIGINT", () => void shutdown(0));
   process.once("SIGTERM", () => void shutdown(0));
