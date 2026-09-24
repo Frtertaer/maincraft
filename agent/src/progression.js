@@ -1609,7 +1609,12 @@ async function phaseWood(bot, mcData, state, log) {
 
   if (!hasPickaxe(bot)) {
     await ensurePlanks(bot, mcData, 3);
-    if (countItem(bot, "stick") < 2) await ensureCraft(bot, mcData, "stick", 4);
+    if (countItem(bot, "stick") < 2) {
+      const st = await ensureCraft(bot, mcData, "stick", 4);
+      if (!st.ok && countItem(bot, "stick") < 2) {
+        return { ok: false, phase: "wood", message: `sticks before pick: ${st.message}` };
+      }
+    }
     const cr = await ensureCraft(bot, mcData, "wooden_pickaxe", 1);
     if (!cr.ok) {
       return { ok: false, phase: "wood", message: `craft pick failed: ${cr.message}` };
