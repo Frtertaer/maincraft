@@ -429,6 +429,16 @@ export async function executeAction(bot, action, mcData) {
         let craftErr = null;
         for (let attempt = 0; attempt < 2; attempt += 1) {
           craftErr = null;
+          // a stale half-open table window from an aborted prior craft makes
+          // every later click land in the wrong window — close it first
+          if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+            try {
+              bot.closeWindow(bot.currentWindow);
+              await sleep(200);
+            } catch {
+              /* already closed */
+            }
+          }
           // a previous aborted craft may have left ingredients in the grid or
           // on the cursor — evacuate before every attempt
           await cleanCraftArea(bot).catch(() => {});
