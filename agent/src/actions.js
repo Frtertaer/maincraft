@@ -8,15 +8,19 @@ const { goals, Movements } = pkgPathfinder;
 // window's inventory range is the fresh view.
 function invItems(bot) {
   const win = bot.currentWindow;
+  // the cursor-held item lives on window.selectedItem, outside slots — a
+  // crafted result sits there until its placement confirms, so count it or
+  // "did not increase inventory" false-negatives fire on every slow ack
+  const cursor = win?.selectedItem ? [win.selectedItem] : (bot.inventory?.selectedItem ? [bot.inventory.selectedItem] : []);
   if (
     win &&
     win !== bot.inventory &&
     typeof win.inventoryStart === "number" &&
     win.inventoryStart < (win.slots?.length || 0)
   ) {
-    return win.slots.slice(win.inventoryStart).filter(Boolean);
+    return win.slots.slice(win.inventoryStart).filter(Boolean).concat(cursor);
   }
-  return bot.inventory.items();
+  return bot.inventory.items().concat(cursor);
 }
 
 // A craft aborted mid-click (timeout, thrown error) strands ingredients in

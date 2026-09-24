@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -281,6 +281,14 @@ export class ClearRunner {
               this.log(`[clear] burrow fail: ${err?.message || err}`);
             }
           }
+          // respawn wiped the inventory — walk back to the stash chest and
+          // take the spare kit before re-entering the grind
+          try {
+            const rec = await stashRecover(bot, this.mcData, this.log, this.state);
+            if (rec?.ok && /recovered/.test(rec.message)) this.log(`[clear] ${rec.message}`);
+          } catch {
+            /* stash err — continue empty-handed */
+          }
           // escape landed — reflexes back on for whatever chased us out here
           try {
             this.combat?.setMode?.(this.combat?.cfg?.mode || "auto");
@@ -349,6 +357,17 @@ export class ClearRunner {
             this.log(`[clear] burrow fail: ${err?.message || err}`);
           }
           continue;
+        }
+        // surplus beyond the keep-set goes into the stash chest — a death
+        // then costs a walk home, not the whole toolkit
+        if (!isNight && !hostileNear && Date.now() - (this._lastStash || 0) > 90000) {
+          this._lastStash = Date.now();
+          try {
+            const sd = await stashDeposit(bot, this.mcData, this.log, this.state);
+            if (sd?.ok && /stashed/.test(sd.message)) this.log(`[clear] ${sd.message}`);
+          } catch {
+            /* stash err — continue */
+          }
         }
         const phaseBefore = detectPhase(bot);
         const dimBefore = String(bot.game?.dimension || "");

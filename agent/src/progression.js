@@ -279,8 +279,140 @@ async function pullTable(bot, mcData) {
       { type: "dig", x: t.position.x, y: t.position.y, z: t.position.z, timeoutMs: 8000 },
       mcData
     );
+    // dig leaves the table as a drop — walk onto the cell to vacuum it, or it
+    // despawns and the next stop re-crafts a new table (the litter the
+    // stream showed: dig without collect is exactly how tables multiply)
+    await executeAction(
+      bot,
+      { type: "goto", x: t.position.x, y: t.position.y, z: t.position.z, range: 1.5, timeoutMs: 5000 },
+      mcData
+    ).catch(() => {});
   } catch {
     /* keep it for the next craft */
+  }
+}
+
+// ── stash: a chest with spare progression gear ────────────────────────────
+// Deaths wipe inventory but not the world — surplus beyond a survival keep-
+// set goes into a chest; after a death the bot walks back and withdraws it.
+const STASH_KEEP_COUNT = [
+  [/_pickaxe$/, 1],
+  [/_sword$/, 1],
+  [/_axe$/, 1],
+  [/_shovel$/, 1],
+  [/^(crafting_table|furnace|chest|shield|torch|bucket|water_bucket|compass)$/, 1],
+  [/^(stick|bone|arrow|string|feather|flint)$/, 4],
+  [/_log$|_stem$/, 8],
+  [/_planks$/, 8],
+  [/^(cobblestone|cobbled_deepslate|dirt|sand|gravel|netherrack|blackstone)$/, 24],
+  [/^(raw_iron|iron_ingot|raw_gold|gold_ingot|coal|charcoal|raw_copper|copper_ingot)$/, 4],
+  [/^(diamond|emerald|lapis_lazuli|redstone|quartz|obsidian|ender_pearl|blaze_rod|blaze_powder)$/, 1],
+  [/^(bread|cooked_beef|cooked_porkchop|cooked_chicken|cooked_mutton|cooked_cod|cooked_salmon|baked_potato|golden_carrot)$/, 6],
+];
+
+function stashKeepCount(name) {
+  for (const [re, n] of STASH_KEEP_COUNT) if (re.test(name)) return n;
+  return 0; // unlisted junk → fully storable
+}
+
+async function stashFindOrPlaceChest(bot, mcData, state) {
+  // recorded stash position first — verify it still holds a chest
+  if (state?.stash) {
+    const b = bot.blockAt(new Vec3(state.stash.x, state.stash.y, state.stash.z));
+    if (b && b.name === "chest") return b;
+    state.stash = null; // chest is gone — forget and re-place below
+  }
+  const near = bot.findBlock?.({ matching: (b) => b?.name === "chest", maxDistance: 8 });
+  if (near) {
+    if (state) state.stash = near.position.floored();
+    return near;
+  }
+  if (countItem(bot, "chest") < 1) {
+    const pl = await ensurePlanks(bot, mcData, 8);
+    if (!pl.ok && countItem(bot, (i) => i.name.includes("planks")) < 8) return null;
+    const cr = await ensureCraft(bot, mcData, "chest", 1);
+    if (!cr.ok) return null;
+  }
+  // place adjacent on a solid support, like the table does
+  const feet = bot.entity.position.floored();
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const support = bot.blockAt(feet.offset(dx, -1, dz));
+    const cell = bot.blockAt(feet.offset(dx, 0, dz));
+    if (!support || support.name === "air" || !cell || !/air|snow|grass$/.test(cell.name)) continue;
+    const r = await executeAction(
+      bot,
+      { type: "place", item: "chest", x: cell.position.x, y: cell.position.y, z: cell.position.z, face: "top", timeoutMs: 8000 },
+      mcData
+    );
+    if (r.ok) {
+      await sleep(200);
+      const b = bot.blockAt(cell.position);
+      if (b?.name === "chest") {
+        if (state) state.stash = b.position;
+        return b;
+      }
+    }
+  }
+  return null;
+}
+
+export async function stashDeposit(bot, mcData, log, state) {
+  try {
+    // nothing worth storing → skip entirely (keeps the step cheap)
+    const surplus = bot.inventory.items().filter((i) => i.count > stashKeepCount(i.name));
+    if (!surplus.length) return { ok: true, message: "nothing to stash" };
+    const chestBlock = await stashFindOrPlaceChest(bot, mcData, state);
+    if (!chestBlock) return { ok: false, message: "no chest" };
+    const chest = await pt(bot.openChest(chestBlock), 8000, "open chest");
+    let moved = 0;
+    try {
+      for (const item of surplus) {
+        const keep = stashKeepCount(item.name);
+        const give = item.count - keep;
+        if (give <= 0) continue;
+        await pt(chest.deposit(item.type, item.metadata, give), 8000, "deposit");
+        moved += give;
+      }
+    } finally {
+      chest.close();
+    }
+    log?.(`[stash] stored ${moved} items @${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z}`);
+    return { ok: true, message: `stashed ${moved}` };
+  } catch (err) {
+    return { ok: false, message: `stash: ${err?.message || err}` };
+  }
+}
+
+export async function stashRecover(bot, mcData, log, state) {
+  try {
+    if (!state?.stash) return { ok: false, message: "no stash" };
+    const pos = state.stash;
+    const dist = bot.entity.position.distanceTo(pos.offset ? pos : new Vec3(pos.x, pos.y, pos.z));
+    if (dist > 160) return { ok: false, message: `stash too far (${Math.round(dist)}m)` };
+    await executeAction(
+      bot,
+      { type: "goto", x: pos.x + 0.5, y: pos.y, z: pos.z + 0.5, range: 2, timeoutMs: 30000 },
+      mcData
+    );
+    const b = bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
+    if (!b || b.name !== "chest") {
+      state.stash = null;
+      return { ok: false, message: "stash chest gone" };
+    }
+    const chest = await pt(bot.openChest(b), 8000, "open chest");
+    let took = 0;
+    try {
+      for (const item of chest.containerItems()) {
+        await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
+        took += item.count;
+      }
+    } finally {
+      chest.close();
+    }
+    log?.(`[stash] recovered ${took} items`);
+    return { ok: true, message: `recovered ${took}` };
+  } catch (err) {
+    return { ok: false, message: `recover: ${err?.message || err}` };
   }
 }
 
