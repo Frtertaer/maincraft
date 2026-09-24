@@ -589,18 +589,25 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
           }
         }
         if (landY != null && !landDangerous && !findHostile(bot, 8)) {
-          const dig = await executeAction(
-            bot,
-            { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 10000 },
-            mcData
-          );
-          if (dig.ok) {
+          // gravel/sand above or below invalidates the target mid-swing —
+          // retry "Digging aborted" like the burrow shaft dig does
+          let dig = null;
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            dig = await executeAction(
+              bot,
+              { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 10000 },
+              mcData
+            );
+            if (dig.ok || !/abort/i.test(String(dig?.message || ""))) break;
+            await sleep(250);
+          }
+          if (dig?.ok) {
             await sleep(400); // let gravity settle the drop
             dug += 1;
             log?.(`[stairDown] vertical dig at ${p.x},${p.y},${p.z} → y~${landY}`);
             continue;
           }
-          why.push(`vert:dig=${dig.message}`);
+          why.push(`vert:dig=${dig?.message}`);
         } else {
           why.push(`vert:${landY == null ? "deep" : landDangerous ? "danger" : "mob"}`);
         }
