@@ -185,6 +185,30 @@ export class ClearRunner {
         // Post-death escape FIRST: inventory is empty on respawn, so fighting
         // the camping mob bare-handed is a loss. At night hide underground;
         // by day sprint far away. Must run before the combat yield.
+        // sprintBurst: control-state movement starts in <100ms — pathfinder
+        // goto needs ~1s to spin up, and skeletons lead shots on standing
+        // targets. 1.5s of sprint+zigzag buys distance before planning.
+        const sprintBurst = async (fdx, fdz, ms = 1500) => {
+          try {
+            const yaw = Math.atan2(-fdx, -fdz);
+            bot.setControlState("sprint", true);
+            bot.setControlState("forward", true);
+            const t0 = Date.now();
+            let flip = false;
+            while (Date.now() - t0 < ms) {
+              flip = !flip;
+              bot.look(yaw + (flip ? 0.5 : -0.5), 0, true);
+              bot.setControlState("jump", Date.now() % 700 < 350);
+              await sleep(280);
+            }
+          } catch {
+            /* keep bursting best-effort */
+          } finally {
+            bot.setControlState("jump", false);
+            bot.setControlState("forward", false);
+            bot.setControlState("sprint", false);
+          }
+        };
         const nightTod = bot.time?.timeOfDay;
         const isNight = nightTod != null && nightTod >= 12541;
         if (this._needRetreat && bot.entity) {
@@ -202,6 +226,7 @@ export class ClearRunner {
             ];
             const [fdx, fdz] = pickDryDir(bot, fleeDirs);
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
+            await sprintBurst(fdx, fdz).catch(() => {});
             try {
               await executeAction(
                 bot,
@@ -240,6 +265,7 @@ export class ClearRunner {
             ];
             const [fdx, fdz] = pickDryDir(bot, fleeDirs);
             this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
+            await sprintBurst(fdx, fdz).catch(() => {});
             try {
               await executeAction(
                 bot,
