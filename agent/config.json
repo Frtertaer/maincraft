@@ -87,7 +87,7 @@
     "capturePath": "../logs/vision_frame.jpg"
   },
   "viewer": {
-    "enabled": false,
+    "enabled": true,
     "host": "127.0.0.1",
     "port": 3007,
     "firstPerson": true
