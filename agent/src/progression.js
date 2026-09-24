@@ -724,10 +724,28 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   if (!force && (tod == null || tod < 12541)) return false;
   // a failed dig leaves the bot standing exposed — relocate to a different
   // patch of ground and try the whole burrow again instead of giving up
+  let triedLogs = false;
   const retryElsewhere = async (why) => {
     if (_depth >= 4) return false;
     log?.(`[burrow] ${why} — relocating`);
     const p = bot.entity.position.floored();
+    // empty-handed on hard ground: nothing diggable and no blocks to
+    // pillar with — every relocate repeats the same failure. Punch a few
+    // logs once: logs count as solid for the pillar fallback and craft
+    // into planks/sticks on the spot.
+    if (!triedLogs) {
+      triedLogs = true;
+      const hasMat = bot.inventory
+        .items()
+        .some((i) => /dirt|cobblestone|stone|netherrack|sand|gravel|planks|_log|blackstone/.test(i.name));
+      if (!hasMat) {
+        try {
+          await punchNearbyLogs(bot, mcData, 4, null);
+        } catch {
+          /* no tree in reach — fall through to the relocate */
+        }
+      }
+    }
     // a bare-handed bot can only shelter in soft ground — head for the
     // nearest diggable surface block instead of wandering blindly
     let target = null;
