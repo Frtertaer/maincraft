@@ -613,6 +613,20 @@ export async function executeAction(bot, action, mcData) {
           await goto(bot, new goals.GoalNear(ref.position.x, ref.position.y, ref.position.z, 3), 30000);
         }
         await bot.equip(item, "hand");
+        // equip resolves before the server swaps the held slot — placing
+        // with a stale item (e.g. wooden_sword in hand) makes the server
+        // refuse, and mineflayer's error names heldItem, not our item
+        if (bot.heldItem?.name !== item.name) {
+          await sleep(120);
+          if (bot.heldItem?.name !== item.name) {
+            try {
+              await bot.equip(item, "hand");
+              await sleep(120);
+            } catch {
+              /* fall through to the place attempt */
+            }
+          }
+        }
         await bot.placeBlock(ref, direction);
         const placed = bot.blockAt(target);
         if (!placed || ["air", "cave_air", "void_air"].includes(placed.name)) {
