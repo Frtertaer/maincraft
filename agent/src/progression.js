@@ -1512,6 +1512,14 @@ async function phaseWood(bot, mcData, state, log) {
     }
     const now = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
     if (rr.ok && now <= logs) {
+      // zero-gain streak: collect keeps resolving ok while grabbing nothing —
+      // escalate a real wander after a few rounds or the run churns forever
+      state.woodZeroGain = (state.woodZeroGain || 0) + 1;
+      if (state.woodZeroGain >= 4) {
+        state.woodZeroGain = 0;
+        await wander(bot, mcData, 80);
+        return { ok: true, phase: "wood", message: "zero-gain — wandering for trees" };
+      }
       // dug logs but the drops landed somewhere unreachable — walk onto the
       // nearest dropped log/plank item and let the pickup radius grab it
       const drop = Object.values(bot.entities || {}).find((e) => {
