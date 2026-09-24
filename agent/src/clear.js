@@ -211,6 +211,10 @@ export class ClearRunner {
         };
         const nightTod = bot.time?.timeOfDay;
         const isNight = nightTod != null && nightTod >= 12541;
+        // burrow triggers on the EARLY threshold — a step takes 30-60s and
+        // tod 12541 is already inside the hostile-spawn window; starting the
+        // shelter at 11800 buys a step or two of slack before mobs can spawn
+        const nightSoon = nightTod != null && nightTod >= 11800;
         if (this._needRetreat && bot.entity) {
           this._needRetreat = false;
           // died mid-shelter — flag lives on the bot object, reflex must be
@@ -329,7 +333,7 @@ export class ClearRunner {
         });
         if (
           surfacePhase &&
-          (isNight || (hostileNear && this.deaths > 0)) &&
+          (nightSoon || (hostileNear && this.deaths > 0)) &&
           Date.now() - (this._lastBurrow || 0) > 120000
         ) {
           this._lastBurrow = Date.now();
@@ -363,7 +367,7 @@ export class ClearRunner {
         }
         // surplus beyond the keep-set goes into the stash chest — a death
         // then costs a walk home, not the whole toolkit
-        if (!isNight && !hostileNear && Date.now() - (this._lastStash || 0) > 90000) {
+        if (!nightSoon && !hostileNear && Date.now() - (this._lastStash || 0) > 90000) {
           this._lastStash = Date.now();
           try {
             const sd = await stashDeposit(bot, this.mcData, this.log, this.state);
