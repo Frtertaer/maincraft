@@ -509,9 +509,16 @@ export async function executeAction(bot, action, mcData) {
           }
         }
         if (after <= before) {
+          const win = bot.currentWindow;
+          const winDump = win
+            ? ` win=${win.type} slots=[${(win.slots || [])
+                .map((s, i) => (s ? `${i}:${s.name}x${s.count}` : null))
+                .filter(Boolean)
+                .join(",")}]`
+            : " win=none";
           return {
             ok: false,
-            message: `craft ${itemName} did not increase inventory (before=${before} after=${after})`,
+            message: `craft ${itemName} did not increase inventory (before=${before} after=${after})${winDump}`,
           };
         }
         return {
