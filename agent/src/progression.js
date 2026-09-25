@@ -323,20 +323,27 @@ function stashKeepCount(name) {
 // positions on disk so a restart/respawn can still find them
 const STASH_FILE = path.resolve(__dirname, "../../logs/stash.json");
 
-function stashLoadFile() {
+function stashLoadFile(bot) {
   try {
     const a = JSON.parse(fs.readFileSync(STASH_FILE, "utf8"));
-    return Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
+    const all = Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
+    // entries are tagged with the world-spawn they were recorded under —
+    // a world swap keeps the file but moves every coordinate meaning, so
+    // foreign-spawn entries get dropped instead of walked-to-nowhere
+    const sp = bot?.spawnPoint;
+    if (!sp || !all.some((p) => p.sx != null)) return all;
+    return all.filter((p) => p.sx == null || Math.hypot(p.sx - sp.x, p.sz - sp.z) < 32);
   } catch {
     return [];
   }
 }
 
-function stashRecord(pos) {
+function stashRecord(pos, bot) {
   try {
-    const list = stashLoadFile();
+    const list = stashLoadFile(bot);
     if (!list.some((p) => Math.abs(p.x - pos.x) < 2 && Math.abs(p.y - pos.y) < 2 && Math.abs(p.z - pos.z) < 2)) {
-      list.push({ x: pos.x, y: pos.y, z: pos.z, t: Date.now() });
+      const sp = bot?.spawnPoint;
+      list.push({ x: pos.x, y: pos.y, z: pos.z, t: Date.now(), ...(sp ? { sx: Math.round(sp.x), sz: Math.round(sp.z) } : {}) });
       fs.mkdirSync(path.dirname(STASH_FILE), { recursive: true });
       fs.writeFileSync(STASH_FILE, JSON.stringify(list.slice(-40)));
     }
@@ -354,7 +361,7 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
   }
   // a chest from an earlier run near enough to inspect (blockAt needs loaded chunks)
   const feet0 = bot.entity.position.floored();
-  for (const p of stashLoadFile()) {
+  for (const p of stashLoadFile(bot)) {
     const d = Math.hypot(p.x - feet0.x, p.z - feet0.z);
     if (d > 24) continue;
     const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
@@ -366,7 +373,7 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
   const near = bot.findBlock?.({ matching: (b) => b?.name === "chest", maxDistance: 8 });
   if (near) {
     if (state) state.stash = near.position.floored();
-    stashRecord(near.position.floored());
+    stashRecord(near.position.floored(), bot);
     return near;
   }
   if (countItem(bot, "chest") < 1) {
@@ -391,7 +398,7 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
       const b = bot.blockAt(cell.position);
       if (b?.name === "chest") {
         if (state) state.stash = b.position;
-        stashRecord(b.position);
+        stashRecord(b.position, bot);
         return b;
       }
     }
@@ -433,7 +440,7 @@ export async function stashRecover(bot, mcData, log, state) {
     const me = bot.entity.position;
     const cands = [];
     if (state?.stash) cands.push({ x: state.stash.x, y: state.stash.y, z: state.stash.z });
-    for (const p of stashLoadFile()) {
+    for (const p of stashLoadFile(bot)) {
       if (!cands.some((c) => Math.abs(c.x - p.x) < 2 && Math.abs(c.z - p.z) < 2)) cands.push(p);
     }
     const near = cands
