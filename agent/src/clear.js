@@ -220,7 +220,13 @@ export class ClearRunner {
           // died mid-shelter — flag lives on the bot object, reflex must be
           // free again at respawn
           bot._inShelter = false;
-          bot._burrowActive = false;
+          // park the reflex for the WHOLE respawn sequence, not just the
+          // burrow: with it live, the engage-goto turns the flee back into
+          // the camping mob and a bare-handed fight is how each loop death
+          // happens (zombie can't outrun sprint, but reflex never lets the
+          // sprint finish)
+          bot._burrowActive = true;
+          try {
           if (isNight) {
             this.log(`[clear] night respawn — flee then burrow`);
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
@@ -348,6 +354,9 @@ export class ClearRunner {
             /* stash err — continue empty-handed */
           }
           // escape landed — reflexes back on for whatever chased us out here
+          } finally {
+            bot._burrowActive = false;
+          }
           try {
             this.combat?.setMode?.(this.combat?.cfg?.mode || "auto");
           } catch {
