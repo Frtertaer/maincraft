@@ -1258,20 +1258,36 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // intersects — legal only once feet clear the destination block's
         // top (ref.y+2). Jump, place at apex, retry while the hop window
         // stays open instead of giving up on a single mistimed attempt
+        // can't pillar where there's no room to clear the destination cell —
+        // a ceiling over the feet makes every placement a body-intersection
+        const headroom = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
+        if (headroom && !/air|cave_air|water|bubble_column|snow|tall_grass|grass|fern|vine|ladder/.test(headroom.name)) {
+          log?.(`[burrow] pillar err: no headroom (${headroom.name} overhead)`);
+          break;
+        }
+        // swimming up in water is a slow constant float (~0.25 m/s), not a
+        // ballistic hop — the lift needs far longer and never reaches
+        // velocity~0, so the apex wait doesn't apply in water. At the surface
+        // the feet cell reads air — check the entity flag, not the block
+        const inWater = Boolean(bot.entity.isInWater) ||
+          /water|bubble_column/.test(String(bot.blockAt(bot.entity.position.floored())?.name || ""));
         let placed = false;
         for (let attempt = 0; attempt < 3 && !placed; attempt++) {
           bot.setControlState("jump", true);
           const lift = Date.now();
-          while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < 1200) {
+          const liftCap = inWater ? 4000 : 1200;
+          while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < liftCap) {
             await sleep(40);
           }
-          // placing the instant the client clears the cell fails anyway: the
-          // server's copy of our position lags ~100-200ms during ascent and
-          // still sees the body inside it. Place at apex — vertical velocity
-          // near zero means the server has caught up
-          const apex = Date.now();
-          while (Math.abs(bot.entity.velocity?.y ?? 0) > 0.12 && Date.now() - apex < 500) {
-            await sleep(30);
+          if (!inWater) {
+            // placing the instant the client clears the cell fails anyway:
+            // the server's copy of our position lags ~100-200ms during ascent
+            // and still sees the body inside it. Place at apex — vertical
+            // velocity near zero means the server has caught up
+            const apex = Date.now();
+            while (Math.abs(bot.entity.velocity?.y ?? 0) > 0.12 && Date.now() - apex < 500) {
+              await sleep(30);
+            }
           }
           const destB = bot.blockAt(ref.position.offset(0, 1, 0));
           try {
