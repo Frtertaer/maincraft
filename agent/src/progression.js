@@ -1841,6 +1841,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // sprints out instead
     const waitCap = force ? 90000 : 570000;
     while (!safe() && Date.now() - t0 < waitCap) {
+    // died inside the pocket and respawned somewhere else — the shelter is
+    // gone with the corpse; abort so the runner can flee/re-gear instead of
+    // standing naked on open ground for the rest of the night
+    if (state?._diedAt && Date.now() - state._diedAt < 6000) {
+      log?.("[burrow] died mid-wait — aborting shelter");
+      return false;
+    }
     await sleep(4000);
     // a camper at the open shaft mouth is in melee reach of the bottom —
     // swing at it every loop instead of turtling forever. Bare fists lose
@@ -1859,6 +1866,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // mouth is clear (or ~2min passes) before breaking the seal
   const tHold = Date.now();
   while (findHostile(bot, 10) && Date.now() - tHold < (force ? 30000 : 120000)) {
+    if (state?._diedAt && Date.now() - state._diedAt < 6000) return false;
     const camper = findHostile(bot, 5);
     const armed2 = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
     if (camper && armed2) {
