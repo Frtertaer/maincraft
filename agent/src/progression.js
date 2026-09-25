@@ -344,6 +344,40 @@ function stashLoadFile(bot) {
   }
 }
 
+// remembered productive log grounds — persisted like stash sites so a
+// process restart keeps the compass instead of re-blind-wandering
+const LOG_SITE_FILE = path.resolve(__dirname, "../../logs/log-sites.json");
+
+export function logSitesLoadFile(bot) {
+  try {
+    const a = JSON.parse(fs.readFileSync(LOG_SITE_FILE, "utf8"));
+    const all = Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
+    const sp = bot?.spawnPoint;
+    if (!sp || !all.some((p) => p.sx != null)) return all;
+    return all.filter((p) => p.sx == null || Math.hypot(p.sx - sp.x, p.sz - sp.z) < 32);
+  } catch {
+    return [];
+  }
+}
+
+function logSiteRecord(pos, bot, state) {
+  try {
+    state.logSites = state.logSites || [];
+    if (state.logSites.some((s) => Math.hypot(s.x - pos.x, s.z - pos.z) < 24)) return;
+    state.logSites.push({ x: pos.x, y: pos.y, z: pos.z });
+    if (state.logSites.length > 8) state.logSites.shift();
+    const list = logSitesLoadFile(bot);
+    if (!list.some((p) => Math.hypot(p.x - pos.x, p.z - pos.z) < 24)) {
+      const sp = bot?.spawnPoint;
+      list.push({ x: pos.x, y: pos.y, z: pos.z, ...(sp ? { sx: Math.round(sp.x), sz: Math.round(sp.z) } : {}) });
+      fs.mkdirSync(path.dirname(LOG_SITE_FILE), { recursive: true });
+      fs.writeFileSync(LOG_SITE_FILE, JSON.stringify(list.slice(-16)));
+    }
+  } catch {
+    /* non-fatal */
+  }
+}
+
 function stashRecord(pos, bot) {
   try {
     const list = stashLoadFile(bot);
@@ -1245,6 +1279,36 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         /* craft desync — pillar on raw logs if it comes to that */
       }
     }
+    // a naked bot (post-death, fresh spawn) owns nothing to place — mine a
+    // few hand-diggable terrain blocks right here and pillar with those
+    if (solidsCount() < 12) {
+      const SOFT = /^(dirt|grass_block|sand|red_sand|gravel|farmland|dirt_path|mycelium|podzol|snow_block|clay|mud|coarse_dirt|rooted_dirt|soul_sand|soul_soil|mangrove_roots)$|leaves$/;
+      const feet = bot.entity.position.floored();
+      const cands = [];
+      for (let dx = -3; dx <= 3; dx += 1) {
+        for (let dz = -3; dz <= 3; dz += 1) {
+          for (let dy = -2; dy <= 1; dy += 1) {
+            const b = bot.blockAt(feet.offset(dx, dy, dz));
+            if (b && SOFT.test(b.name)) cands.push(b);
+          }
+        }
+      }
+      // prefer blocks NOT under our feet (digging the ground out drops us)
+      cands.sort((a, b) => {
+        const ua = a.position.y >= feet.y ? 1 : 0;
+        const ub = b.position.y >= feet.y ? 1 : 0;
+        return ub - ua || a.position.distanceSquared(feet) - b.position.distanceSquared(feet);
+      });
+      for (const b of cands.slice(0, 14)) {
+        if (solidsCount() >= 14) break;
+        try {
+          await pt(bot.dig(b), 8000, "dig-soft");
+        } catch {
+          /* keep grabbing the rest */
+        }
+        await sleep(250); // let the drop land in the pickup radius
+      }
+    }
     let raised = 0;
     for (let i = 0; i < 7 && refreshSolid(); i++) {
       let ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
@@ -1957,14 +2021,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     // must not early-return or the tree-less spot never triggers a wander
     if (rr.ok && logCount() > before) {
       // remember productive ground — a treeless streak walks back here
-      if (state) {
-        state.logSites = state.logSites || [];
-        const f = bot.entity.position.floored();
-        if (!state.logSites.some((s) => Math.hypot(s.x - f.x, s.z - f.z) < 24)) {
-          state.logSites.push({ x: f.x, y: f.y, z: f.z });
-          if (state.logSites.length > 8) state.logSites.shift();
-        }
-      }
+      if (state) logSiteRecord(bot.entity.position.floored(), bot, state);
       return rr;
     }
   }

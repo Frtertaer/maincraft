@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, logSitesLoadFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -94,6 +94,9 @@ export class ClearRunner {
       t0: Date.now(),
       objective: this.objectives[0],
       objectivesDone: [],
+      // productive log grounds remembered on disk — a restart (or a `!clear`
+      // after deaths wiped in-memory state) keeps the compass
+      logSites: logSitesLoadFile(this.bot).slice(-8),
     };
     this._deathHandler = () => {
       this.deaths += 1;
