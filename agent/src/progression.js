@@ -1192,9 +1192,30 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
     }
   }
+  // wall-carve only works when a diggable wall actually exists next to the
+  // bot — on open rocky ground (bare hands vs stone) every carve cell is
+  // air or undiggable and the pocket is guaranteed to fail; in that case the
+  // pillar fallback is the only shelter that needs no digging
+  const wallViable = () => {
+    const p = bot.entity.position.floored();
+    for (const [px, pz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let ok = true;
+      for (let i = 1; i <= 2; i++) {
+        if (
+          !diggable(bot.blockAt(p.offset(px * i, 0, pz * i))) ||
+          !diggable(bot.blockAt(p.offset(px * i, 1, pz * i)))
+        ) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return true;
+    }
+    return false;
+  };
   let dug = 0;
   let needsShaft = true;
-  if (!spot && refreshSolid()) {
+  if (!spot && refreshSolid() && wallViable()) {
     // no diggable column — we're deep in a tunnel or on undiggable floor.
     // The tunnel wall itself is the burrow: carve a sideways pocket at
     // ground level (all diggable stone) instead of digging a shaft first
