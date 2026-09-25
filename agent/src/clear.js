@@ -473,6 +473,40 @@ export class ClearRunner {
             /* stash err — continue */
           }
         }
+        // opportunistic daytime sheep pickup: a bed crafted+claimed while the
+        // sun is up means the dusk hunt never has to fight a monster camp for
+        // wool — run only when a sheep (or an unclaimed placed bed) is already
+        // in view so the detour is seconds, not a 60s blind hunt
+        if (
+          surfacePhase &&
+          !nightSoon &&
+          !hostileNear &&
+          Date.now() - (this._lastSheep || 0) > 150000 &&
+          !bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))
+        ) {
+          const woolHeld = bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0);
+          const sheepNear = Object.values(bot.entities || {}).some(
+            (e) => e?.position && e.name === "sheep" && e.position.distanceTo(bot.entity.position) < 48
+          );
+          const bedNear = bot.findBlock({
+            matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+            maxDistance: 12,
+          });
+          if (woolHeld < 3 && sheepNear) {
+            this._lastSheep = Date.now();
+            this._note("Овца! Кровать скоро будет — ночи проживу спокойно.");
+            try {
+              const res = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+              if (res?.ok || /bed|spawn/.test(res?.message || "")) this.log(`[clear] sheep run: ${res.message}`);
+            } catch {
+              /* sheep run failed — phase continues */
+            }
+          } else if (bedNear) {
+            // claiming an already-placed bed is a single activate — free
+            this._lastSheep = Date.now();
+            await ensureBedAndSleep(bot, this.mcData, this.log, this.state).catch(() => {});
+          }
+        }
         const phaseBefore = detectPhase(bot);
         const dimBefore = String(bot.game?.dimension || "");
         const deathsBefore = this.deaths;
