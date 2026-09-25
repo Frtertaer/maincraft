@@ -1455,8 +1455,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const PASSABLE = /air|cave_air|water|bubble_column|snow|tall_grass|grass|fern|vine|ladder/;
         const headroom = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
         if (headroom && !PASSABLE.test(headroom.name)) {
+          // a soft lid overhead (dirt/gravel/leaves) — dig through it
+          // instead of relocating: two digs open the shaft the pillar needs
           let foundSky = false;
-          for (const [sx, sz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [3, 0], [-3, 0]]) {
+          if (diggable(headroom)) {
+            try {
+              await pt(bot.dig(headroom), 9000, "dig-lid");
+              const h3 = bot.blockAt(bot.entity.position.floored().offset(0, 3, 0));
+              if (h3 && !PASSABLE.test(h3.name) && diggable(h3)) {
+                await pt(bot.dig(h3), 9000, "dig-lid2");
+              }
+              const h2 = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
+              foundSky = PASSABLE.test(h2?.name || "");
+            } catch {
+              /* dig refused — fall through to the sidestep scan */
+            }
+          }
+          for (const [sx, sz] of foundSky ? [] : [[2, 0], [-2, 0], [0, 2], [0, -2], [3, 0], [-3, 0]]) {
             const f = bot.entity.position.floored();
             try {
               await executeAction(
