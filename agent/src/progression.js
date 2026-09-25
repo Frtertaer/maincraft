@@ -1265,6 +1265,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < 1200) {
             await sleep(40);
           }
+          // placing the instant the client clears the cell fails anyway: the
+          // server's copy of our position lags ~100-200ms during ascent and
+          // still sees the body inside it. Place at apex — vertical velocity
+          // near zero means the server has caught up
+          const apex = Date.now();
+          while (Math.abs(bot.entity.velocity?.y ?? 0) > 0.12 && Date.now() - apex < 500) {
+            await sleep(30);
+          }
           try {
             await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
             placed = true;
