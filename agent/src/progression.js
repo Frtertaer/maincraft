@@ -216,6 +216,21 @@ function hasPickaxe(bot) {
   return bot.inventory.items().some((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
 }
 
+// best pickaxe the inventory supports: stone when the cobble-family is
+// around, wooden otherwise. Without one every stone column reads undiggable
+// and the whole burrow/descend machinery stalls — recraft on the spot.
+async function ensurePickaxe(bot, mcData) {
+  if (hasPickaxe(bot)) return { ok: true, message: "pickaxe held" };
+  const hasStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
+  await ensurePlanks(bot, mcData, 3);
+  if (countItem(bot, "stick") < 2) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
+  if (hasStone) {
+    const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
+    if (r.ok) return r;
+  }
+  return ensureCraft(bot, mcData, "wooden_pickaxe", 1);
+}
+
 // mineflayer calls that wait on server acks (equip/placeBlock) can hang
 // forever when the ack packet is lost — race every such call against a timer
 function pt(promise, timeoutMs, what) {
@@ -888,6 +903,16 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
     });
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
+    // a pickaxe broke mid-strip — stop hand-tapping stone and recraft one
+    // on the spot (log+sticks or cobble+sticks are usually in the bag);
+    // bail only when even that fails
+    if (!hasPickaxe(bot)) {
+      const pk = await ensurePickaxe(bot, mcData).catch(() => null);
+      if (!pk?.ok) {
+        log?.("[stripMine] pickaxe gone and not recraftable — bailing");
+        break;
+      }
+    }
     const floor = bot.blockAt(p.offset(dx, -1, dz));
     const f1 = bot.blockAt(p.offset(dx, 0, dz));
     const h1 = bot.blockAt(p.offset(dx, 1, dz));
@@ -1183,6 +1208,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     );
     if (!d.ok) break;
     await sleep(120);
+  }
+  // a broken pickaxe makes every stone column undiggable underground —
+  // recraft before scanning so y<0 depth isn't mistaken for unworkable ground
+  if (!hasPickaxe(bot)) {
+    const pk = await ensurePickaxe(bot, mcData).catch(() => null);
+    if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
   }
   // Try up to 9 candidate spots for a dig-down column: here, then east, west,
   // south, north at 3 and 6 blocks — the ground must be solid to -6.
