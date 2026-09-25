@@ -2765,7 +2765,51 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
       const cand = bot.blockAt(feet.offset(0, -dy, 0));
       if (!cand || cand.name === "air" || cand.name === "cave_air" || cand.name === "void_air") continue;
       if (cand.name === "bedrock") return { ok: false, message: "bedrock", digs, y: feet.y };
-      if (/lava|water/.test(cand.name)) return { ok: false, message: `${cand.name} below`, digs, y: feet.y };
+      if (cand.name === "lava") return { ok: false, message: "lava below", digs, y: feet.y };
+      if (cand.name === "water") {
+        // plug water pockets instead of relocating: place a solid into each
+        // water cell bottom-up — every plug displaces one cell and becomes
+        // the reference face for the one above it
+        let floor = null;
+        for (let sy = dy + 1; sy <= dy + 4; sy++) {
+          const below = bot.blockAt(feet.offset(0, -sy, 0));
+          if (!below || /^(air|cave_air|void_air)$/.test(below.name)) continue;
+          if (below.name === "lava" || below.name === "bedrock") {
+            return { ok: false, message: `${below.name} below`, digs, y: feet.y };
+          }
+          if (below.name === "water") continue;
+          floor = sy;
+          break;
+        }
+        if (floor == null) return { ok: false, message: "water column too deep", digs, y: feet.y };
+        let plugged = 0;
+        for (let wy = floor - 1; wy >= dy; wy--) {
+          const wcell = bot.blockAt(feet.offset(0, -wy, 0));
+          if (!wcell || wcell.name !== "water") continue;
+          const solid = bot.inventory
+            .items()
+            .find(
+              (i) =>
+                mcData.blocksByName[i.name]?.boundingBox === "block" &&
+                !/pickaxe|sword|_axe|shovel|_hoe|bucket|torch|sign|bed|chest|crafting|furnace|boat|ladder|door|slab|stairs|fence|wall|glass|pane|leaf|leaves|wool|carpet/.test(
+                  i.name
+                )
+            );
+          const refCell = bot.blockAt(feet.offset(0, -(wy + 1), 0));
+          if (!solid || !refCell || refCell.name === "water" || /air/.test(refCell.name)) break;
+          try {
+            if (bot.heldItem?.name !== solid.name) await pt(bot.equip(solid, "hand"), 6000, "equip");
+            await pt(bot.placeBlock(refCell, new Vec3(0, 1, 0)), 7000, "plug");
+            plugged++;
+            digs++;
+            await sleep(250);
+          } catch {
+            break;
+          }
+        }
+        if (plugged === 0) return { ok: false, message: "water below (unpluggable)", digs, y: feet.y };
+        continue;
+      }
       blk = cand;
       break;
     }
