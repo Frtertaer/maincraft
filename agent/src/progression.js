@@ -1084,6 +1084,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
       }
     }
+    // the landing spot matters more than the dig attempt: a hostile standing
+    // at the new site kills the bot mid-carve every time. Keep hopping
+    // instead of burrowing under the camper — bounded: a camper that
+    // follows forever must not recurse forever
+    state = state || {};
+    state._camperHops = state._camperHops || 0;
+    if (findHostile(bot, 12) && state._camperHops < 3) {
+      state._camperHops += 1;
+      log?.("[burrow] camper followed — keep hopping");
+      return retryElsewhere("camper at site");
+    }
     return burrowForNight(bot, mcData, log, force, _depth + 1, state);
   };
   // re-fetched lazily — a bare-handed start has nothing, but digging the
