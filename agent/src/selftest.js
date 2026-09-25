@@ -77,6 +77,9 @@ const craftWin = {
   items() {
     return this.slots.slice(this.inventoryStart).filter(Boolean);
   },
+  count(id) {
+    return this.slots.reduce((n, s) => n + (s && s.type === id ? s.count : 0), 0);
+  },
   findInventoryItem(id) {
     const i = this.slots.findIndex((s) => s && s.type === id);
     return i >= 0 ? { slot: i } : null;
