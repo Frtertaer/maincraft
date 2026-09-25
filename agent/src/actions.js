@@ -114,7 +114,30 @@ async function craftDirect(bot, recipe, count, craftingTable) {
       // verify the server really produced the result — never click empty air
       for (let t = 0; t < 24 && !win.slots[0]; t += 1) await sleep(150);
       if (!win.slots[0]) throw new Error("craft result slot empty — server rejected the recipe");
-      await withTimeout(bot.clickWindow(0, 0, 1), CLICK_MS, "result"); // shift-click → inventory
+      // take the result — but a stale stateId makes the server reject the
+      // click and send a full-window correction that restores slots[0].
+      // Confirm the item landed in the inventory section, resync+retry once.
+      const want = win.slots[0].name;
+      const secCount = () =>
+        win.slots.slice(win.inventoryStart).reduce((n, s) => n + (s && s.name === want ? s.count : 0), 0) +
+        (win.selectedItem?.name === want ? win.selectedItem.count : 0);
+      const baseSec = secCount();
+      let taken = false;
+      for (let tries = 0; tries < 2 && !taken; tries += 1) {
+        await withTimeout(bot.clickWindow(0, 0, 1), CLICK_MS, "result"); // shift-click → inventory
+        for (let t = 0; t < 10 && !taken; t += 1) {
+          await sleep(130);
+          // decide only after ~1 RTT: optimistic slot edits are indistinguishable
+          // from a confirmed take until the server's answer lands
+          if (t < 4) continue;
+          if (secCount() > baseSec) taken = true;                        // item really landed
+          else if (win.slots[0]?.name === want) break;                   // preview restored = rejected
+        }
+        if (!taken && bot._syncWindow) {
+          await withTimeout(bot._syncWindow(win), 6000, "sync").catch(() => {});
+        }
+      }
+      if (!taken) throw new Error(`craft take rejected: ${want}`);
     }
     if (win.selectedItem) {
       await bot.putSelectedItemRange(win.inventoryStart, win.inventoryEnd, win, null).catch(() => {});
