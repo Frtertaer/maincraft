@@ -1520,16 +1520,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           const lift = Date.now();
           let gaveUp = false;
           while (Date.now() - lift < liftCap) {
-            // offer only while RISING through the legal window: the server
-            // applies the entity-intersection check ~0.3s after send, and a
-            // descending offer lands below the cell top by then — refused
-            // predictive window: the server applies the entity-intersection
-            // check ~300ms after the packet — offer early on the rise so the
-            // apply-time position (feet + vel*0.35) lands inside the legal
-            // window instead of past the apex and falling
+            // predictive window: vel is blocks/tick and the server applies
+            // the entity-intersection check ~2-3 ticks after the packet —
+            // offer when the apply-time position (feet + vel*2.5 minus
+            // ~0.25 of gravity decay) clears the destination cell's top
             const vy = bot.entity.velocity?.y ?? 0;
-            const feetAtApply = bot.entity.position.y + Math.max(0, vy) * 0.35;
-            if (vy > 0.05 && feetAtApply >= ref.position.y + 2.02) {
+            const feetAtApply = bot.entity.position.y + vy * 2.5 - 0.25;
+            if (vy > 0.08 && feetAtApply >= ref.position.y + 2.02) {
               try {
                 await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
                 placed = true;
@@ -2597,9 +2594,13 @@ async function phaseIron(bot, mcData, state, log) {
         // cave floor — nothing to staircase into; drop straight down instead
         const s = await digStaircaseDown(bot, mcData, 14, 8);
         if (s.digs === 0) {
-          // lava/water blocking every direction — walk somewhere else and retry
+          // lava/water blocking every direction — walk somewhere else and retry.
+          // Repeated strikes mean a flooded/lava cavern, not a pocket: hop 14m
+          // at first, then jump ~48m to leave the whole region behind
+          state.fluidStrikes = (state.fluidStrikes || 0) + 1;
+          const hop = state.fluidStrikes >= 3 ? 48 : 14;
           const p = bot.entity.position.floored();
-          const dirs = [[14, 0], [-14, 0], [0, 14], [0, -14]];
+          const dirs = [[hop, 0], [-hop, 0], [0, hop], [0, -hop]];
           const [wx, wz] = dirs[Math.floor(Math.random() * dirs.length)];
           await executeAction(
             bot,
@@ -2608,6 +2609,7 @@ async function phaseIron(bot, mcData, state, log) {
           ).catch(() => {});
           return { ok: true, phase: "iron", message: `descend stuck y=${y} ${s.message || ""} — relocating` };
         }
+        state.fluidStrikes = 0;
         return { ok: true, phase: "iron", message: `descend y=${y}→${s.y}` };
       }
       // landings can drop into open caves full of mobs — end the step so the
