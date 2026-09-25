@@ -1322,46 +1322,38 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           );
         let placed = false;
         for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+          // keep hopping and offer the place on EVERY tick the body is legal:
+          // the clear window (feet ≥ ref.y+2) is ~0.15s per jump and offer
+          // latency lands most single-shot attempts below it — polling each
+          // hop gives several windows per attempt instead of one
           bot.setControlState("jump", true);
+          const liftCap = inWater ? 8000 : 2600;
           const lift = Date.now();
-          const liftCap = inWater ? 7000 : 1200;
-          while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < liftCap) {
+          let gaveUp = false;
+          while (Date.now() - lift < liftCap) {
+            if (bot.entity.position.y >= ref.position.y + 2.05) {
+              try {
+                await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
+                placed = true;
+                break;
+              } catch (pe) {
+                const feetB = bot.blockAt(bot.entity.position.floored());
+                log?.(
+                  `[burrow] place refused: ref=${ref.name}@${ref.position.y} dest=${bot.blockAt(ref.position.offset(0, 1, 0))?.name} ` +
+                    `feet=${feetB?.name}@${bot.entity.position.y.toFixed(2)} vel=${bot.entity.velocity?.y?.toFixed(2)} ` +
+                    `held=${bot.heldItem?.name} eye=${bot.entity.eyeHeight?.toFixed(2)} (${pe?.message || pe})`
+                );
+                if (!inWater) gaveUp = true; // refusal mid-air — re-hop next attempt
+                break;
+              }
+            }
             await sleep(40);
           }
-          if (!inWater) {
-            // placing the instant the client clears the cell fails anyway:
-            // the server's copy of our position lags ~100-200ms during ascent
-            // and still sees the body inside it. Place at apex — vertical
-            // velocity near zero means the server has caught up
-            const apex = Date.now();
-            while (Math.abs(bot.entity.velocity?.y ?? 0) > 0.12 && Date.now() - apex < 500) {
-              await sleep(30);
-            }
-          }
-          const destB = bot.blockAt(ref.position.offset(0, 1, 0));
-          // never offer a place the server is guaranteed to refuse: feet below
-          // the dest cell's top means the body still intersects it — a slow
-          // water float can burn the whole lift window without reaching it
-          if (bot.entity.position.y < ref.position.y + 2.05) {
-            log?.(
-              `[burrow] place skipped — still inside dest (feet=${bot.entity.position.y.toFixed(2)} ` +
-                `need≥${(ref.position.y + 2.05).toFixed(2)} inWater=${inWater})`
-            );
-            break;
-          }
-          try {
-            await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
-            placed = true;
-          } catch (pe) {
-            const feetB = bot.blockAt(bot.entity.position.floored());
-            log?.(
-              `[burrow] place refused: ref=${ref.name}@${ref.position.y} dest=${destB?.name} ` +
-                `feet=${feetB?.name}@${bot.entity.position.y.toFixed(2)} vel=${bot.entity.velocity?.y?.toFixed(2)} ` +
-                `held=${bot.heldItem?.name} eye=${bot.entity.eyeHeight?.toFixed(2)} (${pe?.message || pe})`
-            );
-          }
           bot.setControlState("jump", false);
-          if (!placed && bot.entity.position.y < ref.position.y + 1.5) break; // never lifted
+          if (placed) break;
+          if (gaveUp || bot.entity.position.y < ref.position.y + 1.5) {
+            if (bot.entity.position.y < ref.position.y + 1.5) break; // never lifted
+          }
           await sleep(150);
         }
         if (!placed) {
