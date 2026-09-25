@@ -1431,7 +1431,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   bot._inShelter = true;
   try {
     const t0 = Date.now();
-    while (!safe() && Date.now() - t0 < 570000) {
+    // daytime hide (force): skeletons/zombies burn in ~30-60s — 90s covers
+    // it. A non-burning camper (creeper/spider) keeps safe() false for the
+    // whole day otherwise, turning one mob into a 570s sit-out; the caller
+    // sprints out instead
+    const waitCap = force ? 90000 : 570000;
+    while (!safe() && Date.now() - t0 < waitCap) {
     await sleep(4000);
     // a camper at the open shaft mouth is in melee reach of the bottom —
     // swing at it every loop instead of turtling forever. Bare fists lose
@@ -1449,7 +1454,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // campers re-close during the ~15s climb-out — hold the pocket until the
   // mouth is clear (or ~2min passes) before breaking the seal
   const tHold = Date.now();
-  while (findHostile(bot, 10) && Date.now() - tHold < 120000) {
+  while (findHostile(bot, 10) && Date.now() - tHold < (force ? 30000 : 120000)) {
     const camper = findHostile(bot, 5);
     const armed2 = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
     if (camper && armed2) {
