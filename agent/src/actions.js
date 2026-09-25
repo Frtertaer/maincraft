@@ -544,7 +544,19 @@ export async function executeAction(bot, action, mcData) {
           craftingTable = bot.blockAt(craftingTable.position) || craftingTable;
         }
 
-        const recipe = recipes[0];
+        // prefer a recipe whose concrete ingredient ids are actually in the
+        // inventory — tag-based recipes can carry placeholder ids that pass
+        // the delta check but fail findInventoryItem at click time
+        const recipeFits = (r) => {
+          const need = {};
+          const add = (ing) => {
+            if (ing && ing.id != null && ing.id !== -1) need[ing.id] = (need[ing.id] || 0) + 1;
+          };
+          if (r.inShape) r.inShape.forEach((row) => row.forEach(add));
+          if (r.ingredients) r.ingredients.forEach(add);
+          return Object.entries(need).every(([id, n]) => bot.inventory.count(+id, null) >= n);
+        };
+        const recipe = recipes.find(recipeFits) || recipes[0];
         const plan = computeCraftPlan(recipe, count);
         if (!plan) return { ok: false, message: `bad craft plan for ${itemName}` };
 

@@ -132,7 +132,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
     // leftover pick can push detectPhase past wood with zero logs in
     // inventory, and then nothing craftable is ever reachable.
     if (["stone", "iron", "diamond", "food_armor"].includes(phase)) {
-      const logs = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
+      const logs = countItem(bot, CRAFTABLE_LOG);
       const planks = countItem(bot, (i) => i.name.includes("planks"));
       if (logs + planks < 4) {
         const rr = await punchNearbyLogs(bot, mcData, 4, state);
@@ -192,6 +192,12 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
     return { ok: false, phase, message: err?.message || String(err) };
   }
 }
+
+// stripped logs can't be crafted into planks in vanilla — they must not
+// count as craft material (they still count as solid blocks for pillaring)
+const CRAFTABLE_LOG = (i) =>
+  (i.name.endsWith("_log") || i.name.endsWith("_stem") || i.name.endsWith("_wood")) &&
+  !i.name.startsWith("stripped_");
 
 function plankNameFromLog(logName) {
   const n = String(logName || "");
@@ -264,7 +270,7 @@ async function ensureSticks(bot, mcData, min = 4) {
 
 async function ensurePlanks(bot, mcData, min = 8) {
   if (countItem(bot, (i) => i.name.includes("planks")) >= min) return { ok: true };
-  const logItem = bot.inventory.items().find((i) => i.name.includes("log") || i.name.endsWith("_wood"));
+  const logItem = bot.inventory.items().find((i) => CRAFTABLE_LOG(i));
   if (!logItem) return { ok: false, message: "no logs for planks" };
   const plank = plankNameFromLog(logItem.name);
   // 1 log → 4 planks; craft enough
@@ -1232,7 +1238,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // planks (2x2, no table) quadruples the build budget on the spot
     const solidsCount = () =>
       bot.inventory.items().reduce((n, i) => n + (mcData.blocksByName[i.name] ? i.count : 0), 0);
-    if (solidsCount() < 12 && countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem")) >= 1) {
+    if (solidsCount() < 12 && countItem(bot, CRAFTABLE_LOG) >= 1) {
       try {
         await ensurePlanks(bot, mcData, 12);
       } catch {
@@ -1860,11 +1866,11 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
         if (!r.ok) break; // no sheep in range — give up early
       }
       if (woolCount() >= 3) {
-        if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3 && countItem(bot, (i) => i.name.endsWith("_log")) > 0) {
+        if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3 && countItem(bot, CRAFTABLE_LOG) > 0) {
           const logName =
             bot.inventory
               .items()
-              .find((i) => i.name.endsWith("_log"))
+              .find((i) => CRAFTABLE_LOG(i))
               ?.name.replace("_log", "_planks") || "oak_planks";
           await ensureCraft(bot, mcData, logName, 4).catch(() => {});
         }
@@ -1943,7 +1949,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     "pale_oak_log",
   ];
   // Prefer small collect batches (less pathfinder thrash / OOM)
-  const logCount = () => countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
+  const logCount = () => countItem(bot, CRAFTABLE_LOG);
   for (const b of logNames) {
     const before = logCount();
     const rr = await executeAction(bot, { type: "collect", block: b, count: 4, maxDistance: 32 }, mcData);
@@ -2044,7 +2050,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
 }
 
 async function phaseWood(bot, mcData, state, log) {
-  const logs = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
+  const logs = countItem(bot, CRAFTABLE_LOG);
   const planks = countItem(bot, (i) => i.name.includes("planks"));
   const sticks = countItem(bot, "stick");
   const woodMat = logs * 4 + planks; // rough planks-equivalent
@@ -2078,7 +2084,7 @@ async function phaseWood(bot, mcData, state, log) {
         ).catch(() => {});
       }
     }
-    const now = countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem"));
+    const now = countItem(bot, CRAFTABLE_LOG);
     if (rr.ok && now <= logs) {
       // zero-gain streak: collect keeps resolving ok while grabbing nothing —
       // escalate a real wander after a few rounds or the run churns forever
@@ -2314,7 +2320,7 @@ async function phaseIron(bot, mcData, state, log) {
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
       // tools and table/table-fuel must come down with us
       const woodStock =
-        countItem(bot, (i) => i.name.includes("log")) + countItem(bot, (i) => i.name.endsWith("_planks"));
+        countItem(bot, CRAFTABLE_LOG) + countItem(bot, (i) => i.name.endsWith("_planks"));
       if (woodStock < 8) {
         const w = await punchNearbyLogs(bot, mcData, 10, state);
         if (!w.ok) {
@@ -2402,7 +2408,7 @@ async function phaseIron(bot, mcData, state, log) {
     // wood-starved underground: sticks/table-fuel need planks — climb back up
     // the staircase we dug (pathfinder walks it like a corridor) to re-gear
     const woodStock =
-      countItem(bot, (i) => i.name.includes("log")) + countItem(bot, (i) => i.name.endsWith("_planks"));
+      countItem(bot, CRAFTABLE_LOG) + countItem(bot, (i) => i.name.endsWith("_planks"));
     if (woodStock < 4) {
       const p0 = bot.entity.position.floored();
       const up = await executeAction(
