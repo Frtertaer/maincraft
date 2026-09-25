@@ -1099,13 +1099,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   };
   // re-fetched lazily — a bare-handed start has nothing, but digging the
   // pocket itself drops dirt/blocks that can then seal the doorway
-  let solid = bot.inventory
-    .items()
-    .find((i) => !!mcData.blocksByName[i.name]);
+  // only full-cube blocks can carry a pillar or a doorway wall — torches,
+  // saplings and other "empty" bounding-box items place but support nothing
+  const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+  let solid = bot.inventory.items().find(isCube);
   const refreshSolid = () => {
     // always re-find: items() hands out fresh objects, the old ref's count
     // never updates — a fully-consumed stack would still look usable
-    solid = bot.inventory.items().find((i) => !!mcData.blocksByName[i.name]);
+    solid = bot.inventory.items().find(isCube);
     return solid;
   };
   const danger = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
@@ -1240,7 +1241,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     }
     let raised = 0;
     for (let i = 0; i < 7 && refreshSolid(); i++) {
-      const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+      let ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+      if (!ref || ref.name === "air") {
+        // burrow can trigger mid-hop/mid-knockback — the cell under the feet
+        // is air until we land; wait briefly for grounding before giving up
+        const waitGround = Date.now();
+        while ((!ref || ref.name === "air") && Date.now() - waitGround < 2500) {
+          await sleep(150);
+          ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+        }
+      }
       if (!ref || ref.name === "air") break;
       try {
         await pt(bot.equip(solid, "hand"), 8000, "equip");
@@ -1288,7 +1298,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // side blocks arrows. All parts need non-falling blocks.
         const NONGRAV = /^(?!.*(sand|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|red_sand)).*$/;
         const refugeSolid = () =>
-          bot.inventory.items().find((i) => mcData.blocksByName[i.name] && NONGRAV.test(i.name));
+          bot.inventory.items().find((i) => isCube(i) && NONGRAV.test(i.name));
         const topCol = () => bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
         const hasTop = () => {
           const t = topCol();
