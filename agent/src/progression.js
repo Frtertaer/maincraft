@@ -1342,10 +1342,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // never offer a place the server is guaranteed to refuse: feet below
           // the dest cell's top means the body still intersects it — a slow
           // water float can burn the whole lift window without reaching it
-          if (bot.entity.position.y < ref.position.y + 1.95) {
+          if (bot.entity.position.y < ref.position.y + 2.05) {
             log?.(
               `[burrow] place skipped — still inside dest (feet=${bot.entity.position.y.toFixed(2)} ` +
-                `need≥${(ref.position.y + 1.95).toFixed(2)} inWater=${inWater})`
+                `need≥${(ref.position.y + 2.05).toFixed(2)} inWater=${inWater})`
             );
             break;
           }
