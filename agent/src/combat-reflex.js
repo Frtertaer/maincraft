@@ -288,7 +288,7 @@ export class CombatReflex {
     this._stopBlock();
     this._clearMotion();
     try {
-      this.bot.pathfinder?.setGoal(null);
+      if (!this.bot._phaseMove) this.bot.pathfinder?.setGoal(null);
     } catch {
       /* ignore */
     }
@@ -456,7 +456,7 @@ export class CombatReflex {
     this._stopBlock();
     this._clearMotion();
     try {
-      bot.pathfinder?.setGoal(null);
+      if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
       await bot.equip(item, "hand");
       await bot.consume();
       this._stats.eats += 1;
@@ -515,7 +515,7 @@ export class CombatReflex {
   _kiteAway(fromEntity) {
     const bot = this.bot;
     try {
-      bot.pathfinder?.setGoal(null);
+      if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
       const dx = bot.entity.position.x - fromEntity.position.x;
       const dz = bot.entity.position.z - fromEntity.position.z;
       const yaw = Math.atan2(-dx, -dz);
@@ -664,7 +664,7 @@ export class CombatReflex {
         this._engagedUntil = 0;
         this._stopBlock();
         try {
-          bot.pathfinder?.setGoal(null);
+          if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
           bot.clearControlStates();
           bot.setControlState("back", true);
           bot.setControlState("sprint", true);
