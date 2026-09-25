@@ -1558,36 +1558,54 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // Each iteration is +1 height / +1 horizontal.
           const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
           let climbed = 0;
+          let stairWhy = "";
           for (let level = 0; level + raised < 5 && refreshSolid(); level++) {
             let done = false;
             for (let di = 0; di < 4 && !done; di++) {
               const [dx, dz] = dirs[(di + level) % 4];
               const feet = bot.entity.position.floored();
               const stand = bot.blockAt(feet.offset(0, -1, 0));
-              if (!stand || stand.name === "air") break;
+              if (!stand || stand.name === "air") {
+                stairWhy = "no-stand";
+                break;
+              }
               const bridgePos = stand.position.offset(dx, 0, dz);
               const bridgeCell = bot.blockAt(bridgePos);
               const riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
-              if (!bridgeCell || !riserCell || riserCell.name !== "air") continue;
+              if (!bridgeCell || !riserCell || riserCell.name !== "air") {
+                stairWhy = `riser-blocked(${riserCell?.name || "?"})`;
+                continue;
+              }
               if (bridgeCell.name === "air" || /water|tall_grass|grass|fern|snow|vine/.test(bridgeCell.name)) {
                 const s1 = refreshSolid();
-                if (!s1) break;
+                if (!s1) {
+                  stairWhy = "no-solid";
+                  break;
+                }
                 await pt(bot.equip(s1, "hand"), 6000, "equip").catch(() => {});
                 try {
                   await pt(bot.placeBlock(stand, new Vec3(dx, 0, dz)), 7000, "stair-bridge");
-                } catch {
+                } catch (be) {
+                  stairWhy = `bridge-refused(${be?.message || be})`;
                   continue;
                 }
                 await sleep(150);
               }
               const riserBase = bot.blockAt(bridgePos);
-              if (!riserBase || riserBase.name === "air") continue;
+              if (!riserBase || riserBase.name === "air") {
+                stairWhy = "bridge-missing";
+                continue;
+              }
               const s2 = refreshSolid();
-              if (!s2) break;
+              if (!s2) {
+                stairWhy = "no-solid2";
+                break;
+              }
               await pt(bot.equip(s2, "hand"), 6000, "equip").catch(() => {});
               try {
                 await pt(bot.placeBlock(riserBase, new Vec3(0, 1, 0)), 7000, "stair-riser");
-              } catch {
+              } catch (re) {
+                stairWhy = `riser-refused(${re?.message || re})`;
                 continue;
               }
               // hop onto the riser (+1 y, +1 toward dx,dz)
@@ -1604,13 +1622,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
                 bot.setControlState("forward", false);
                 done = bot.entity.position.y >= feet.y + 0.9;
               }
+              if (!done) stairWhy = `hop-fail(y=${bot.entity.position.y.toFixed(1)} want≥${feet.y + 0.9})`;
             }
             if (!done) break;
             climbed += 1;
           }
           raised += climbed;
           if (climbed === 0) {
-            log?.(`[burrow] pillar err: place refused`);
+            log?.(`[burrow] pillar err: place refused (stair: ${stairWhy || "no dirs"})`);
             break;
           }
           log?.(`[burrow] staircase +${climbed}`);
