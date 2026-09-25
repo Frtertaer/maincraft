@@ -232,7 +232,23 @@ export class ClearRunner {
               [0, 70],
               [0, -70],
             ];
-            const [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            // fleeing onto bare stone is a second death — nothing diggable,
+            // nothing to pillar with. Bias the direction toward a remembered
+            // log site (dirt ground + wood for pillar blocks) when one is in
+            // reach; otherwise keep the dry-window pick
+            const siteDir = (this.state?.logSites || [])
+              .map((s) => ({ s, d: Math.hypot(s.x - pf.x, s.z - pf.z) }))
+              .filter((e) => e.d > 30 && e.d < 300)
+              .sort((a, b) => a.d - b.d)[0]?.s;
+            let [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            if (siteDir) {
+              const sx = siteDir.x - pf.x;
+              const sz = siteDir.z - pf.z;
+              const n = Math.max(Math.abs(sx), Math.abs(sz)) || 1;
+              fdx = Math.round((sx / n) * 70);
+              fdz = Math.round((sz / n) * 70);
+              this.log(`[clear] night flee toward logSite ${siteDir.x},${siteDir.z}`);
+            }
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
             await sprintBurst(fdx, fdz).catch(() => {});
             try {
