@@ -901,6 +901,68 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
         e.position.distanceTo(cell) < 10
       );
     });
+  const nearestHostile = (maxD) => {
+    let best = null;
+    let bd = maxD;
+    for (const e of Object.values(bot.entities || {})) {
+      if (!e?.position || e === bot.entity) continue;
+      const n = String(e.name || e.displayName || "").toLowerCase();
+      if (
+        !(e.kind === "Hostile mobs" ||
+          /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n))
+      )
+        continue;
+      const d = e.position.distanceTo(bot.entity.position);
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  };
+  // wall off the tunnel mouth between us and the mob: two stacked blocks
+  // in the adjacent open cell on the mob's side. The strip then digs away
+  // from it instead of spinning on the ambush forever
+  const sealToward = async (mobPos) => {
+    const f = bot.entity.position.floored();
+    const vx = mobPos.x - (f.x + 0.5);
+    const vz = mobPos.z - (f.z + 0.5);
+    const order = [
+      [Math.sign(vx), 0],
+      [0, Math.sign(vz)],
+      [Math.sign(vx), Math.sign(vz)],
+      [-Math.sign(vx), 0],
+      [0, -Math.sign(vz)],
+    ];
+    const isSolidItem = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+    for (const [sx, sz] of order) {
+      if (!sx && !sz) continue;
+      const cell = bot.blockAt(f.offset(sx, 0, sz));
+      const below = bot.blockAt(f.offset(sx, -1, sz));
+      if (!cell || !below || below.name === "air") continue;
+      if (cell.name !== "air") continue; // already walled
+      const solid = bot.inventory.items().find(isSolidItem);
+      if (!solid) return false;
+      try {
+        await pt(bot.equip(solid, "hand"), 6000, "equip-seal");
+        await pt(bot.placeBlock(below, new Vec3(0, 1, 0)), 8000, "seal");
+        const above = bot.blockAt(f.offset(sx, 1, sz));
+        const base = bot.blockAt(f.offset(sx, 0, sz));
+        if (above?.name === "air" && base && base.name !== "air") {
+          const solid2 = bot.inventory.items().find(isSolidItem);
+          if (solid2) {
+            await pt(bot.equip(solid2, "hand"), 6000, "equip-seal2").catch(() => {});
+            await pt(bot.placeBlock(base, new Vec3(0, 1, 0)), 8000, "seal2").catch(() => {});
+          }
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+  let sealTried = 0;
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
     // a pickaxe broke mid-strip — stop hand-tapping stone and recraft one
@@ -955,7 +1017,18 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
       [dx, dz] = dirs[dirIdx];
       i -= 1;
       spins += 1;
-      if (spins > 12) break;
+      if (spins > 12) {
+        // every direction is an open mouth or a camper — wall the mob's
+        // side once and give the strip a few more rotations in the rest
+        const mob = nearestHostile(12);
+        if (mob && sealTried < 2 && (await sealToward(mob.position))) {
+          sealTried += 1;
+          log?.(`[stripMine] walled off ${mob.name} @${Math.round(mob.position.distanceTo(bot.entity.position))}m — digging away`);
+          spins = 6;
+          continue;
+        }
+        break;
+      }
       continue;
     }
     spins = 0;
