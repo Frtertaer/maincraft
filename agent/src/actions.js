@@ -54,6 +54,82 @@ async function cleanCraftArea(bot) {
   }
 }
 
+// Zombie-free shaped craft. mineflayer's bot.craft parks forever inside
+// waitForWindowUpdate (no timeout) when a grid click is swallowed; an external
+// timeout then abandons a pending updateSlot:0 listener that resolves inside
+// the NEXT craft's window and corrupts it — the recurring "did not increase"
+// desync chain. Here every await is bounded, the window is opened fresh per
+// call and closed at the end, and the result slot is verified server-side
+// before it is taken.
+async function craftDirect(bot, recipe, count, craftingTable) {
+  const CLICK_MS = 8000;
+  let win = null;
+  try {
+    if (recipe.requiresTable) {
+      if (!craftingTable) throw new Error("recipe requires craftingTable");
+      win = await withTimeout(bot.openBlock(craftingTable), 10000, "open table");
+      if (!win || !String(win.type || "").startsWith("minecraft:crafting")) {
+        throw new Error(`non-crafting window: ${win?.type || "none"}`);
+      }
+    } else {
+      win = bot.inventory;
+    }
+    const w = recipe.requiresTable ? 3 : 2;
+    const slotAt = (x, y) => 1 + x + w * y;
+    const pick = async (ing) => {
+      if (
+        !win.selectedItem ||
+        win.selectedItem.type !== ing.id ||
+        (ing.metadata != null && win.selectedItem.metadata !== ing.metadata)
+      ) {
+        const src = win.findInventoryItem(ing.id, ing.metadata);
+        if (!src) throw new Error("missing ingredient");
+        await withTimeout(bot.clickWindow(src.slot, 0, 0), CLICK_MS, "pick");
+      }
+    };
+    for (let rep = 0; rep < count; rep += 1) {
+      if (recipe.inShape) {
+        for (let y = 0; y < recipe.inShape.length; y += 1) {
+          const row = recipe.inShape[y];
+          for (let x = 0; x < row.length; x += 1) {
+            const ing = row[x];
+            if (!ing || ing.id === -1) continue;
+            await pick(ing);
+            await withTimeout(bot.clickWindow(slotAt(x, y), 1, 0), CLICK_MS, "place");
+          }
+        }
+      } else if (recipe.ingredients) {
+        const free = [];
+        for (let y = 0; y < w; y += 1) for (let x = 0; x < w; x += 1) free.push(slotAt(x, y));
+        for (const ing of recipe.ingredients) {
+          const dest = free.pop();
+          if (dest == null) throw new Error("grid full");
+          await pick(ing);
+          await withTimeout(bot.clickWindow(dest, 1, 0), CLICK_MS, "place");
+        }
+      }
+      // verify the server really produced the result — never click empty air
+      for (let t = 0; t < 24 && !win.slots[0]; t += 1) await sleep(150);
+      if (!win.slots[0]) throw new Error("craft result slot empty — server rejected the recipe");
+      await withTimeout(bot.clickWindow(0, 0, 1), CLICK_MS, "result"); // shift-click → inventory
+    }
+    if (win.selectedItem) {
+      await bot.putSelectedItemRange(win.inventoryStart, win.inventoryEnd, win, null).catch(() => {});
+    }
+    if (win !== bot.inventory) {
+      await bot._syncWindow(win).catch(() => {});
+      bot.closeWindow(win);
+    }
+  } catch (err) {
+    try {
+      if (win && win !== bot.inventory) bot.closeWindow(win);
+    } catch {
+      /* already closed */
+    }
+    throw err;
+  }
+}
+
 const CONTAINER_BLOCKS = new Set([
   "chest",
   "trapped_chest",
@@ -459,11 +535,9 @@ export async function executeAction(bot, action, mcData) {
           // a previous aborted craft may have left ingredients in the grid or
           // on the cursor — evacuate before every attempt
           await cleanCraftArea(bot).catch(() => {});
-          await withTimeout(bot.craft(recipe, plan.repetitions, craftingTable), 25000, `craft ${itemName} timeout`).catch(
-            (err) => {
-              craftErr = err;
-            }
-          );
+          await craftDirect(bot, recipe, plan.repetitions, craftingTable).catch((err) => {
+            craftErr = err;
+          });
           if (!craftErr) break;
           if (attempt === 0) {
             try {

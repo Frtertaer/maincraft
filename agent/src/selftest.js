@@ -63,26 +63,57 @@ check("craft repetitions", craft?.repetitions === 2 && craft.expectedOutput === 
 check("craft invalid count", normalizeActionCount(-3, 1, 64) === null);
 
 let recipeQuery = null;
-let craftCall = null;
-const recipe = { result: { count: 4 } };
+let repCount = 0;
+const recipe = { result: { count: 4 }, ingredients: [{ id: 5 }] };
 const craftInventory = { items: [] };
-const craftBot = {
-  inventory: {
-    items() {
-      return craftInventory.items;
-    },
+const craftWin = {
+  type: "minecraft:inventory",
+  slots: [null, null, null, null, null, { type: 5, count: 64, name: "oak_planks" }],
+  selectedItem: null,
+  inventoryStart: 5,
+  inventoryEnd: 45,
+  items() {
+    return craftInventory.items;
   },
+  findInventoryItem(id) {
+    const i = this.slots.findIndex((s) => s && s.type === id);
+    return i >= 0 ? { slot: i } : null;
+  },
+  firstEmptyInventorySlot() {
+    return this.slots.findIndex((s, i) => !s && i >= 5);
+  },
+};
+const craftBot = {
+  inventory: craftWin,
   recipesFor(itemId, metadata, minResultCount, table) {
     recipeQuery = { itemId, metadata, minResultCount, table };
     return [recipe];
   },
-  async craft(selectedRecipe, repetitions, table) {
-    craftCall = { selectedRecipe, repetitions, table };
-    const made = (selectedRecipe.result?.count || 1) * repetitions;
-    const held = craftInventory.items.find((i) => i.name === "stick");
-    if (held) held.count += made;
-    else craftInventory.items.push({ name: "stick", count: made });
+  async clickWindow(slot, button, mode) {
+    if (mode === 1 && slot === 0) {
+      // shift-click the result slot: moves crafted items to inventory
+      if (craftWin.slots[0]) {
+        repCount += 1;
+        const made = craftWin.slots[0].count;
+        const held = craftInventory.items.find((i) => i.name === "stick");
+        if (held) held.count += made;
+        else craftInventory.items.push({ name: "stick", count: made });
+        craftWin.slots[0] = null;
+      }
+      return;
+    }
+    if (button === 1 && slot >= 1 && slot <= 4) {
+      // placing an ingredient makes the server recompute slot 0
+      craftWin.slots[0] = { type: 280, count: 4, name: "stick" };
+      return;
+    }
+    if (button === 0 && mode === 0) {
+      craftWin.selectedItem = craftWin.slots[slot] || null;
+    }
   },
+  async putSelectedItemRange() {},
+  async _syncWindow() {},
+  closeWindow() {},
 };
 const craftResult = await executeAction(
   craftBot,
@@ -91,8 +122,8 @@ const craftResult = await executeAction(
 );
 check(
   "craft action uses output count",
-  craftResult.ok && craftCall?.repetitions === 2 && craftInventory.items[0]?.count === 8,
-  JSON.stringify({ craftResult, recipeQuery, craftCall })
+  craftResult.ok && repCount === 2 && craftInventory.items[0]?.count === 8,
+  JSON.stringify({ craftResult, recipeQuery, repCount })
 );
 
 const origin = { x: 0, y: 64, z: 0 };
