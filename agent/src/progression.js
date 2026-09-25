@@ -1262,11 +1262,40 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // top (ref.y+2). Jump, place at apex, retry while the hop window
         // stays open instead of giving up on a single mistimed attempt
         // can't pillar where there's no room to clear the destination cell —
-        // a ceiling over the feet makes every placement a body-intersection
+        // a ceiling (or tree canopy over water) pins the body inside it.
+        // Sidestep to open sky inside this same attempt instead of burning
+        // a whole relocate on a site that's 2 blocks from clear.
+        const PASSABLE = /air|cave_air|water|bubble_column|snow|tall_grass|grass|fern|vine|ladder/;
         const headroom = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
-        if (headroom && !/air|cave_air|water|bubble_column|snow|tall_grass|grass|fern|vine|ladder/.test(headroom.name)) {
-          log?.(`[burrow] pillar err: no headroom (${headroom.name} overhead)`);
-          break;
+        if (headroom && !PASSABLE.test(headroom.name)) {
+          let foundSky = false;
+          for (const [sx, sz] of [[2, 0], [-2, 0], [0, 2], [0, -2], [3, 0], [-3, 0]]) {
+            const f = bot.entity.position.floored();
+            try {
+              await executeAction(
+                bot,
+                { type: "goto", x: f.x + sx + 0.5, y: f.y, z: f.z + sz + 0.5, range: 0.8, timeoutMs: 5000 },
+                mcData
+              );
+            } catch {
+              /* blocked — try the next side */
+            }
+            const f2 = bot.entity.position.floored();
+            const clear =
+              PASSABLE.test(bot.blockAt(f2.offset(0, 2, 0))?.name || "") &&
+              PASSABLE.test(bot.blockAt(f2.offset(0, 3, 0))?.name || "");
+            if (clear) {
+              ref = bot.blockAt(f2.offset(0, -1, 0));
+              if (ref && ref.name !== "air") {
+                foundSky = true;
+                break;
+              }
+            }
+          }
+          if (!foundSky) {
+            log?.(`[burrow] pillar err: no headroom (${headroom.name} overhead)`);
+            break;
+          }
         }
         // swimming up in water is a slow constant float (~0.25 m/s), not a
         // ballistic hop — the lift needs far longer and never reaches
