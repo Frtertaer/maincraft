@@ -269,13 +269,19 @@ export class ClearRunner {
             // it wanders off (the burrow wait is hostile-proximity based)
             const pf = bot.entity.position;
             // hostile already in arrow range at respawn: fleeing draws the
-            // kill-window open — burrow on the spot instead of sprinting past
-            const respawnHostile = Object.values(bot.entities || {}).some((e) => {
+            // kill-window open — burrow on the spot instead of sprinting past.
+            // EXCEPTION: a creeper closes and detonates mid-carve (~10s to
+            // seal) — against blast-range creepers the sprint IS the burrow
+            const respawnHostiles = Object.values(bot.entities || {}).filter((e) => {
               const n = String(e?.name || "");
               const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
               return hostile && e.position.distanceTo(bot.entity.position) < 20;
             });
-            if (!respawnHostile) {
+            const respawnHostile = respawnHostiles.length > 0;
+            const creepNear = respawnHostiles.some(
+              (e) => /creeper/.test(String(e.name || "")) && e.position.distanceTo(bot.entity.position) < 14
+            );
+            if (!respawnHostile || creepNear) {
               const fleeDirs = [
                 [70, 0],
                 [-70, 0],
