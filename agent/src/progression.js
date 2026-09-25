@@ -1206,6 +1206,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // last resort: pillar up where we stand — mobs can't climb 6+ blocks
     // (skeletons can still shoot; still better than standing on the ground)
     log?.("[burrow] no safe column — pillaring up");
+    // refuge takes ~12 solids; raw logs are 1 block each. Crafting them to
+    // planks (2x2, no table) quadruples the build budget on the spot
+    const solidsCount = () =>
+      bot.inventory.items().reduce((n, i) => n + (mcData.blocksByName[i.name] ? i.count : 0), 0);
+    if (solidsCount() < 12 && countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem")) >= 2) {
+      try {
+        await ensurePlanks(bot, mcData, 12);
+      } catch {
+        /* craft desync — pillar on raw logs if it comes to that */
+      }
+    }
     let raised = 0;
     for (let i = 0; i < 7 && refreshSolid(); i++) {
       const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
@@ -1234,6 +1245,82 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // edge to reach a mob it sees below — park it until we climb down
       bot._inShelter = true;
       try {
+        // upgrade the bare pillar into a refuge when materials allow —
+        // a naked pillar still loses to skeleton arrows (LoS) and spiders
+        // (they climb). Brim lip stops climbers; wall+roof on the camper's
+        // side blocks arrows. All parts need non-falling blocks.
+        const NONGRAV = /^(?!.*(sand|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|red_sand)).*$/;
+        const refugeSolid = () =>
+          bot.inventory.items().find((i) => mcData.blocksByName[i.name] && NONGRAV.test(i.name));
+        const topCol = () => bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+        const hasTop = () => {
+          const t = topCol();
+          return t && t.name !== "air" ? t : null;
+        };
+        try {
+          // brim ring on the column's top block side faces — spiders climbing
+          // the column hit the lip and can't wrap around it
+          const colB = hasTop();
+          if (colB) {
+            for (const [bx, bz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              const s = refugeSolid();
+              if (!s) break;
+              const cell = bot.blockAt(colB.position.offset(bx, 0, bz));
+              if (cell && cell.name !== "air") continue;
+              try {
+                await pt(bot.equip(s, "hand"), 6000, "equip");
+                await pt(bot.placeBlock(colB, new Vec3(bx, 0, bz)), 6000, "placeBlock");
+              } catch {
+                /* refused/occupied — skip this side */
+              }
+              await sleep(120);
+            }
+          }
+          // wall+roof toward the nearest camper — a 3-high stack on one brim
+          // cell, then a roof block on the top wall's inward face (lands
+          // directly overhead at feet+2)
+          const h = findHostile(bot, 40);
+          if (h) {
+            const dx = Math.sign(h.position.x - bot.entity.position.x);
+            const dz = Math.sign(h.position.z - bot.entity.position.z);
+            const [wx, wz] = Math.abs(h.position.x - bot.entity.position.x) >
+              Math.abs(h.position.z - bot.entity.position.z)
+              ? [dx, 0]
+              : [0, dz];
+            if (wx || wz) {
+              const brim = bot.blockAt(bot.entity.position.floored().offset(wx, -1, wz));
+              if (brim && brim.name !== "air") {
+                let wall = brim;
+                for (let w = 0; w < 3; w++) {
+                  const s = refugeSolid();
+                  if (!s) break;
+                  try {
+                    await pt(bot.equip(s, "hand"), 6000, "equip");
+                    await pt(bot.placeBlock(wall, new Vec3(0, 1, 0)), 6000, "placeBlock");
+                    wall = bot.blockAt(wall.position.offset(0, 1, 0));
+                  } catch {
+                    break;
+                  }
+                  await sleep(120);
+                }
+                if (wall && wall.position.y >= bot.entity.position.floored().y + 2) {
+                  const s = refugeSolid();
+                  if (s) {
+                    try {
+                      await pt(bot.equip(s, "hand"), 6000, "equip");
+                      await pt(bot.placeBlock(wall, new Vec3(-wx, 0, -wz)), 6000, "placeBlock");
+                      log?.("[burrow] refuge: brim+wall+roof up");
+                    } catch {
+                      /* roof refused — wall alone still blocks arrows */
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch {
+          /* refuge dressing failed — the pillar itself still stands */
+        }
         const t0 = Date.now();
         while (!safe() && Date.now() - t0 < 480000) await sleep(4000);
         // dig back down through our own pillar
