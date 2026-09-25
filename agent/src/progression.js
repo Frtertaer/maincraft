@@ -1244,15 +1244,31 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       if (!ref || ref.name === "air") break;
       try {
         await pt(bot.equip(solid, "hand"), 8000, "equip");
-        bot.setControlState("jump", true);
-        // placing on top of the block we stand on is refused while our body
-        // still occupies that cell — wait until the jump lifts us clear
-        const lift = Date.now();
-        while (bot.entity.position.y < ref.position.y + 1.15 && Date.now() - lift < 900) {
-          await sleep(40);
+        // the server refuses a placement whose cell our body still
+        // intersects — legal only once feet clear the destination block's
+        // top (ref.y+2). Jump, place at apex, retry while the hop window
+        // stays open instead of giving up on a single mistimed attempt
+        let placed = false;
+        for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+          bot.setControlState("jump", true);
+          const lift = Date.now();
+          while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < 1200) {
+            await sleep(40);
+          }
+          try {
+            await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
+            placed = true;
+          } catch {
+            /* refused — land back on the column and re-hop */
+          }
+          bot.setControlState("jump", false);
+          if (!placed && bot.entity.position.y < ref.position.y + 1.5) break; // never lifted
+          await sleep(150);
         }
-        await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
-        bot.setControlState("jump", false);
+        if (!placed) {
+          log?.(`[burrow] pillar err: place refused`);
+          break;
+        }
         raised += 1;
       } catch (e) {
         bot.setControlState("jump", false);
