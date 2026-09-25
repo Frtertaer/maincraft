@@ -569,6 +569,22 @@ export class ClearRunner {
             this.brain.suspend();
           }
           samePhaseSteps = 0;
+          // hard-trap escalation: the planner had its shots and the phase
+          // still can't move (ravine/cave-in — every goto is no-path). The
+          // sanctioned unstick is /kill respawn onto spawn ground; the
+          // respawn handler above re-gears from the stash chest. Surface
+          // phases only — a nether/end kill strands the run.
+          state.stuckCycles = (state.stuckCycles || 0) + 1;
+          if (
+            state.stuckCycles >= 3 &&
+            (state.unstickKills || 0) < 2 &&
+            ["wood", "stone", "iron"].includes(phaseAfter)
+          ) {
+            this.log("[clear] hard trap — /kill unstick respawn");
+            state.unstickKills += 1;
+            bot.chat("/kill");
+            await sleep(3000);
+          }
           await sleep(1500);
         }
 
