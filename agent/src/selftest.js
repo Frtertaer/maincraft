@@ -65,15 +65,17 @@ check("craft invalid count", normalizeActionCount(-3, 1, 64) === null);
 let recipeQuery = null;
 let repCount = 0;
 const recipe = { result: { count: 4 }, ingredients: [{ id: 5 }] };
-const craftInventory = { items: [] };
 const craftWin = {
   type: "minecraft:inventory",
-  slots: [null, null, null, null, null, { type: 5, count: 64, name: "oak_planks" }],
+  slots: [
+    null, null, null, null, null,
+    { type: 5, count: 64, name: "oak_planks" },
+  ],
   selectedItem: null,
   inventoryStart: 5,
   inventoryEnd: 45,
   items() {
-    return craftInventory.items;
+    return this.slots.slice(this.inventoryStart).filter(Boolean);
   },
   findInventoryItem(id) {
     const i = this.slots.findIndex((s) => s && s.type === id);
@@ -95,9 +97,23 @@ const craftBot = {
       if (craftWin.slots[0]) {
         repCount += 1;
         const made = craftWin.slots[0].count;
-        const held = craftInventory.items.find((i) => i.name === "stick");
-        if (held) held.count += made;
-        else craftInventory.items.push({ name: "stick", count: made });
+        // shift-click lands in an inventory-section slot — same object
+        // slots[] and items() both read, matching a real window
+        const held = craftWin.slots.find(
+          (s, i) => i >= craftWin.inventoryStart && s?.name === "stick"
+        );
+        if (held) {
+          held.count += made;
+        } else {
+          const empty = craftWin.slots.findIndex(
+            (s, i) => i >= craftWin.inventoryStart && !s
+          );
+          craftWin.slots[empty >= 0 ? empty : craftWin.slots.length] = {
+            type: 280,
+            count: made,
+            name: "stick",
+          };
+        }
         craftWin.slots[0] = null;
       }
       return;
@@ -122,8 +138,10 @@ const craftResult = await executeAction(
 );
 check(
   "craft action uses output count",
-  craftResult.ok && repCount === 2 && craftInventory.items[0]?.count === 8,
-  JSON.stringify({ craftResult, recipeQuery, repCount })
+  craftResult.ok &&
+    repCount === 2 &&
+    craftWin.items().find((i) => i.name === "stick")?.count === 8,
+  JSON.stringify({ craftResult, recipeQuery, repCount, items: craftWin.items() })
 );
 
 const origin = { x: 0, y: 64, z: 0 };
