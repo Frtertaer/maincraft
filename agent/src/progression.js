@@ -1559,12 +1559,26 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
           let climbed = 0;
           let stairWhy = "";
+          // the fallback runs right after failed jump attempts — the bot can
+          // still be airborne with the cell under its feet reading air. Wait
+          // to land, then use the column we were pillaring on as the stand
+          const grounded = Date.now();
+          while (Date.now() - grounded < 2000) {
+            const below = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+            if (below && below.name !== "air" && !bot.entity.velocity?.y) break;
+            if (below && below.name !== "air") break;
+            await sleep(120);
+          }
           for (let level = 0; level + raised < 5 && refreshSolid(); level++) {
             let done = false;
             for (let di = 0; di < 4 && !done; di++) {
               const [dx, dz] = dirs[(di + level) % 4];
               const feet = bot.entity.position.floored();
-              const stand = bot.blockAt(feet.offset(0, -1, 0));
+              let stand = bot.blockAt(feet.offset(0, -1, 0));
+              if ((!stand || stand.name === "air") && ref && ref.name !== "air") {
+                // drifted off the column edge mid-hop — pillar on from the ref
+                stand = ref;
+              }
               if (!stand || stand.name === "air") {
                 stairWhy = "no-stand";
                 break;
