@@ -1257,6 +1257,19 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
       try {
         await pt(bot.equip(solid, "hand"), 8000, "equip");
+        // equip resolves on the client switch — the held slot can still read
+        // null server-side for a beat (or the chosen stack ran dry). Verify
+        // the hand really holds a block before offering the place packet.
+        for (let t = 0; t < 12 && !bot.heldItem; t += 1) await sleep(100);
+        if (!bot.heldItem) {
+          const solid2 = refreshSolid();
+          if (solid2) await pt(bot.equip(solid2, "hand"), 6000, "re-equip").catch(() => {});
+          for (let t = 0; t < 12 && !bot.heldItem; t += 1) await sleep(100);
+        }
+        if (!bot.heldItem) {
+          log?.(`[burrow] pillar err: held slot empty after equip`);
+          break;
+        }
         // the server refuses a placement whose cell our body still
         // intersects — legal only once feet clear the destination block's
         // top (ref.y+2). Jump, place at apex, retry while the hop window
@@ -1307,7 +1320,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         for (let attempt = 0; attempt < 3 && !placed; attempt++) {
           bot.setControlState("jump", true);
           const lift = Date.now();
-          const liftCap = inWater ? 4000 : 1200;
+          const liftCap = inWater ? 7000 : 1200;
           while (bot.entity.position.y < ref.position.y + 2 && Date.now() - lift < liftCap) {
             await sleep(40);
           }
