@@ -1331,7 +1331,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           const lift = Date.now();
           let gaveUp = false;
           while (Date.now() - lift < liftCap) {
-            if (bot.entity.position.y >= ref.position.y + 2.05) {
+            // offer only while RISING through the legal window: the server
+            // applies the entity-intersection check ~0.3s after send, and a
+            // descending offer lands below the cell top by then — refused
+            const rising = (bot.entity.velocity?.y ?? 0) > 0.01;
+            if (rising && bot.entity.position.y >= ref.position.y + 2.02) {
               try {
                 await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
                 placed = true;
