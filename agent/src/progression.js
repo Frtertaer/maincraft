@@ -1251,7 +1251,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
         }
       }
-      if (!ref || ref.name === "air") break;
+      if (!ref || ref.name === "air") {
+        log?.(`[burrow] pillar err: no ground under feet (inWater=${Boolean(bot.entity.isInWater)})`);
+        break;
+      }
       try {
         await pt(bot.equip(solid, "hand"), 8000, "equip");
         // the server refuses a placement whose cell our body still
