@@ -122,12 +122,22 @@ const craftBot = {
       return;
     }
     if (button === 1 && slot >= 1 && slot <= 4) {
-      // placing an ingredient makes the server recompute slot 0
+      // right-click place: move one unit off the cursor into the cell,
+      // then the server recomputes the result slot
+      const cur = craftWin.selectedItem;
+      if (cur) {
+        const cell = craftWin.slots[slot];
+        if (cell && cell.type === cur.type) cell.count += 1;
+        else craftWin.slots[slot] = { type: cur.type, count: 1, name: cur.name };
+        cur.count -= 1;
+        if (cur.count <= 0) craftWin.selectedItem = null;
+      }
       craftWin.slots[0] = { type: 280, count: 4, name: "stick" };
       return;
     }
     if (button === 0 && mode === 0) {
       craftWin.selectedItem = craftWin.slots[slot] || null;
+      if (craftWin.selectedItem) craftWin.slots[slot] = null;
     }
   },
   async putSelectedItemRange() {},

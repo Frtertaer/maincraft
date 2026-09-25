@@ -90,6 +90,24 @@ async function craftDirect(bot, recipe, count, craftingTable) {
         await withTimeout(bot.clickWindow(src.slot, 0, 0), CLICK_MS, "pick");
       }
     };
+    // place with verification: a stale stateId makes the server silently
+    // reject a grid click — the cell stays empty while the cursor keeps the
+    // stack, and the whole recipe then fails as an "empty grid". Confirm
+    // each cell actually fills; resync + re-pick once when it doesn't.
+    const placeAt = async (dest, ing) => {
+      for (let t = 0; t < 2; t++) {
+        await pick(ing);
+        await withTimeout(bot.clickWindow(dest, 1, 0), CLICK_MS, "place");
+        for (let w2 = 0; w2 < 8; w2++) {
+          await sleep(120);
+          const s = win.slots[dest];
+          if (s && (ing.id == null || ing.id === -1 || s.type === ing.id)) return;
+        }
+        if (bot._syncWindow) await withTimeout(bot._syncWindow(win), 6000, "sync").catch(() => {});
+      }
+      const got = win.slots[dest]?.name || "air";
+      throw new Error(`craft place rejected @${dest} want=${ing.id} got=${got}`);
+    };
     for (let rep = 0; rep < count; rep += 1) {
       if (recipe.inShape) {
         for (let y = 0; y < recipe.inShape.length; y += 1) {
@@ -97,8 +115,7 @@ async function craftDirect(bot, recipe, count, craftingTable) {
           for (let x = 0; x < row.length; x += 1) {
             const ing = row[x];
             if (!ing || ing.id === -1) continue;
-            await pick(ing);
-            await withTimeout(bot.clickWindow(slotAt(x, y), 1, 0), CLICK_MS, "place");
+            await placeAt(slotAt(x, y), ing);
           }
         }
       } else if (recipe.ingredients) {
@@ -107,8 +124,7 @@ async function craftDirect(bot, recipe, count, craftingTable) {
         for (const ing of recipe.ingredients) {
           const dest = free.pop();
           if (dest == null) throw new Error("grid full");
-          await pick(ing);
-          await withTimeout(bot.clickWindow(dest, 1, 0), CLICK_MS, "place");
+          await placeAt(dest, ing);
         }
       }
       // verify the server really produced the result — never click empty air
