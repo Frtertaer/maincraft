@@ -209,6 +209,34 @@ export class ClearRunner {
             bot.setControlState("sprint", false);
           }
         };
+        // spawn-camp killer pattern was: one 70m goto → pathfinder timeout on
+        // rocky terrain → stand still → mob walks up. Chain short hops instead:
+        // instant sprint then a bounded goto, repeated until the camper is
+        // genuinely out of reach (30m+) or hops run out
+        const fleeUntilClear = async (fdx, fdz, hops = 4) => {
+          for (let h = 0; h < hops; h++) {
+            const still = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || e.displayName || "").toLowerCase();
+              const hostile =
+                e.kind === "Hostile mobs" ||
+                /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+              return hostile && e.position.distanceTo(bot.entity.position) < 30;
+            });
+            if (!still) return;
+            await sprintBurst(fdx, fdz, 2200).catch(() => {});
+            const pp = bot.entity.position;
+            try {
+              await executeAction(
+                bot,
+                { type: "goto", x: pp.x + fdx * 0.5, y: pp.y, z: pp.z + fdz * 0.5, range: 6, timeoutMs: 18000 },
+                this.mcData
+              );
+            } catch {
+              /* hop failed — next sprint still gains ground */
+            }
+          }
+        };
         const nightTod = bot.time?.timeOfDay;
         const isNight = nightTod != null && nightTod >= 12541;
         // burrow triggers on the EARLY threshold — a step takes 30-60s and
@@ -256,16 +284,7 @@ export class ClearRunner {
               this.log(`[clear] night flee toward logSite ${siteDir.x},${siteDir.z}`);
             }
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
-            await sprintBurst(fdx, fdz).catch(() => {});
-            try {
-              await executeAction(
-                bot,
-                { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
-                this.mcData
-              );
-            } catch {
-              /* superseded — burrow anyway */
-            }
+            await fleeUntilClear(fdx, fdz).catch(() => {});
             try {
               // bare-handed on stone ground the burrow can't dig — punch a
               // few logs first so planks exist for the pillar fallback
@@ -319,16 +338,7 @@ export class ClearRunner {
                   ? pickDryDir(bot, [fleeDirs[this.deaths % 4], fleeDirs[(this.deaths + 1) % 4]])
                   : pickDryDir(bot, fleeDirs);
               this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
-              await sprintBurst(fdx, fdz).catch(() => {});
-              try {
-                await executeAction(
-                  bot,
-                  { type: "goto", x: pf.x + fdx, y: pf.y, z: pf.z + fdz, range: 8, timeoutMs: 40000 },
-                  this.mcData
-                );
-              } catch {
-                /* superseded — burrow anyway */
-              }
+              await fleeUntilClear(fdx, fdz).catch(() => {});
             } else {
               this.log(`[clear] hostile at spawn — burrowing in place`);
             }
