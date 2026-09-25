@@ -1643,7 +1643,18 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           /* refuge dressing failed — the pillar itself still stands */
         }
         const t0 = Date.now();
-        while (!safe() && Date.now() - t0 < 480000) await sleep(4000);
+        let lastBeat = 0;
+        while (!safe() && Date.now() - t0 < 480000) {
+          if (state?._diedAt && Date.now() - state._diedAt < 6000) {
+            log?.("[burrow] died on the pillar — aborting shelter");
+            return false;
+          }
+          if (Date.now() - lastBeat > 90000) {
+            lastBeat = Date.now();
+            log?.(`[burrow] on pillar — ${Math.round((480000 - (Date.now() - t0)) / 60000)}min to dawn`);
+          }
+          await sleep(4000);
+        }
         // dig back down through our own pillar
         for (let i = 0; i < raised + 2; i++) {
           const b = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
