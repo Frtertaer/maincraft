@@ -137,7 +137,14 @@ async function craftDirect(bot, recipe, count, craftingTable) {
           await withTimeout(bot._syncWindow(win), 6000, "sync").catch(() => {});
         }
       }
-      if (!taken) throw new Error(`craft take rejected: ${want}`);
+      if (!taken) {
+        const desc = recipe.inShape ? "shape" : "shapeless";
+        const grid = win.slots
+          .slice(1, 1 + w * w)
+          .map((s) => (s ? s.name : null))
+          .join("|");
+        throw new Error(`craft take rejected: ${want} [${desc}${recipe.requiresTable ? "+table" : ""} grid=${grid}]`);
+      }
     }
     if (win.selectedItem) {
       await bot.putSelectedItemRange(win.inventoryStart, win.inventoryEnd, win, null).catch(() => {});
