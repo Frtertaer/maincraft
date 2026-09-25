@@ -778,11 +778,21 @@ export class CombatReflex {
       if (dist < 12) this._kiteAway(target);
       return;
     }
-    if (EXPLODER.has(name) && dist < this.cfg.kiteCreeperDistance) {
+    if (EXPLODER.has(name)) {
       this._stopBlock();
-      this._kiteAway(target);
-      // still hit if slightly outside explosion sweet spot
-      if (dist > 3.0 && dist < 4.8 && now - this._lastHitAt >= this.cfg.cooldownMs) {
+      // never chase a bomb: GoalFollow walks us into the blast radius before
+      // the kite band kicks in. Kite under 5.5, hold range outside — the
+      // hit window exists only while armed and slightly outside the hiss
+      if (dist < this.cfg.kiteCreeperDistance) this._kiteAway(target);
+      else {
+        try {
+          if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
+          bot.clearControlStates();
+        } catch {
+          /* ignore */
+        }
+      }
+      if (this._isArmed() && dist > 3.0 && dist < 4.8 && now - this._lastHitAt >= this.cfg.cooldownMs) {
         void this._meleeHit(target);
       }
       return;
