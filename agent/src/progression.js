@@ -1232,7 +1232,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // planks (2x2, no table) quadruples the build budget on the spot
     const solidsCount = () =>
       bot.inventory.items().reduce((n, i) => n + (mcData.blocksByName[i.name] ? i.count : 0), 0);
-    if (solidsCount() < 12 && countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem")) >= 2) {
+    if (solidsCount() < 12 && countItem(bot, (i) => i.name.includes("log") || i.name.endsWith("_stem")) >= 1) {
       try {
         await ensurePlanks(bot, mcData, 12);
       } catch {
