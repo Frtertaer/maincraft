@@ -1644,14 +1644,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
         const t0 = Date.now();
         let lastBeat = 0;
-        while (!safe() && Date.now() - t0 < 480000) {
+        while (!safe() && Date.now() - t0 < 620000) {
           if (state?._diedAt && Date.now() - state._diedAt < 6000) {
             log?.("[burrow] died on the pillar — aborting shelter");
             return false;
           }
           if (Date.now() - lastBeat > 90000) {
             lastBeat = Date.now();
-            log?.(`[burrow] on pillar — ${Math.round((480000 - (Date.now() - t0)) / 60000)}min to dawn`);
+            log?.(`[burrow] on pillar — ${Math.round((620000 - (Date.now() - t0)) / 60000)}min to dawn`);
           }
           await sleep(4000);
         }
