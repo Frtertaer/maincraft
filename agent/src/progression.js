@@ -1273,11 +1273,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           while (Math.abs(bot.entity.velocity?.y ?? 0) > 0.12 && Date.now() - apex < 500) {
             await sleep(30);
           }
+          const destB = bot.blockAt(ref.position.offset(0, 1, 0));
           try {
             await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
             placed = true;
-          } catch {
-            /* refused — land back on the column and re-hop */
+          } catch (pe) {
+            const feetB = bot.blockAt(bot.entity.position.floored());
+            log?.(
+              `[burrow] place refused: ref=${ref.name}@${ref.position.y} dest=${destB?.name} ` +
+                `feet=${feetB?.name}@${bot.entity.position.y.toFixed(2)} vel=${bot.entity.velocity?.y?.toFixed(2)} ` +
+                `held=${bot.heldItem?.name} eye=${bot.entity.eyeHeight?.toFixed(2)} (${pe?.message || pe})`
+            );
           }
           bot.setControlState("jump", false);
           if (!placed && bot.entity.position.y < ref.position.y + 1.5) break; // never lifted
