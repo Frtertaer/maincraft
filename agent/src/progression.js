@@ -1990,22 +1990,9 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
       if (state.noLogStreak >= 3) {
         const p = bot.entity.position.floored();
         // ground that produced logs before beats a blind heading
-        const site = (state.logSites || [])
-          .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
-          .filter((e) => e.d > 30 && e.d < 400)
-          .sort((a, b) => a.d - b.d)[0];
-        if (site) {
-          try {
-            await executeAction(
-              bot,
-              { type: "goto", x: site.s.x, y: site.s.y, z: site.s.z, range: 6, timeoutMs: 40000 },
-              mcData
-            );
-            state.noLogStreak = 1;
-            return { ok: true, message: `back to log site (${Math.round(site.d)}m)` };
-          } catch {
-            /* unreachable — fall through to the wander */
-          }
+        if (await gotoLogSite(bot, mcData, state, p)) {
+          state.noLogStreak = 1;
+          return { ok: true, message: "back to log site" };
         }
         if (!state.wanderDir) {
           const dirs = [
@@ -2047,6 +2034,26 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     state.badDig.set(k, (state.badDig.get(k) || 0) + 1);
   }
   return dig;
+}
+
+// walk to the nearest remembered productive log site — a plain that
+// churned for 200m beats any blind heading
+async function gotoLogSite(bot, mcData, state, p) {
+  const site = (state?.logSites || [])
+    .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+    .filter((e) => e.d > 30 && e.d < 400)
+    .sort((a, b) => a.d - b.d)[0];
+  if (!site) return false;
+  try {
+    await executeAction(
+      bot,
+      { type: "goto", x: site.s.x, y: site.s.y, z: site.s.z, range: 6, timeoutMs: 40000 },
+      mcData
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function phaseWood(bot, mcData, state, log) {
@@ -2091,6 +2098,10 @@ async function phaseWood(bot, mcData, state, log) {
       state.woodZeroGain = (state.woodZeroGain || 0) + 1;
       if (state.woodZeroGain >= 4) {
         state.woodZeroGain = 0;
+        const p = bot.entity.position.floored();
+        if (await gotoLogSite(bot, mcData, state, p)) {
+          return { ok: true, phase: "wood", message: "zero-gain — back to log site" };
+        }
         await wander(bot, mcData, 80);
         return { ok: true, phase: "wood", message: "zero-gain — wandering for trees" };
       }
