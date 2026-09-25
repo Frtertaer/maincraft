@@ -1315,7 +1315,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // velocity~0, so the apex wait doesn't apply in water. At the surface
         // the feet cell reads air — check the entity flag, not the block
         const inWater = Boolean(bot.entity.isInWater) ||
-          /water|bubble_column/.test(String(bot.blockAt(bot.entity.position.floored())?.name || ""));
+          /water|bubble_column/.test(
+            String(bot.blockAt(bot.entity.position.floored())?.name || "") +
+              " " +
+              String(bot.blockAt(bot.entity.position.floored().offset(0, -1, 0))?.name || "")
+          );
         let placed = false;
         for (let attempt = 0; attempt < 3 && !placed; attempt++) {
           bot.setControlState("jump", true);
@@ -1335,6 +1339,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             }
           }
           const destB = bot.blockAt(ref.position.offset(0, 1, 0));
+          // never offer a place the server is guaranteed to refuse: feet below
+          // the dest cell's top means the body still intersects it — a slow
+          // water float can burn the whole lift window without reaching it
+          if (bot.entity.position.y < ref.position.y + 1.95) {
+            log?.(
+              `[burrow] place skipped — still inside dest (feet=${bot.entity.position.y.toFixed(2)} ` +
+                `need≥${(ref.position.y + 1.95).toFixed(2)} inWater=${inWater})`
+            );
+            break;
+          }
           try {
             await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
             placed = true;
