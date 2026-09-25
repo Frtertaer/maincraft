@@ -313,12 +313,23 @@ export class ClearRunner {
             // kill-window open — burrow on the spot instead of sprinting past.
             // EXCEPTION: a creeper closes and detonates mid-carve (~10s to
             // seal) — against blast-range creepers the sprint IS the burrow
+            const dist = (e) => e.position.distanceTo(bot.entity.position);
+            const isRanged = (e) => {
+              const n = String(e?.name || "");
+              return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n);
+            };
             const respawnHostiles = Object.values(bot.entities || {}).filter((e) => {
               const n = String(e?.name || "");
               const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-              return hostile && e.position.distanceTo(bot.entity.position) < 20;
+              return hostile && dist(e) < 20;
             });
-            const respawnHostile = respawnHostiles.length > 0;
+            // a ranged camper shoots straight through a sprint: a skeleton at
+            // 20-34m still kills a fleeing target — burrow and break its line
+            // of sight instead of choosing the sprint it can out-range
+            const rangedNear = Object.values(bot.entities || {}).some(
+              (e) => e?.position && isRanged(e) && dist(e) < 34
+            );
+            const respawnHostile = respawnHostiles.length > 0 || rangedNear;
             const creepNear = respawnHostiles.some(
               (e) => /creeper/.test(String(e.name || "")) && e.position.distanceTo(bot.entity.position) < 14
             );
@@ -399,7 +410,11 @@ export class ClearRunner {
           if (!e?.position || e === bot.entity) return false;
           const n = String(e.name || e.displayName || "").toLowerCase();
           const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-          return hostile && e.position.distanceTo(bot.entity.position) < 14;
+          if (!hostile) return false;
+          const d = e.position.distanceTo(bot.entity.position);
+          // ranged mobs engage from ~16m — a skeleton just past the melee
+          // bound still snipes us mid-work, so it counts as "close" further out
+          return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n) ? d < 26 : d < 14;
         });
         const hostileNear = hostileClose();
         if (
