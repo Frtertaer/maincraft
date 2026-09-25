@@ -71,6 +71,9 @@ async function craftDirect(bot, recipe, count, craftingTable) {
       if (!win || !String(win.type || "").startsWith("minecraft:crafting")) {
         throw new Error(`non-crafting window: ${win?.type || "none"}`);
       }
+      // re-anchor stateId: a stale counter makes the server silently drop
+      // every ingredient click — the whole craft then never happens
+      if (bot._syncWindow) await withTimeout(bot._syncWindow(win), 6000, "sync table").catch(() => {});
     } else {
       win = bot.inventory;
     }
@@ -544,7 +547,8 @@ export async function executeAction(bot, action, mcData) {
               await cleanCraftArea(bot);
               if (craftingTable) {
                 const w = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
-                await sleep(400);
+                if (bot._syncWindow) await withTimeout(bot._syncWindow(w), 6000, "sync table").catch(() => {});
+                await sleep(300);
                 if (w) bot.closeWindow(w);
               } else {
                 // no table for 2x2 — a pick+drop click forces the server to
@@ -576,6 +580,7 @@ export async function executeAction(bot, action, mcData) {
         if (!craftErr && craftingTable) {
           try {
             const w = await withTimeout(bot.openBlock(craftingTable), 8000, "resync open");
+            if (bot._syncWindow) await withTimeout(bot._syncWindow(w), 6000, "sync table").catch(() => {});
             await sleep(350);
             if (w) bot.closeWindow(w);
             await sleep(250);
