@@ -1552,8 +1552,69 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           await sleep(150);
         }
         if (!placed) {
-          log?.(`[burrow] pillar err: place refused`);
-          break;
+          // straight pillar keeps hitting the razor-window refusal — switch
+          // to a staircase: bridge+riser placements are all ADJACENT cells,
+          // which the body can never intersect, so no timing is involved.
+          // Each iteration is +1 height / +1 horizontal.
+          const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+          let climbed = 0;
+          for (let level = 0; level + raised < 5 && refreshSolid(); level++) {
+            let done = false;
+            for (let di = 0; di < 4 && !done; di++) {
+              const [dx, dz] = dirs[(di + level) % 4];
+              const feet = bot.entity.position.floored();
+              const stand = bot.blockAt(feet.offset(0, -1, 0));
+              if (!stand || stand.name === "air") break;
+              const bridgePos = stand.position.offset(dx, 0, dz);
+              const bridgeCell = bot.blockAt(bridgePos);
+              const riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
+              if (!bridgeCell || !riserCell || riserCell.name !== "air") continue;
+              if (bridgeCell.name === "air" || /water|tall_grass|grass|fern|snow|vine/.test(bridgeCell.name)) {
+                const s1 = refreshSolid();
+                if (!s1) break;
+                await pt(bot.equip(s1, "hand"), 6000, "equip").catch(() => {});
+                try {
+                  await pt(bot.placeBlock(stand, new Vec3(dx, 0, dz)), 7000, "stair-bridge");
+                } catch {
+                  continue;
+                }
+                await sleep(150);
+              }
+              const riserBase = bot.blockAt(bridgePos);
+              if (!riserBase || riserBase.name === "air") continue;
+              const s2 = refreshSolid();
+              if (!s2) break;
+              await pt(bot.equip(s2, "hand"), 6000, "equip").catch(() => {});
+              try {
+                await pt(bot.placeBlock(riserBase, new Vec3(0, 1, 0)), 7000, "stair-riser");
+              } catch {
+                continue;
+              }
+              // hop onto the riser (+1 y, +1 toward dx,dz)
+              for (let h = 0; h < 4 && !done; h++) {
+                try {
+                  await bot.lookAt(bridgePos.offset(0.5, 1.2, 0.5), true);
+                } catch {
+                  /* look is best-effort */
+                }
+                bot.setControlState("jump", true);
+                bot.setControlState("forward", true);
+                await sleep(420);
+                bot.setControlState("jump", false);
+                bot.setControlState("forward", false);
+                done = bot.entity.position.y >= feet.y + 0.9;
+              }
+            }
+            if (!done) break;
+            climbed += 1;
+          }
+          raised += climbed;
+          if (climbed === 0) {
+            log?.(`[burrow] pillar err: place refused`);
+            break;
+          }
+          log?.(`[burrow] staircase +${climbed}`);
+          continue;
         }
         raised += 1;
       } catch (e) {
