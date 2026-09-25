@@ -2095,6 +2095,23 @@ async function phaseIron(bot, mcData, state, log) {
               { type: "goto", x: t.position.x, y: t.position.y, z: t.position.z, range: 6, timeoutMs: 15000 },
               mcData
             ).catch(() => {});
+          } else {
+            // no tree in reach — walk to a remembered log site instead of
+            // no-oping here forever (the ok:true loop was the stuck=∞ bug)
+            const pp = bot.entity.position.floored();
+            const site = (state?.logSites || [])
+              .map((s) => ({ s, d: Math.hypot(s.x - pp.x, s.z - pp.z) }))
+              .filter((e) => e.d > 24 && e.d < 400)
+              .sort((a, b) => a.d - b.d)[0]?.s;
+            if (site) {
+              await executeAction(
+                bot,
+                { type: "goto", x: site.x, y: site.y, z: site.z, range: 6, timeoutMs: 60000 },
+                mcData
+              ).catch(() => {});
+            } else {
+              return { ok: false, phase: "iron", message: `no wood within reach (stock=${woodStock})` };
+            }
           }
         }
         return { ok: true, phase: "iron", message: `pre-descend wood (${woodStock})` };
