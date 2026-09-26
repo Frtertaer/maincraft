@@ -82,7 +82,7 @@ const NEVER_ATTACK = new Set([
 /** Mobs that kill an undergeared bot — never auto-engage without iron+
  * weaponry. Enderman especially: engaging it means looking at it, which
  * is exactly how a wooden-sword bot turns a neutral mob into a killer. */
-const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian"]);
+const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian", "pillager"]);
 
 /** Higher = kill first */
 const THREAT_WEIGHT = {
@@ -367,7 +367,12 @@ export class CombatReflex {
           /* if LOS check unsupported, keep the target */
         }
       }
-      if (OVERMATCHED.has(this._mobName(e)) && !this._isArmed()) continue;
+      const eName = this._mobName(e);
+      // Enderman: never engage even armed — looking at it is the aggro
+      // trigger itself, and teleports+40hp beat any non-iron kit anyway.
+      // It still counts hostile for safe()/burrow, which pockets beat.
+      if (eName === "enderman") continue;
+      if (OVERMATCHED.has(eName) && !this._isArmed()) continue;
       const score = this._threatScore(e, d);
       if (score > bestScore) {
         bestScore = score;
