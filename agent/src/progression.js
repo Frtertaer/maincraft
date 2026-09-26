@@ -2462,13 +2462,18 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
 }
 
 // walk to the nearest remembered productive log site — a plain that
-// churned for 200m beats any blind heading
+// churned for 200m beats any blind heading. Sites already visited with
+// zero gain are skipped (dead cells) so the same stump field is never
+// re-walked — that was the gather(0)/no-log ping-pong.
 async function gotoLogSite(bot, mcData, state, p) {
+  const dead = state?.deadLogCells || {};
+  const cellOf = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
   const site = (state?.logSites || [])
     .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
-    .filter((e) => e.d > 30 && e.d < 400)
+    .filter((e) => e.d > 30 && e.d < 400 && !dead[cellOf(e.s.x, e.s.z)])
     .sort((a, b) => a.d - b.d)[0];
   if (!site) return false;
+  if (state) state.lastSiteCell = cellOf(site.s.x, site.s.z);
   try {
     await executeAction(
       bot,
@@ -2524,6 +2529,12 @@ async function phaseWood(bot, mcData, state, log) {
       if (state.woodZeroGain >= 4) {
         state.woodZeroGain = 0;
         const p = bot.entity.position.floored();
+        if (state && state.lastSiteCell) {
+          // the site we were just walked to produced nothing — never walk
+          // there again this run
+          (state.deadLogCells = state.deadLogCells || {})[state.lastSiteCell] = true;
+          state.lastSiteCell = null;
+        }
         if (await gotoLogSite(bot, mcData, state, p)) {
           return { ok: true, phase: "wood", message: "zero-gain — back to log site" };
         }
