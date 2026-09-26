@@ -2010,6 +2010,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       break;
     }
     dug += 1;
+    // the dig resolves on block-break but the fall lands a physics tick
+    // later — re-reading feet immediately sees the hole's air and breaks
+    // the loop at dug=1. Wait for the landing (or the neighbouring-cell
+    // catch) before evaluating the next block down.
+    for (let w = 0; w < 10; w += 1) {
+      await sleep(120);
+      const f2 = bot.entity.position.floored();
+      if (f2.y < feet.y) break; // fell into the dug cell
+      const u2 = bot.blockAt(f2.offset(0, -1, 0));
+      if (u2 && u2.name !== "air") break; // landed on neighbour ground
+    }
   }
   if (needsShaft && dug < 2) {
     log?.(`[burrow] only dug ${dug}`);
