@@ -1274,8 +1274,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // name class: a small set is always hand-breakable, everything else
   // (stone/ore/bricks) needs a pickaxe in inventory
   const diggable = (b) => diggableBlock(bot, b);
-  // safe() = daylight and no hostile within 16 (creepers/spiders don't burn,
-  // spawn-campers outlast sunrise)
+  // safe() = daylight and no hostile within 28 (creepers/spiders don't burn,
+  // spawn-campers outlast sunrise; a crawler at ~20m still sprints in and
+  // kills the exit — 16m was too small to hold through)
   const safe = () => {
     const t = bot.time?.timeOfDay;
     if (t != null && t >= 12541) return false;
@@ -1285,7 +1286,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const hostile =
         e.kind === "Hostile mobs" ||
         /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-      return hostile && e.position.distanceTo(bot.entity.position) < 16;
+      return hostile && e.position.distanceTo(bot.entity.position) < 28;
     });
   };
   // Standing on jungle canopy: every candidate column below is leaves —
