@@ -1586,7 +1586,18 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               }
               const bridgePos = stand.position.offset(dx, 0, dz);
               const bridgeCell = bot.blockAt(bridgePos);
-              const riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
+              let riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
+              // on slopes the riser cell is often terrain — clear it by hand
+              // instead of skipping the direction outright
+              if (riserCell && riserCell.name !== "air" && diggable(riserCell)) {
+                try {
+                  await pt(bot.dig(riserCell), 8000, "stair-clear");
+                  await sleep(150);
+                  riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
+                } catch {
+                  /* leave blocked */
+                }
+              }
               if (!bridgeCell || !riserCell || riserCell.name !== "air") {
                 stairWhy = `riser-blocked(${riserCell?.name || "?"})`;
                 continue;
