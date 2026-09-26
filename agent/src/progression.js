@@ -1309,14 +1309,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
       continue;
     }
-    // whole column down to -6 must be solid AND diggable — an open cell
-    // means a cave (mobs), an undiggable cell means we can't get in.
-    // Logs/stems/leaves are a tree trunk or canopy, not ground — digging
-    // them drops the bot inside a giant trunk it can't time out of
+    // the shaft digs only 3 cells (-1..-3) and lands on a floor at -4 —
+    // demanding diggable to -6 rejected most plains columns (stone starts
+    // at -4/-5) and forced the slow pillar path. -1..-3 must be diggable;
+    // -4 must merely exist and be non-dangerous. Logs/leaves are a tree
+    // trunk, not ground.
     let solidCol = true;
-    for (let dy = -1; dy >= -6; dy--) {
+    for (let dy = -1; dy >= -4; dy--) {
       const b = bot.blockAt(p.offset(0, dy, 0));
-      if (!diggable(b) || /_log$|_stem$|leaves$/.test(b?.name || "")) {
+      const ok = dy >= -3 ? diggable(b) : b && b.name !== "air" && !danger(b);
+      if (!ok || /_log$|_stem$|leaves$/.test(b?.name || "")) {
         solidCol = false;
         break;
       }
