@@ -474,10 +474,10 @@ export async function stashDeposit(bot, mcData, log, state) {
     const kitDue =
       state &&
       !state.stashKitDone &&
-      countOf(/_planks$/) >= 16 &&
-      countOf(/^stick$/) >= 8 &&
+      countOf(/_planks$/) + countOf(/_log$|_stem$/) * 4 >= 16 &&
+      countOf(/^stick$/) >= 4 &&
       items.some((i) => i.name === "crafting_table") &&
-      countOf(STASH_FOOD) >= 8;
+      countOf(STASH_FOOD) >= 6;
     if (!surplus.length && !kitDue) return { ok: true, message: "nothing to stash" };
     const chestBlock = await stashFindOrPlaceChest(bot, mcData, state);
     if (!chestBlock) return { ok: false, message: "no chest" };
@@ -492,6 +492,8 @@ export async function stashDeposit(bot, mcData, log, state) {
         moved += give;
       }
       if (kitDue) {
+        // the kit needs real planks — convert logs first if the stack is thin
+        if (countOf(/_planks$/) < 8) await ensurePlanks(bot, mcData, 16).catch(() => {});
         let kitMoved = 0;
         for (const [re, want] of [
           [/_planks$/, 8],
