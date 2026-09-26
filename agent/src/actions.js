@@ -776,8 +776,10 @@ export async function executeAction(bot, action, mcData) {
         const item = bot.inventory.items().find((i) => i.name === itemName || i.name.includes(itemName));
         if (!item) return { ok: false, message: `no block ${itemName}` };
         // tools/weapons aren't placeable — a confused caller (LLM) picking a
-        // sword as filler gets a readable failure, not a server refuse
-        if (mcData?.blocksByName && !mcData.blocksByName[item.name]) {
+        // sword as filler gets a readable failure, not a server refuse. Use the
+        // bot's own registry — always present — not the caller-supplied mcData
+        const blocksByName = bot.registry?.blocksByName || mcData?.blocksByName;
+        if (blocksByName && !blocksByName[item.name]) {
           return { ok: false, message: `${item.name} is not a placeable block` };
         }
         const direction = faceVec(action.face || "top");
