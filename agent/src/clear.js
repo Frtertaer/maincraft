@@ -429,7 +429,7 @@ export class ClearRunner {
                 .filter((e) => {
                   if (!e?.position || e === bot.entity) return false;
                   const n = String(e.name || "").toLowerCase();
-                  return /zombie|creeper|spider|husk|vex|enderman|slime/.test(n);
+                  return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager/.test(n);
                 })
                 .sort(
                   (a, b) =>
@@ -441,8 +441,15 @@ export class ClearRunner {
                 await sprintBurst(Math.sign(away.x || 1) * 40, Math.sign(away.z || 1) * 40, 1500).catch(() => {});
               }
               // a camper at spawn survives every respawn — a bed activate
-              // moves the spawn point permanently, no sleep needed in daylight
-              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+              // moves the spawn point permanently, no sleep needed in
+              // daylight. Only attempt it when a bed is already held/placed —
+              // a sheep hunt under arrows is where the camp deaths happen
+              const hasBed2 =
+                bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
+                bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
+              const slept = hasBed2
+                ? await ensureBedAndSleep(bot, this.mcData, this.log, this.state)
+                : { ok: false, message: "no bed in hand" };
               if (slept.ok) this.log(`[clear] ${slept.message}`);
               else {
                 this.log(`[clear] no bed: ${slept.message}`);
@@ -539,7 +546,15 @@ export class ClearRunner {
             // still places+activates a bed to claim the spawn point — after
             // one respawn-at-camp the bed is the only permanent fix.
             let burrowed = false;
-            const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+            // bed attempt only when one is already in hand or placed: hunting
+            // sheep is a ~60s loop and under a camp it gets the bot killed
+            // long before the bed exists
+            const hasBedReady =
+              bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
+              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
+            const slept = hasBedReady
+              ? await ensureBedAndSleep(bot, this.mcData, this.log, this.state)
+              : { ok: false, message: "no bed in hand" };
             if (slept.ok) {
               this.log(`[clear] ${slept.message}`);
               burrowed = true; // night is over — treat as sheltered
