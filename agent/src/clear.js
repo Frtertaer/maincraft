@@ -535,6 +535,8 @@ export class ClearRunner {
         yieldCount = 0;
         // Food: foodLevel 0 means no sprint and ~0.5hp — starvation is the
         // quiet killer of the marathon. Eat carried food or hunt animals.
+        // At food<=4 it's a CRISIS — the bot can't sprint and dies to one
+        // hit: phase work pauses until it eats something real.
         if (bot.food != null && bot.food < 14 && Date.now() - (this._lastFood || 0) > 25000) {
           this._lastFood = Date.now();
           try {
@@ -542,6 +544,20 @@ export class ClearRunner {
             if (fed?.ate) this.log(`[clear] ate (food=${bot.food})`);
           } catch {
             /* food err — continue */
+          }
+        }
+        if (bot.food != null && bot.food <= 4) {
+          this.log(`[clear] starving (food=${bot.food}) — pausing for food`);
+          const hungerT0 = Date.now();
+          while (bot.food != null && bot.food <= 8 && Date.now() - hungerT0 < 90000) {
+            try {
+              const fed2 = await ensureFed(bot, this.mcData, this.log, this.state);
+              if (fed2?.ate) this.log(`[clear] ate (food=${bot.food})`);
+              if (bot.food > 8) break;
+              await sleep(3000);
+            } catch {
+              break;
+            }
           }
         }
         // Survival for surface phases: burrow at night (mobs will come), and
