@@ -1050,6 +1050,9 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
           const c0 = bot.blockAt(p.offset(dx * k, 0, dz * k));
           const c1 = bot.blockAt(p.offset(dx * k, 1, dz * k));
           if (!cf || /lava|water|air/.test(cf.name)) break; // no floor — don't walk
+          // same-level crossing only — a floor 3+ lower is a ravine slope:
+          // crossing those walked the strip down into deep-dark territory
+          if (Math.abs(cf.position.y - (p.y - 1)) > 2) break;
           if (!bad(c0) || !bad(c1)) {
             farSide = k; // wall resumes at cell k
             break;
