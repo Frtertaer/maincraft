@@ -1039,13 +1039,13 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
     // and a mob standing near the step cell is an ambush; both rotate
     if (bad(f1) || bad(h1) || !floor || /lava|water|air/.test(floor.name) || mobNear(p.offset(dx, 0, dz))) {
       // fissure traverse: if the cells ahead are open air but each has a
-      // solid floor and a diggable wall resumes within 4 blocks, it is a
-      // narrow crack — walk across it and keep stripping on the far side.
-      // A wider opening is a real cave mouth: rotate away as before.
+      // solid floor and a diggable wall resumes within 12 blocks, walk
+      // across and keep stripping on the far side — a 4-cell cap spun
+      // forever inside a wide cave room where every direction was air
       if ((bad(f1) || bad(h1)) && !mobNear(p.offset(dx, 0, dz))) {
         let gapLen = 0;
         let farSide = null;
-        for (let k = 1; k <= 4; k++) {
+        for (let k = 1; k <= 12; k++) {
           const cf = bot.blockAt(p.offset(dx * k, -1, dz * k));
           const c0 = bot.blockAt(p.offset(dx * k, 0, dz * k));
           const c1 = bot.blockAt(p.offset(dx * k, 1, dz * k));
