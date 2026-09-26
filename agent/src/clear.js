@@ -809,7 +809,11 @@ export class ClearRunner {
             .filter((e) => e?.position && e.name === "sheep")
             .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
             .find((e) => e.position.distanceTo(bot.entity.position) < 130);
-          if (woolHeld < 3 && sheepNear && sheepNear.position.distanceTo(bot.entity.position) > 24) {
+          // sheep seen through solid rock while mining is unreachable —
+          // the goto/pathing can't dig 30m up. Underground → skip the hunt.
+          const sky = bot.blockAt(bot.entity.position.offset(0, 1, 0))?.skyLight;
+          const underground = sky != null && sky < 14;
+          if (woolHeld < 3 && sheepNear && !underground && sheepNear.position.distanceTo(bot.entity.position) > 24) {
             const sx = sheepNear.position.x;
             const sz = sheepNear.position.z;
             await executeAction(
@@ -822,7 +826,7 @@ export class ClearRunner {
             matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
             maxDistance: 12,
           });
-          if (woolHeld < 3 && sheepNear) {
+          if (woolHeld < 3 && sheepNear && !underground) {
             this._lastSheep = Date.now();
             this._note("Овца! Кровать скоро будет — ночи проживу спокойно.");
             try {
