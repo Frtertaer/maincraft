@@ -290,10 +290,33 @@ export class ClearRunner {
             if (siteDir) {
               const sx = siteDir.x - pf.x;
               const sz = siteDir.z - pf.z;
-              const n = Math.max(Math.abs(sx), Math.abs(sz)) || 1;
-              fdx = Math.round((sx / n) * 70);
-              fdz = Math.round((sz / n) * 70);
-              this.log(`[clear] night flee toward logSite ${siteDir.x},${siteDir.z}`);
+              // don't bias INTO the pack: if a hostile sits within ~25° of
+              // the site bearing (or right on the site), the site is inside
+              // the camp — keep the dry pick instead
+              const siteNorm = Math.hypot(sx, sz) || 1;
+              const toward = (e) => {
+                const ex = e.position.x - pf.x;
+                const ez = e.position.z - pf.z;
+                const en = Math.hypot(ex, ez) || 1;
+                return (ex * sx + ez * sz) / (en * siteNorm) > 0.9 &&
+                  e.position.distanceTo(bot.entity.position) < 60;
+              };
+              const camped = Object.values(bot.entities || {}).some((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || "").toLowerCase();
+                const hostile =
+                  e.kind === "Hostile mobs" ||
+                  /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+                return hostile && toward(e);
+              });
+              if (!camped) {
+                const n = Math.max(Math.abs(sx), Math.abs(sz)) || 1;
+                fdx = Math.round((sx / n) * 70);
+                fdz = Math.round((sz / n) * 70);
+                this.log(`[clear] night flee toward logSite ${siteDir.x},${siteDir.z}`);
+              } else {
+                this.log(`[clear] logSite is inside the camp — dry pick instead`);
+              }
             }
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
             await fleeUntilClear(fdx, fdz).catch(() => {});
