@@ -2339,14 +2339,23 @@ export async function ensureFed(bot, mcData, log, state = null) {
         [0, 60],
         [0, -60],
       ]);
+      state.foodWanderLeg = 0;
     }
+    // same expanding square spiral as the log wander — a fixed heading can
+    // starve-walk a biome strip away from every herd
+    if (state.foodWanderLeg > 0) {
+      const a = Math.atan2(state.foodWanderDir[1], state.foodWanderDir[0]) + Math.PI / 2;
+      state.foodWanderDir = [Math.round(Math.cos(a)) * 60, Math.round(Math.sin(a)) * 60];
+    }
+    state.foodWanderLeg = (state.foodWanderLeg || 0) + 1;
+    const hop = Math.min(60 + Math.floor((state.foodWanderLeg - 1) / 4) * 40, 200);
     await executeAction(
       bot,
       {
         type: "goto",
-        x: p.x + state.foodWanderDir[0],
+        x: p.x + Math.sign(state.foodWanderDir[0]) * hop,
         y: p.y,
-        z: p.z + state.foodWanderDir[1],
+        z: p.z + Math.sign(state.foodWanderDir[1]) * hop,
         range: 8,
         timeoutMs: 20000,
       },
