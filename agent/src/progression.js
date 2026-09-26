@@ -1286,7 +1286,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const hostile =
         e.kind === "Hostile mobs" ||
         /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-      return hostile && e.position.distanceTo(bot.entity.position) < 28;
+      return hostile && e.position.distanceTo(bot.entity.position) < 40;
     });
   };
   // Standing on jungle canopy: every candidate column below is leaves —
@@ -2091,7 +2091,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // it. A non-burning camper (creeper/spider) keeps safe() false for the
     // whole day otherwise, turning one mob into a 570s sit-out; the caller
     // sprints out instead
-    const waitCap = force ? 90000 : 570000;
+    const waitCap = force ? 150000 : 570000;
     while (!safe() && Date.now() - t0 < waitCap) {
     // died inside the pocket and respawned somewhere else — the shelter is
     // gone with the corpse; abort so the runner can flee/re-gear instead of
