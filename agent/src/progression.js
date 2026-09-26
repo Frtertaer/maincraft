@@ -1859,7 +1859,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
           })
           .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
-        if (waiter && waiter.position.distanceTo(bot.entity.position) < 7) {
+        if (waiter && waiter.position.distanceTo(bot.entity.position) < 26) {
           const away = bot.entity.position.minus(waiter.position);
           const yaw = Math.atan2(-away.x, -away.z);
           log?.(`[burrow] exit sprint away from ${waiter.name}`);
@@ -1867,7 +1867,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           bot.setControlState("forward", true);
           bot.setControlState("jump", false);
           const t0 = Date.now();
-          while (Date.now() - t0 < 1400) {
+          while (Date.now() - t0 < 2000) {
             bot.look(yaw, 0, true);
             await sleep(140);
           }
@@ -2161,7 +2161,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
       })
       .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
-    if (waiter && waiter.position.distanceTo(bot.entity.position) < 7) {
+    if (waiter && waiter.position.distanceTo(bot.entity.position) < 26) {
       const away = bot.entity.position.minus(waiter.position);
       const yaw = Math.atan2(-away.x, -away.z);
       log?.(`[burrow] exit sprint away from ${waiter.name}`);
@@ -2169,7 +2169,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       bot.setControlState("forward", true);
       bot.setControlState("jump", false);
       const t0 = Date.now();
-      while (Date.now() - t0 < 1400) {
+      while (Date.now() - t0 < 2000) {
         bot.look(yaw, 0, true);
         await sleep(140);
       }
