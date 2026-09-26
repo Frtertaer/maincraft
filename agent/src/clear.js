@@ -13,6 +13,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, logSitesLoadFile } from "./progression.js";
 import { executeAction } from "./actions.js";
+import { Vec3 } from "vec3";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESULT_PATH = path.resolve(__dirname, "../../logs/clear-mode-result.md");
@@ -355,6 +356,56 @@ export class ClearRunner {
               await fleeUntilClear(fdx, fdz).catch(() => {});
             } else {
               this.log(`[clear] hostile at spawn — burrowing in place`);
+              // a skeleton keeps shooting through the ~30s pocket build —
+              // wall its line of sight FIRST (2 adjacent-cell places, ~3s),
+              // then burrow behind the cover
+              try {
+                const ranged = Object.values(bot.entities || {})
+                  .filter(
+                    (e) =>
+                      e?.position &&
+                      /skeleton|stray|pillager|witch|drowned/.test(String(e.name || "")) &&
+                      e.position.distanceTo(bot.entity.position) < 26
+                  )
+                  .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+                if (ranged) {
+                  const f = bot.entity.position.floored();
+                  const vx = ranged.position.x - (f.x + 0.5);
+                  const vz = ranged.position.z - (f.z + 0.5);
+                  const dirs = Math.abs(vx) > Math.abs(vz) ? [[Math.sign(vx), 0]] : [[0, Math.sign(vz)]];
+                  dirs.push([Math.sign(vx), Math.sign(vz)], [0, Math.sign(vz)], [Math.sign(vx), 0]);
+                  const solid = () =>
+                    bot.inventory.items().find((i) => this.mcData.blocksByName[i.name]?.boundingBox === "block" && !/slab|stairs|fence|torch|sign|carpet|glass|pane/.test(i.name));
+                  for (const [wx, wz] of dirs) {
+                    if (!wx && !wz) continue;
+                    const cellB = bot.blockAt(f.offset(wx, -1, wz));
+                    const cell = bot.blockAt(f.offset(wx, 0, wz));
+                    if (!cellB || cellB.name === "air" || (cell && cell.name !== "air")) continue;
+                    const s = solid();
+                    if (!s) break;
+                    try {
+                      if (bot.heldItem?.name !== s.name) await bot.equip(s, "hand");
+                      await bot.lookAt(cellB.position.offset(wx * 0.5, 0.9, wz * 0.5), true);
+                      await bot.placeBlock(cellB, new Vec3(0, 1, 0));
+                      const cell2 = bot.blockAt(f.offset(wx, 1, wz));
+                      if (cell2 && cell2.name === "air") {
+                        const s2 = solid();
+                        if (s2) {
+                          if (bot.heldItem?.name !== s2.name) await bot.equip(s2, "hand");
+                          const newBase = bot.blockAt(f.offset(wx, 0, wz));
+                          if (newBase && newBase.name !== "air") await bot.placeBlock(newBase, new Vec3(0, 1, 0));
+                        }
+                      }
+                      this.log(`[clear] wall vs ${ranged.name} placed`);
+                      break;
+                    } catch {
+                      /* try next direction */
+                    }
+                  }
+                }
+              } catch {
+                /* wall is best-effort — burrow anyway */
+              }
             }
             try {
               // a camper at spawn survives every respawn — a bed activate
