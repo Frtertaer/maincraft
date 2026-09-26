@@ -459,15 +459,32 @@ export async function executeAction(bot, action, mcData) {
           }
           return false;
         };
+        // targets that already returned ok with zero gain keep winning the
+        // scan — after two misses each is skipped so collect moves to
+        // genuinely different blocks instead of ping-ponging the same stump
+        const badK = (p) => `${p.x},${p.y},${p.z}`;
         const blocks = targets
           .map((p) => bot.blockAt(p))
-          .filter((b) => b && canHarvest(b) && exposed(b));
+          .filter(
+            (b) =>
+              b &&
+              canHarvest(b) &&
+              exposed(b) &&
+              (bot._badCollect?.get(badK(b.position)) || 0) < 2
+          );
         if (!blocks.length) {
           return { ok: false, message: `no reachable ${blockName} (buried or missing tool)` };
         }
         // Collect pathfinds internally — mark the window so the combat reflex
         // can't steal the pathfinder to chase (it may still hit/kite/flee).
         bot._phaseMove = true;
+        const nameRe = new RegExp(blockName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const countNamed = () =>
+          bot.inventory
+            .items()
+            .filter((i) => nameRe.test(i.name))
+            .reduce((n, i) => n + i.count, 0);
+        const before = countNamed();
         try {
           await withTimeout(bot.collectBlock.collect(blocks), timeoutMs, `collect ${blockName} timeout`);
         } catch (err) {
@@ -481,6 +498,13 @@ export async function executeAction(bot, action, mcData) {
           return { ok: false, message: err.message || String(err) };
         } finally {
           if (bot._phaseMove === true) bot._phaseMove = null;
+        }
+        if (countNamed() <= before) {
+          bot._badCollect = bot._badCollect || new Map();
+          for (const b of blocks.slice(0, 6)) {
+            const k = badK(b.position);
+            bot._badCollect.set(k, (bot._badCollect.get(k) || 0) + 1);
+          }
         }
         return { ok: true, message: `collected ~${blocks.length} ${blockName}` };
       }
