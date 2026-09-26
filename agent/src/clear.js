@@ -217,12 +217,14 @@ export class ClearRunner {
         // rocky terrain → stand still → mob walks up. Chain short hops instead:
         // instant sprint then a bounded goto, repeated until the camper is
         // genuinely out of reach (30m+) or hops run out
-        const fleeUntilClear = async (fdx, fdz, hops = 6) => {
+        const fleeUntilClear = async (fdx, fdz, hops = 8) => {
           // zombies walk ~2.3m/s and pathfind — a sustained sprint (~5.6m/s)
           // outruns them forever, while the old burst+goto hop walked at
           // 4.3m/s between bursts and let the swarm catch up on every stall.
           // Pure sprint chains with a slight heading drift each hop also
           // slide off obstacles the pathfinder used to stall on.
+          // Creepers keep tracking a target past 30m — a camp isn't escaped
+          // until nothing hostile is within ~42m.
           let dirX = fdx;
           let dirZ = fdz;
           for (let h = 0; h < hops; h++) {
@@ -232,7 +234,7 @@ export class ClearRunner {
               const hostile =
                 e.kind === "Hostile mobs" ||
                 /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-              return hostile && e.position.distanceTo(bot.entity.position) < 30;
+              return hostile && e.position.distanceTo(bot.entity.position) < 42;
             });
             if (!still) return;
             await sprintBurst(dirX, dirZ, 3500).catch(() => {});
