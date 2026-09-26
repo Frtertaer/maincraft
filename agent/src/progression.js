@@ -1510,7 +1510,19 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               String(bot.blockAt(bot.entity.position.floored().offset(0, -1, 0))?.name || "")
           );
         let placed = false;
-        for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+        // a mob within melee lands knockback mid-hop and the razor window
+        // never lands — skip the timed place entirely and staircase instead
+        const mobAdjacent = Object.values(bot.entities || {}).some(
+          (e) =>
+            e?.position &&
+            e !== bot.entity &&
+            (e.kind === "Hostile mobs" ||
+              /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex|piglin/.test(
+                String(e.name || "")
+              )) &&
+            e.position.distanceTo(bot.entity.position) < 5
+        );
+        for (let attempt = 0; attempt < (mobAdjacent ? 0 : 3) && !placed; attempt++) {
           // keep hopping and offer the place on EVERY tick the body is legal:
           // the clear window (feet ≥ ref.y+2) is ~0.15s per jump and offer
           // latency lands most single-shot attempts below it — polling each
