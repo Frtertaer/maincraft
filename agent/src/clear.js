@@ -343,7 +343,16 @@ export class ClearRunner {
             const creepNear = respawnHostiles.some(
               (e) => /creeper/.test(String(e.name || "")) && e.position.distanceTo(bot.entity.position) < 14
             );
-            if (!respawnHostile || creepNear) {
+            // a melee swarm camps the respawn — you cannot dig/pillar while
+            // two+ zombies are already inside reach; only a long sprint opens
+            // enough distance to start a build
+            const meleeSwarm =
+              respawnHostiles.filter(
+                (e) =>
+                  /zombie|spider|husk|vex|enderman|slime|drowned/.test(String(e.name || "")) &&
+                  dist(e) < 10
+              ).length >= 2;
+            if (!respawnHostile || creepNear || meleeSwarm) {
               const fleeDirs = [
                 [70, 0],
                 [-70, 0],
