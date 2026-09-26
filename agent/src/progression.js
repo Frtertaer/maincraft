@@ -1614,7 +1614,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
                 stairWhy = `riser-blocked(${riserCell?.name || "?"})`;
                 continue;
               }
-              if (bridgeCell.name === "air" || /water|tall_grass|grass|fern|snow|vine/.test(bridgeCell.name)) {
+              if (
+                bridgeCell.name === "air" ||
+                /^(cave_air|void_air|water|bubble_column|tall_grass|short_grass|grass|fern|large_fern|snow|vine|seagrass|dead_bush|fire|soul_fire)$|_bush$|_flower$|_sapling$|dandelion|poppy|cornflower|daisy|mushroom/.test(
+                  bridgeCell.name
+                )
+              ) {
                 const s1 = refreshSolid();
                 if (!s1) {
                   stairWhy = "no-solid";
