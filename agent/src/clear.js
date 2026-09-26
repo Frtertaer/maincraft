@@ -223,8 +223,10 @@ export class ClearRunner {
           // 4.3m/s between bursts and let the swarm catch up on every stall.
           // Pure sprint chains with a slight heading drift each hop also
           // slide off obstacles the pathfinder used to stall on.
-          // Creepers keep tracking a target past 30m — a camp isn't escaped
-          // until nothing hostile is within ~42m.
+          // Creepers keep tracking a target past 30m and skeletons shoot at
+          // ~25-30m — a camp isn't escaped until nothing hostile is within
+          // ~52m, leaving ~20s of walk before the pack is back in range
+          // while the ~12s pocket seals.
           let dirX = fdx;
           let dirZ = fdz;
           for (let h = 0; h < hops; h++) {
@@ -234,7 +236,7 @@ export class ClearRunner {
               const hostile =
                 e.kind === "Hostile mobs" ||
                 /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-              return hostile && e.position.distanceTo(bot.entity.position) < 42;
+              return hostile && e.position.distanceTo(bot.entity.position) < 52;
             });
             if (!still) return;
             await sprintBurst(dirX, dirZ, 3500).catch(() => {});
