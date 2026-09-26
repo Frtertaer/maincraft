@@ -1944,6 +1944,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // lips). Returns sealed cells for the exit dig.
   const feet = bot.entity.position.floored();
   let sealedCells = null;
+  let pocketDeep = null;
   const sealWhy = {};
   const sealMiss = (why) => {
     sealWhy[why] = (sealWhy[why] || 0) + 1;
@@ -2070,6 +2071,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         { x: feet.x + px, y: feet.y, z: feet.z + pz },
         { x: feet.x + px, y: feet.y + 1, z: feet.z + pz },
       ];
+      // far end of the pocket — the wait loop re-pins the bot here so it
+      // never drifts into melee reach of the doorway plug
+      pocketDeep = { x: feet.x + px * carvedDepth + 0.5, y: feet.y, z: feet.z + pz * carvedDepth + 0.5 };
       log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
       break;
     }
@@ -2101,6 +2105,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       return false;
     }
     await sleep(4000);
+    // vanilla melee reaches through a 1-block face when the target hugs it —
+    // a mob standing on the plug hits a bot pressed at the doorway. Keep the
+    // bot pinned at the pocket's far end for the whole wait
+    if (pocketDeep) {
+      const away = bot.entity.position.distanceTo(
+        new Vec3(pocketDeep.x, pocketDeep.y, pocketDeep.z)
+      );
+      if (away > 1.2) {
+        await executeAction(
+          bot,
+          { type: "goto", x: pocketDeep.x, y: pocketDeep.y, z: pocketDeep.z, range: 0.4, timeoutMs: 6000 },
+          mcData
+        ).catch(() => {});
+      }
+    }
     // a camper at the open shaft mouth is in melee reach of the bottom —
     // swing at it every loop instead of turtling forever. Bare fists lose
     // trades to zombies, so only fight back with a real weapon
