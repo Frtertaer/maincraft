@@ -803,9 +803,21 @@ export class ClearRunner {
           !bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))
         ) {
           const woolHeld = bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0);
-          const sheepNear = Object.values(bot.entities || {}).some(
-            (e) => e?.position && e.name === "sheep" && e.position.distanceTo(bot.entity.position) < 48
-          );
+          // a bed is worth a walk — the passive 48m check almost never
+          // fires mid-route, so hunt down the nearest sheep in sight
+          const sheepNear = Object.values(bot.entities || {})
+            .filter((e) => e?.position && e.name === "sheep")
+            .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
+            .find((e) => e.position.distanceTo(bot.entity.position) < 130);
+          if (woolHeld < 3 && sheepNear && sheepNear.position.distanceTo(bot.entity.position) > 40) {
+            const sx = sheepNear.position.x;
+            const sz = sheepNear.position.z;
+            await executeAction(
+              bot,
+              { type: "goto", x: sx, y: sheepNear.position.y, z: sz, range: 8, timeoutMs: 30000 },
+              this.mcData
+            ).catch(() => {});
+          }
           const bedNear = bot.findBlock({
             matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
             maxDistance: 12,
