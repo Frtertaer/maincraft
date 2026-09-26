@@ -144,8 +144,10 @@ export class ClearRunner {
         // reflex fights are suicide — park combat until the escape lands.
         this._needRetreat = true;
         // kick the sprint NOW — waiting for the next loop tick gives a
-        // spawn-camping creeper its whole 1.5s fuse. Run away from the
-        // death spot; the loop's own escape continues from there.
+        // spawn-camping creeper its whole 1.5s fuse. A 1.5s burst is ~8
+        // blocks: the camper re-closes during the wake-up gap and that's the
+        // spawn-camp chain. ~7s of sprint-jump is ~40m — a melee mob at
+        // 2.3m/s cannot re-cover it before the loop's own escape continues.
         try {
           const dp = this.state._diedPos;
           const me = this.bot.entity?.position;
@@ -153,7 +155,7 @@ export class ClearRunner {
             const dx = me.x - dp.x;
             const dz = me.z - dp.z;
             const len = Math.hypot(dx, dz) || 1;
-            void sprintBurst((dx / len) * 40, (dz / len) * 40, 1500).catch(() => {});
+            void sprintBurst((dx / len) * 40, (dz / len) * 40, 7000).catch(() => {});
           }
         } catch {
           /* ignore */
