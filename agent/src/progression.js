@@ -2531,7 +2531,11 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           { type: "attack", name: "sheep", maxDurationMs: 25000, maxDistance: 48, persistent: true },
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
-        if (!r.ok) break; // no sheep in range — give up early
+        if (!r.ok) {
+          log?.(`[bed] sheep attack #${i}: ${r.message}`);
+          break; // no sheep in range — give up early
+        }
+        log?.(`[bed] sheep down — wool=${woolCount()}`);
         // the kill lands but the wool item just sits there — a dropped item
         // is an entity, not a block, so collect() can't see it. Walk over it
         const drop = Object.values(bot.entities || {}).find(
