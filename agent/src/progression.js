@@ -1164,11 +1164,13 @@ export function pickDryDir(bot, dirs) {
     const sx = Math.sign(dx);
     const sz = Math.sign(dz);
     let score = 0;
-    for (const step of [6, 12, 18, 24]) {
-      for (const dy of [-1, 0]) {
+    // water is where drowned live and where a sprint dies — a river past the
+    // old 24m horizon was invisible, so the flee "picked dry" into one
+    for (const step of [6, 12, 18, 24, 32, 40]) {
+      for (const dy of [-2, -1, 0]) {
         const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
         if (!b) continue;
-        if (/water|kelp|seagrass|ice|bubble/.test(b.name)) score += 3;
+        if (/water|kelp|seagrass|ice|bubble/.test(b.name)) score += 8;
         else if (/_log$|_stem$|leaves$/.test(b.name)) score += 1;
       }
     }
