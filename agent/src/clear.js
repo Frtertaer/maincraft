@@ -139,6 +139,20 @@ export class ClearRunner {
           this._note("ТИТРЫ ДОСМОТРЕНЫ — Майнкрафт пройден полностью!");
         }
         this._note(`Возродился. Фаза: ${detectPhase(this.bot)}`);
+        // the camp is the respawn ANCHOR, not the ring of bodies: fleeing
+        // 70m in different directions lands each death somewhere new and no
+        // 150m cluster ever forms — the zone every pick must avoid is the
+        // point we keep coming back to
+        const ptsN = (this.state._deathPts || []).length;
+        if (ptsN >= 2 && this.bot.entity?.position) {
+          const me0 = this.bot.entity.position;
+          const zx = Math.round(me0.x);
+          const zz = Math.round(me0.z);
+          if (!this.state.campZone || Math.hypot(this.state.campZone.x - zx, this.state.campZone.z - zz) > 60) {
+            this.state.campZone = { x: zx, z: zz };
+            this.log(`[clear] camp zone anchored on respawn ${zx},${zz}`);
+          }
+        }
         // Spawn-camp escape: next loop iteration moves ~40 blocks away from
         // the respawn kill-zone before resuming progression. Bare-handed
         // reflex fights are suicide — park combat until the escape lands.
@@ -330,11 +344,14 @@ export class ClearRunner {
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
+            // a 70m hop stays inside the same mob field on a dense spawn —
+            // each repeat death widens the ring so the escape leaves it
+            const ring = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
             const fleeDirs = [
-              [70, 0],
-              [-70, 0],
-              [0, 70],
-              [0, -70],
+              [ring, 0],
+              [-ring, 0],
+              [0, ring],
+              [0, -ring],
             ];
             // fleeing onto bare stone is a second death — nothing diggable,
             // nothing to pillar with. Bias the direction toward a remembered
@@ -475,11 +492,12 @@ export class ClearRunner {
                   dist(e) < 10
               ).length >= 2;
             if (!respawnHostile || creepNear || meleeSwarm) {
+              const ring = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
               const fleeDirs = [
-                [70, 0],
-                [-70, 0],
-                [0, 70],
-                [0, -70],
+                [ring, 0],
+                [-ring, 0],
+                [0, ring],
+                [0, -ring],
               ];
               // a camper reads the deterministic dry-dir exit — after a couple
               // of spawn-camp deaths, rotate the escape instead of running the

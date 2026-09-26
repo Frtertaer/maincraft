@@ -2161,6 +2161,38 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // far end of the pocket — the wait loop re-pins the bot here so it
       // never drifts into melee reach of the doorway plug
       pocketDeep = { x: feet.x + px * carvedDepth + 0.5, y: feet.y, z: feet.z + pz * carvedDepth + 0.5 };
+      // depth-3 fallback pockets still sit inside melee reach of a mob
+      // hugging the plug (~3m) — deepen from inside once sealed. Digging
+      // further straight ahead is safe: sealed in, worst case the cells are
+      // undiggable and the pocket stays shallow.
+      if (carvedDepth < 4) {
+        let ext = carvedDepth;
+        while (ext < 5) {
+          const nxt = [
+            bot.blockAt(feet.offset(px * (ext + 1), 0, pz * (ext + 1))),
+            bot.blockAt(feet.offset(px * (ext + 1), 1, pz * (ext + 1))),
+          ];
+          if (nxt.some((c) => !diggable(c))) break;
+          let okAll = true;
+          for (const c of nxt) {
+            const d = await executeAction(
+              bot,
+              { type: "dig", x: c.position.x, y: c.position.y, z: c.position.z, timeoutMs: 10000 },
+              mcData
+            );
+            if (!d.ok) {
+              okAll = false;
+              break;
+            }
+          }
+          if (!okAll) break;
+          ext += 1;
+        }
+        if (ext > carvedDepth) {
+          pocketDeep = { x: feet.x + px * ext + 0.5, y: feet.y, z: feet.z + pz * ext + 0.5 };
+          log?.(`[burrow] pocket deepened ${carvedDepth}→${ext}`);
+        }
+      }
       log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
       break;
     }
