@@ -2183,21 +2183,27 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
       })
       .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
-    if (waiter && waiter.position.distanceTo(bot.entity.position) < 26) {
+    // sprint away on EVERY exit, not only when a mob is already inside bow
+    // range — a straggler 30-45m out closes during the slow post-exit walk
+    // and detonates; a 2.5s burst (~14m) buys real separation
+    let yaw = bot.entity.yaw;
+    if (waiter) {
       const away = bot.entity.position.minus(waiter.position);
-      const yaw = Math.atan2(-away.x, -away.z);
-      log?.(`[burrow] exit sprint away from ${waiter.name}`);
-      bot.setControlState("sprint", true);
-      bot.setControlState("forward", true);
-      bot.setControlState("jump", false);
-      const t0 = Date.now();
-      while (Date.now() - t0 < 2000) {
-        bot.look(yaw, 0, true);
-        await sleep(140);
+      yaw = Math.atan2(-away.x, -away.z);
+      if (waiter.position.distanceTo(bot.entity.position) < 26) {
+        log?.(`[burrow] exit sprint away from ${waiter.name}`);
       }
-      bot.setControlState("forward", false);
-      bot.setControlState("sprint", false);
     }
+    bot.setControlState("sprint", true);
+    bot.setControlState("forward", true);
+    bot.setControlState("jump", false);
+    const t0 = Date.now();
+    while (Date.now() - t0 < 2500) {
+      bot.look(yaw, 0, true);
+      await sleep(140);
+    }
+    bot.setControlState("forward", false);
+    bot.setControlState("sprint", false);
   } catch {
     /* exit sprint is best-effort */
   }
