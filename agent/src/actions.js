@@ -759,7 +759,7 @@ export async function executeAction(bot, action, mcData) {
 
       case "eat": {
         const FOOD =
-          /cooked|beef|pork|bread|apple|carrot|potato|baked|chicken|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit/;
+          /cooked|beef|pork|bread|apple|carrot|potato|baked|chicken|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit|rotten_flesh/;
         const wanted = action.item ? String(action.item) : null;
         const foods = bot.inventory
           .items()
