@@ -461,11 +461,24 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
   return null;
 }
 
+const STASH_FOOD = /^(bread|cooked_beef|cooked_porkchop|cooked_chicken|cooked_mutton|cooked_cod|cooked_salmon|baked_potato|golden_carrot)$/;
+
 export async function stashDeposit(bot, mcData, log, state) {
   try {
-    // nothing worth storing → skip entirely (keeps the step cheap)
     const surplus = bot.inventory.items().filter((i) => i.count > stashKeepCount(i.name));
-    if (!surplus.length) return { ok: true, message: "nothing to stash" };
+    // one-time "restart kit" per world: planks+sticks+table+food in the chest
+    // is enough to re-craft the whole wood toolkit standing at the chest —
+    // a death then costs a walk home, not a naked forest trek with fists
+    const items = bot.inventory.items();
+    const countOf = (re) => items.filter((i) => re.test(i.name)).reduce((n, i) => n + i.count, 0);
+    const kitDue =
+      state &&
+      !state.stashKitDone &&
+      countOf(/_planks$/) >= 16 &&
+      countOf(/^stick$/) >= 8 &&
+      items.some((i) => i.name === "crafting_table") &&
+      countOf(STASH_FOOD) >= 8;
+    if (!surplus.length && !kitDue) return { ok: true, message: "nothing to stash" };
     const chestBlock = await stashFindOrPlaceChest(bot, mcData, state);
     if (!chestBlock) return { ok: false, message: "no chest" };
     const chest = await pt(bot.openChest(chestBlock), 8000, "open chest");
@@ -477,6 +490,27 @@ export async function stashDeposit(bot, mcData, log, state) {
         if (give <= 0) continue;
         await pt(chest.deposit(item.type, item.metadata, give), 8000, "deposit");
         moved += give;
+      }
+      if (kitDue) {
+        let kitMoved = 0;
+        for (const [re, want] of [
+          [/_planks$/, 8],
+          [/^stick$/, 4],
+          [/^crafting_table$/, 1],
+          [STASH_FOOD, 4],
+        ]) {
+          let left = want;
+          for (const it of bot.inventory.items().filter((i) => re.test(i.name))) {
+            if (left <= 0) break;
+            const g = Math.min(left, it.count);
+            if (g <= 0) continue;
+            await pt(chest.deposit(it.type, it.metadata, g), 8000, "kit deposit");
+            left -= g;
+            kitMoved += g;
+            moved += g;
+          }
+        }
+        if (kitMoved >= 12) state.stashKitDone = `${chestBlock.position.x},${chestBlock.position.z}`;
       }
     } finally {
       chest.close();
@@ -500,7 +534,7 @@ export async function stashRecover(bot, mcData, log, state) {
     }
     const near = cands
       .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
-      .filter((e) => e.d <= 160)
+      .filter((e) => e.d <= 300)
       .sort((a, b) => a.d - b.d)
       .slice(0, 4);
     if (!near.length) return { ok: false, message: "no stash" };
