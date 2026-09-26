@@ -106,6 +106,7 @@ export class ClearRunner {
       const p = this.bot.entity?.position;
       const at = p ? ` @${p.x | 0},${p.y | 0},${p.z | 0}` : "";
       this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${at}`);
+      if (p) this.state._diedPos = { x: p.x, z: p.z };
     };
     this._respawnHandler = () => {
       try {
@@ -126,6 +127,21 @@ export class ClearRunner {
         // the respawn kill-zone before resuming progression. Bare-handed
         // reflex fights are suicide — park combat until the escape lands.
         this._needRetreat = true;
+        // kick the sprint NOW — waiting for the next loop tick gives a
+        // spawn-camping creeper its whole 1.5s fuse. Run away from the
+        // death spot; the loop's own escape continues from there.
+        try {
+          const dp = this.state._diedPos;
+          const me = this.bot.entity?.position;
+          if (dp && me) {
+            const dx = me.x - dp.x;
+            const dz = me.z - dp.z;
+            const len = Math.hypot(dx, dz) || 1;
+            void sprintBurst((dx / len) * 40, (dz / len) * 40, 1500).catch(() => {});
+          }
+        } catch {
+          /* ignore */
+        }
         try {
           this.combat?.setMode?.("off");
         } catch {
@@ -172,6 +188,36 @@ export class ClearRunner {
     }
   }
 
+  // sprintBurst: control-state movement starts in <100ms — pathfinder
+  // goto needs ~1s to spin up, and skeletons lead shots on standing
+  // targets. 1.5s of sprint+zigzag buys distance before planning.
+  async _sprintBurst(fdx, fdz, ms = 1500) {
+    const bot = this.bot;
+    try {
+      const yaw = Math.atan2(-fdx, -fdz);
+      bot.setControlState("sprint", true);
+      bot.setControlState("forward", true);
+      const t0 = Date.now();
+      let flip = false;
+      while (Date.now() - t0 < ms) {
+        flip = !flip;
+        bot.look(yaw + (flip ? 0.5 : -0.5), 0, true);
+        bot.setControlState("jump", Date.now() % 700 < 350);
+        await sleep(280);
+      }
+    } catch {
+      /* keep bursting best-effort */
+    } finally {
+      try {
+        bot.setControlState("jump", false);
+        bot.setControlState("forward", false);
+        bot.setControlState("sprint", false);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
   async _loop() {
     const { bot, state } = this;
     let lastMilestone = null;
@@ -189,30 +235,7 @@ export class ClearRunner {
         // Post-death escape FIRST: inventory is empty on respawn, so fighting
         // the camping mob bare-handed is a loss. At night hide underground;
         // by day sprint far away. Must run before the combat yield.
-        // sprintBurst: control-state movement starts in <100ms — pathfinder
-        // goto needs ~1s to spin up, and skeletons lead shots on standing
-        // targets. 1.5s of sprint+zigzag buys distance before planning.
-        const sprintBurst = async (fdx, fdz, ms = 1500) => {
-          try {
-            const yaw = Math.atan2(-fdx, -fdz);
-            bot.setControlState("sprint", true);
-            bot.setControlState("forward", true);
-            const t0 = Date.now();
-            let flip = false;
-            while (Date.now() - t0 < ms) {
-              flip = !flip;
-              bot.look(yaw + (flip ? 0.5 : -0.5), 0, true);
-              bot.setControlState("jump", Date.now() % 700 < 350);
-              await sleep(280);
-            }
-          } catch {
-            /* keep bursting best-effort */
-          } finally {
-            bot.setControlState("jump", false);
-            bot.setControlState("forward", false);
-            bot.setControlState("sprint", false);
-          }
-        };
+        const sprintBurst = (fdx, fdz, ms = 1500) => this._sprintBurst(fdx, fdz, ms);
         // spawn-camp killer pattern was: one 70m goto → pathfinder timeout on
         // rocky terrain → stand still → mob walks up. Chain short hops instead:
         // instant sprint then a bounded goto, repeated until the camper is
