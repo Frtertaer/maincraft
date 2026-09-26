@@ -1876,6 +1876,29 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         } catch {
           /* refuge dressing failed — the pillar itself still stands */
         }
+        // a shooter that strafes or wanders in later beats the reactive
+        // single-axis wall — with any ranged mob in the area, wall ALL four
+        // axes up front so no angle stays open while they close
+        try {
+          const anyRanged = Object.values(bot.entities || {}).some((e) => {
+            if (!e?.position || e === bot.entity) return false;
+            const n = String(e.name || "").toLowerCase();
+            return (e.kind === "Hostile mobs" || /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n)) &&
+              /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n) &&
+              e.position.distanceTo(bot.entity.position) < 40;
+          });
+          if (anyRanged) {
+            for (const [wx, wz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+              if (walled.has(`${wx},${wz}`)) continue;
+              if (await raiseWall(wx, wz)) {
+                walled.add(`${wx},${wz}`);
+                log?.("[burrow] refuge ring wall up");
+              }
+            }
+          }
+        } catch {
+          /* ring build best-effort — walls raised so far still cover */
+        }
         const t0 = Date.now();
         let lastBeat = 0;
         while (!safe() && Date.now() - t0 < 620000) {
