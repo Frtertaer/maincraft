@@ -1847,6 +1847,34 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       } finally {
         bot._inShelter = false;
       }
+      // same blind-surface kill as the pocket exit — a camper waiting at the
+      // pillar base hits before the reflex reparks; sprint away first
+      try {
+        const waiter = Object.values(bot.entities || {})
+          .filter((e) => {
+            if (!e?.position || e === bot.entity) return false;
+            const n = String(e.name || "").toLowerCase();
+            return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
+          })
+          .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+        if (waiter && waiter.position.distanceTo(bot.entity.position) < 7) {
+          const away = bot.entity.position.minus(waiter.position);
+          const yaw = Math.atan2(-away.x, -away.z);
+          log?.(`[burrow] exit sprint away from ${waiter.name}`);
+          bot.setControlState("sprint", true);
+          bot.setControlState("forward", true);
+          bot.setControlState("jump", false);
+          const t0 = Date.now();
+          while (Date.now() - t0 < 1400) {
+            bot.look(yaw, 0, true);
+            await sleep(140);
+          }
+          bot.setControlState("forward", false);
+          bot.setControlState("sprint", false);
+        }
+      } catch {
+        /* exit sprint is best-effort */
+      }
       log?.("[burrow] dawn — down from pillar");
       return true;
     }
@@ -2120,6 +2148,34 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   }
   } finally {
     bot._inShelter = false;
+  }
+  // surface straight into a camper is the recurring exit death — sprint a
+  // short separation burst away from any hostile already in melee range
+  try {
+    const waiter = Object.values(bot.entities || {})
+      .filter((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || "").toLowerCase();
+        return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
+      })
+      .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+    if (waiter && waiter.position.distanceTo(bot.entity.position) < 7) {
+      const away = bot.entity.position.minus(waiter.position);
+      const yaw = Math.atan2(-away.x, -away.z);
+      log?.(`[burrow] exit sprint away from ${waiter.name}`);
+      bot.setControlState("sprint", true);
+      bot.setControlState("forward", true);
+      bot.setControlState("jump", false);
+      const t0 = Date.now();
+      while (Date.now() - t0 < 1400) {
+        bot.look(yaw, 0, true);
+        await sleep(140);
+      }
+      bot.setControlState("forward", false);
+      bot.setControlState("sprint", false);
+    }
+  } catch {
+    /* exit sprint is best-effort */
   }
   log?.("[burrow] dawn — back out");
   return true;
