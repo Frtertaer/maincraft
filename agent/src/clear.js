@@ -294,6 +294,21 @@ export class ClearRunner {
           try {
           if (isNight) {
             this.log(`[clear] night respawn — flee then burrow`);
+            // respawning on a claimed bed puts the bed a few blocks away —
+            // sleeping skips the whole night AND keeps the spawn anchor;
+            // sprinting 70m away from it is exactly how the bed gets lost
+            try {
+              const bedHere = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
+              if (bedHere) {
+                const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state).catch(() => ({ ok: false }));
+                if (slept.ok) {
+                  this.log(`[clear] ${slept.message}`);
+                  continue;
+                }
+              }
+            } catch {
+              /* fall through to the flee */
+            }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
