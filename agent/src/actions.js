@@ -511,9 +511,13 @@ export async function executeAction(bot, action, mcData) {
         }
         if (!recipes.length) {
           // Prefer closest table within 6, then 16 — avoid pathing across map to stale tables
+          bot._badTables = bot._badTables || new Set();
+          const reach = (b) =>
+            b && b.name === "crafting_table" &&
+            !bot._badTables.has(`${b.position.x},${b.position.y},${b.position.z}`);
           craftingTable =
-            bot.findBlock({ matching: (b) => b && b.name === "crafting_table", maxDistance: 6 }) ||
-            bot.findBlock({ matching: (b) => b && b.name === "crafting_table", maxDistance: 16 });
+            bot.findBlock({ matching: reach, maxDistance: 6 }) ||
+            bot.findBlock({ matching: reach, maxDistance: 16 });
           if (!craftingTable) {
             return {
               ok: false,
@@ -533,7 +537,8 @@ export async function executeAction(bot, action, mcData) {
           // opens with server-authoritative slots, while the always-open
           // player inventory can carry stale state (the desync class that
           // produces phantom "missing ingredient" failures)
-          const nearby = bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table", maxDistance: 16 });
+          const nearby = bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table" &&
+            !(bot._badTables || new Set()).has(`${b.position.x},${b.position.y},${b.position.z}`), maxDistance: 16 });
           if (nearby) {
             craftingTable = bot.blockAt(nearby.position) || nearby;
             const tableRecipes = bot.recipesFor(item.id, null, 1, craftingTable);
@@ -553,6 +558,12 @@ export async function executeAction(bot, action, mcData) {
             } catch (err) {
               // If already reasonably close, try craft anyway (open table range ~4)
               if (bot.entity.position.distanceTo(craftingTable.position) > 4.5) {
+                // unreachable table (sealed pocket, cliff): blacklist it so the
+                // next craft call walks to a different table instead of stalling
+                // on this same one forever
+                (bot._badTables = bot._badTables || new Set()).add(
+                  `${craftingTable.position.x},${craftingTable.position.y},${craftingTable.position.z}`
+                );
                 return { ok: false, message: `path to table: ${err.message || err}` };
               }
             }
