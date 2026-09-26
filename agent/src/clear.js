@@ -560,7 +560,9 @@ export class ClearRunner {
         // quiet killer of the marathon. Eat carried food or hunt animals.
         // At food<=4 it's a CRISIS — the bot can't sprint and dies to one
         // hit: phase work pauses until it eats something real.
-        if (bot.food != null && bot.food < 14 && Date.now() - (this._lastFood || 0) > 25000) {
+        // gated on the bail too — an underground starving loop was doing
+        // nothing but 45s starve-walk pathfinder timeouts through rock
+        if (bot.food != null && bot.food < 14 && (this._starveBail || 0) < 2 && Date.now() - (this._lastFood || 0) > 25000) {
           this._lastFood = Date.now();
           try {
             const fed = await ensureFed(bot, this.mcData, this.log, this.state);

@@ -2331,8 +2331,22 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
   }
   // nothing edible in range — starve-walk: animals render within a few
-  // chunks, so keep moving along one heading until something spawns
-  if (bot.food <= 4 && state) {
+  // chunks, so keep moving along one heading until something spawns.
+  // Underground it can only time out — no animals spawn below ground, and a
+  // wander goto just crashes into rock; keep working hungry instead.
+  const canSeeSky = (() => {
+    try {
+      const feet = bot.entity.position.floored();
+      for (let dy = 0; dy < 3; dy++) {
+        const b = bot.blockAt(feet.offset(0, dy, 0));
+        if (b && (b.skyLight ?? 0) > 4) return true;
+      }
+    } catch {
+      /* unknown — assume indoor */
+    }
+    return bot.entity.position.y > 58;
+  })();
+  if (bot.food <= 4 && state && canSeeSky) {
     const p = bot.entity.position.floored();
     if (!state.foodWanderDir) {
       state.foodWanderDir = pickDryDir(bot, [
