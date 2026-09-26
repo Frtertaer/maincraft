@@ -2528,15 +2528,15 @@ async function phaseWood(bot, mcData, state, log) {
       // zero-gain streak: collect keeps resolving ok while grabbing nothing —
       // escalate a real wander after a few rounds or the run churns forever
       state.woodZeroGain = (state.woodZeroGain || 0) + 1;
+      // a remembered site we were just walked to produced nothing — it is
+      // chopped ground; mark the cell dead now instead of streak-waiting
+      if (state && state.lastSiteCell) {
+        (state.deadLogCells = state.deadLogCells || {})[state.lastSiteCell] = true;
+        state.lastSiteCell = null;
+      }
       if (state.woodZeroGain >= 4) {
         state.woodZeroGain = 0;
         const p = bot.entity.position.floored();
-        if (state && state.lastSiteCell) {
-          // the site we were just walked to produced nothing — never walk
-          // there again this run
-          (state.deadLogCells = state.deadLogCells || {})[state.lastSiteCell] = true;
-          state.lastSiteCell = null;
-        }
         if (await gotoLogSite(bot, mcData, state, p)) {
           return { ok: true, phase: "wood", message: "zero-gain — back to log site" };
         }
