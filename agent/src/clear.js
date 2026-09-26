@@ -320,20 +320,42 @@ export class ClearRunner {
             }
             this.log(`[clear] night flee ${fdx},${fdz} after death #${this.deaths}`);
             await fleeUntilClear(fdx, fdz).catch(() => {});
-            try {
-              // bare-handed on stone ground the burrow can't dig — punch a
-              // few logs first so planks exist for the pillar fallback
-              await punchNearbyLogs(bot, this.mcData, 4);
-            } catch {
-              /* no tree in reach — burrow anyway */
+            // the escape gap is ~15s before the horde re-converges — a log
+            // punch (~30-60s) or a sheep hunt (~60s) spends it entirely and
+            // the burrow never starts. Only prep when genuinely clear.
+            const stillClose = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              const hostile =
+                e.kind === "Hostile mobs" ||
+                /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|enderman|witch/.test(n);
+              return hostile && e.position.distanceTo(bot.entity.position) < 40;
+            });
+            if (!stillClose) {
+              try {
+                // bare-handed on stone ground the burrow can't dig — punch a
+                // few logs first so planks exist for the pillar fallback
+                await punchNearbyLogs(bot, this.mcData, 4);
+              } catch {
+                /* no tree in reach — burrow anyway */
+              }
             }
+            // bed attempt only when one is already in hand or placed —
+            // hunting sheep under an approaching pack is a death loop
+            const bedNear =
+              bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
+              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
             try {
-              // bed beats burrow: sheep are everywhere near spawn and a
-              // slept night skips the whole exposure window
-              const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
-              if (slept.ok) this.log(`[clear] ${slept.message}`);
-              else {
-                this.log(`[clear] no bed: ${slept.message}`);
+              if (bedNear && !stillClose) {
+                const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
+                if (slept.ok) {
+                  this.log(`[clear] ${slept.message}`);
+                } else {
+                  this.log(`[clear] no bed: ${slept.message}`);
+                  await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                }
+              } else {
+                if (!bedNear && stillClose) this.log(`[clear] pack within 40m — burrow immediately`);
                 await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
               }
             } catch (err) {
