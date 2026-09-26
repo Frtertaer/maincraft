@@ -2556,6 +2556,25 @@ async function phaseWood(bot, mcData, state, log) {
         (state.deadLogCells = state.deadLogCells || {})[state.lastSiteCell] = true;
         state.lastSiteCell = null;
       }
+      // a dig/collect that "succeeded" but dropped nothing reachable leaves
+      // the stump unmarked — badDig only counts path failures — so the
+      // fallback re-picks the same dead trunk forever (gather(0)/no-log
+      // ping-pong). Mark standing logs near us so the matcher drops them.
+      try {
+        state.badDig = state.badDig || new Map();
+        const feet2 = bot.entity.position;
+        const stumps = bot
+          .findBlocks({
+            matching: (b) => b && typeof b.name === "string" && b.name.endsWith("_log"),
+            maxDistance: 24,
+            count: 4,
+          })
+          .filter((pos) => pos.distanceTo(feet2) < 24);
+        for (const pos of stumps) {
+          const k = `${pos.x},${pos.y},${pos.z}`;
+          state.badDig.set(k, (state.badDig.get(k) || 0) + 2);
+        }
+      } catch {}
       if (state.woodZeroGain >= 4) {
         state.woodZeroGain = 0;
         const p = bot.entity.position.floored();
