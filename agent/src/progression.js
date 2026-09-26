@@ -2455,6 +2455,22 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) break; // no sheep in range — give up early
+        // the kill lands but the wool item just sits there — a dropped item
+        // is an entity, not a block, so collect() can't see it. Walk over it
+        const drop = Object.values(bot.entities || {}).find(
+          (e) =>
+            e?.position &&
+            e !== bot.entity &&
+            (e.item ? /wool/.test(String(e.item.name || "")) : /wool|item/.test(String(e.name || ""))) &&
+            e.position.distanceTo(bot.entity.position) < 14
+        );
+        if (drop) {
+          await executeAction(
+            bot,
+            { type: "goto", x: drop.position.x, y: drop.position.y, z: drop.position.z, range: 1, timeoutMs: 6000 },
+            mcData
+          ).catch(() => {});
+        }
       }
       if (woolCount() >= 3) {
         if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3 && countItem(bot, CRAFTABLE_LOG) > 0) {
