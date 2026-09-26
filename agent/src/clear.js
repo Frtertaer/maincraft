@@ -534,12 +534,15 @@ export class ClearRunner {
               .sort(
                 (a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
               )[0];
-            if (melee && melee.position.distanceTo(bot.entity.position) < 7) {
+            // creepers walking in during the ~12s dig are the top killer —
+            // an 8m gap closes before the pocket seals; sprint until ~25m
+            const meleeDist = melee ? melee.position.distanceTo(bot.entity.position) : 99;
+            if (melee && meleeDist < 22) {
               const away = bot.entity.position.minus(melee.position);
               const sdx = Math.sign(away.x || 1) * 40;
               const sdz = Math.sign(away.z || 1) * 40;
-              this.log(`[clear] separation sprint away from ${melee.name}`);
-              await sprintBurst(sdx, sdz, 1400).catch(() => {});
+              this.log(`[clear] separation sprint away from ${melee.name}@${meleeDist.toFixed(0)}m`);
+              await sprintBurst(sdx, sdz, 2400).catch(() => {});
             }
             // bed first on real nights — a slept night is ~30s of exposure
             // vs ~9.5min sealed; burrow remains the fallback. In daylight it
