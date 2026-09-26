@@ -2893,6 +2893,12 @@ async function phaseIron(bot, mcData, state, log) {
     // that's been the death loop all night
     const y = Math.floor(bot.entity.position.y);
     if (y > 16) {
+      // never descend hungry: nothing edible spawns underground — eat/hunt at
+      // the surface while there is still sky, or the whole mine runs at 0.5hp
+      if (bot.food != null && bot.food < 10) {
+        const fed = await ensureFed(bot, mcData, log, state);
+        if (fed.ate) return { ok: true, phase: "iron", message: "pre-descend food" };
+      }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
       // tools and table/table-fuel must come down with us
       const woodStock =
