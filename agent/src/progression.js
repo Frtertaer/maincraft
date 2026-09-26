@@ -2445,11 +2445,13 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
 
   if (!bedBlock()) {
     if (!bedItem()) {
-      // hunt sheep until 3 wool — fists work, a few hits each
+      // hunt sheep until 3 wool — fists work, a few hits each. persistent:
+      // a sheep sprints when hit and the default 36m leash ends every chase
+      // with zero wool — hold the same target until it's dead or truly gone
       for (let i = 0; i < 5 && woolCount() < 3; i++) {
         const r = await executeAction(
           bot,
-          { type: "attack", name: "sheep", maxDurationMs: 12000, maxDistance: 48 },
+          { type: "attack", name: "sheep", maxDurationMs: 25000, maxDistance: 48, persistent: true },
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) break; // no sheep in range — give up early

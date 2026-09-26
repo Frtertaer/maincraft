@@ -956,7 +956,11 @@ async function boundedCombat(bot, action) {
       }
 
       const distance = distanceBetween(bot.entity.position, target.position);
-      if (!Number.isFinite(distance) || distance > maxDistance + 4) {
+      // passive prey sprints when hit — the ~36m escape leash is how every
+      // sheep hunt ends with zero wool. persistent hunts hold the chase and
+      // only give up when the target is truly gone (despawned / 60m out)
+      const leash = action.persistent ? 60 : maxDistance + 4;
+      if (!Number.isFinite(distance) || distance > leash) {
         return { ok: false, message: `target ${label} escaped (${round1(distance)}m)` };
       }
       if (distance > 3.1) {
