@@ -512,9 +512,11 @@ export async function executeAction(bot, action, mcData) {
         if (!recipes.length) {
           // Prefer closest table within 6, then 16 — avoid pathing across map to stale tables
           bot._badTables = bot._badTables || new Set();
+          // the palette-level matcher gets a Block with position=null —
+          // guard it; the per-block matcher sees the real position
           const reach = (b) =>
             b && b.name === "crafting_table" &&
-            !bot._badTables.has(`${b.position.x},${b.position.y},${b.position.z}`);
+            !(b.position && bot._badTables.has(`${b.position.x},${b.position.y},${b.position.z}`));
           craftingTable =
             bot.findBlock({ matching: reach, maxDistance: 6 }) ||
             bot.findBlock({ matching: reach, maxDistance: 16 });
@@ -538,7 +540,7 @@ export async function executeAction(bot, action, mcData) {
           // player inventory can carry stale state (the desync class that
           // produces phantom "missing ingredient" failures)
           const nearby = bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table" &&
-            !(bot._badTables || new Set()).has(`${b.position.x},${b.position.y},${b.position.z}`), maxDistance: 16 });
+            !(b.position && (bot._badTables || new Set()).has(`${b.position.x},${b.position.y},${b.position.z}`)), maxDistance: 16 });
           if (nearby) {
             craftingTable = bot.blockAt(nearby.position) || nearby;
             const tableRecipes = bot.recipesFor(item.id, null, 1, craftingTable);
