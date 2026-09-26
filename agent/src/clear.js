@@ -546,19 +546,27 @@ export class ClearRunner {
             /* food err — continue */
           }
         }
-        if (bot.food != null && bot.food <= 4) {
+        if (bot.food != null && bot.food > 8) this._starveBail = 0;
+        if (bot.food != null && bot.food <= 4 && (this._starveBail || 0) < 2) {
           this.log(`[clear] starving (food=${bot.food}) — pausing for food`);
           const hungerT0 = Date.now();
+          let foundFood = false;
           while (bot.food != null && bot.food <= 8 && Date.now() - hungerT0 < 90000) {
             try {
               const fed2 = await ensureFed(bot, this.mcData, this.log, this.state);
-              if (fed2?.ate) this.log(`[clear] ate (food=${bot.food})`);
+              if (fed2?.ate) {
+                this.log(`[clear] ate (food=${bot.food})`);
+                foundFood = true;
+              }
               if (bot.food > 8) break;
               await sleep(3000);
             } catch {
               break;
             }
           }
+          // hunts can fail indefinitely underground — bail and keep grinding
+          // at 1hp instead of looping forever; a death resets hunger anyway
+          this._starveBail = foundFood || bot.food > 8 ? 0 : (this._starveBail || 0) + 1;
         }
         // Survival for surface phases: burrow at night (mobs will come), and
         // also in daylight when a hostile is camped nearby and the run has
