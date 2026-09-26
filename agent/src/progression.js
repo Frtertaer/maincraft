@@ -2528,7 +2528,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       for (let i = 0; i < 5 && woolCount() < 3; i++) {
         const r = await executeAction(
           bot,
-          { type: "attack", name: "sheep", maxDurationMs: 25000, maxDistance: 48, persistent: true },
+          { type: "attack", name: "sheep", maxDurationMs: 25000, maxDistance: 64, persistent: true },
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) {

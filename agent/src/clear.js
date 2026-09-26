@@ -809,7 +809,7 @@ export class ClearRunner {
             .filter((e) => e?.position && e.name === "sheep")
             .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))
             .find((e) => e.position.distanceTo(bot.entity.position) < 130);
-          if (woolHeld < 3 && sheepNear && sheepNear.position.distanceTo(bot.entity.position) > 40) {
+          if (woolHeld < 3 && sheepNear && sheepNear.position.distanceTo(bot.entity.position) > 24) {
             const sx = sheepNear.position.x;
             const sz = sheepNear.position.z;
             await executeAction(
