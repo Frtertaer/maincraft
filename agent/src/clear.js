@@ -106,7 +106,23 @@ export class ClearRunner {
       const p = this.bot.entity?.position;
       const at = p ? ` @${p.x | 0},${p.y | 0},${p.z | 0}` : "";
       this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${at}`);
-      if (p) this.state._diedPos = { x: p.x, z: p.z };
+      if (p) {
+        this.state._diedPos = { x: p.x, z: p.z };
+        // a spawn camp is a place, not a moment — two deaths inside ~150m of
+        // each other within 10min means re-entering that area is how the
+        // loop dies; mark it and every flee/site pick steers away
+        const pts = (this.state._deathPts = (this.state._deathPts || []).filter((d) => Date.now() - d.t < 600000));
+        pts.push({ x: p.x, z: p.z, t: Date.now() });
+        const cluster = pts.filter((d) => Math.hypot(d.x - p.x, d.z - p.z) < 150);
+        if (cluster.length >= 2) {
+          const cx = Math.round(cluster.reduce((a, d) => a + d.x, 0) / cluster.length);
+          const cz = Math.round(cluster.reduce((a, d) => a + d.z, 0) / cluster.length);
+          if (!this.state.campZone || Math.hypot(this.state.campZone.x - cx, this.state.campZone.z - cz) > 60) {
+            this.state.campZone = { x: cx, z: cz };
+            this.log(`[clear] camp zone marked ${cx},${cz} — avoiding`);
+          }
+        }
+      }
     };
     this._respawnHandler = () => {
       try {
@@ -324,9 +340,26 @@ export class ClearRunner {
             // reach; otherwise keep the dry-window pick
             const siteDir = (this.state?.logSites || [])
               .map((s) => ({ s, d: Math.hypot(s.x - pf.x, s.z - pf.z) }))
-              .filter((e) => e.d > 30 && e.d < 300)
+              .filter(
+                (e) =>
+                  e.d > 30 &&
+                  e.d < 300 &&
+                  !(this.state?.campZone && Math.hypot(e.s.x - this.state.campZone.x, e.s.z - this.state.campZone.z) < 150)
+              )
               .sort((a, b) => a.d - b.d)[0]?.s;
-            let [fdx, fdz] = pickDryDir(bot, fleeDirs);
+            const awayFromCamp = (pos, dirs) => {
+              const cz = this.state?.campZone;
+              if (!cz) return dirs;
+              const ok = dirs.filter(([dx, dz]) => Math.hypot(pos.x + dx - cz.x, pos.z + dz - cz.z) > 120);
+              if (ok.length) return ok;
+              // a 70m hop in any direction still lands inside the camp —
+              // take the long straight line away instead
+              const ax = pos.x - cz.x;
+              const az = pos.z - cz.z;
+              const n = Math.max(Math.abs(ax), Math.abs(az)) || 1;
+              return [[Math.round((ax / n) * 200), Math.round((az / n) * 200)]];
+            };
+            let [fdx, fdz] = pickDryDir(bot, awayFromCamp(pf, fleeDirs));
             if (siteDir) {
               const sx = siteDir.x - pf.x;
               const sz = siteDir.z - pf.z;
@@ -449,11 +482,25 @@ export class ClearRunner {
               // a camper reads the deterministic dry-dir exit — after a couple
               // of spawn-camp deaths, rotate the escape instead of running the
               // same bearing into the same arrow; still prefer the drier of
-              // two fresh directions so we don't flee straight into a river
+              // two fresh directions so we don't flee straight into a river;
+              // camp zone drops any bearing that lands back inside the death
+              // cluster — day-flee through the camp is how the tally grows
+              const czD = this.state?.campZone;
+              const campOk = czD
+                ? (d) => Math.hypot(pf.x + d[0] - czD.x, pf.z + d[1] - czD.z) > 120
+                : () => true;
+              const dirsOk = fleeDirs.filter(campOk);
               const [fdx, fdz] =
-                this.deaths >= 2
-                  ? pickDryDir(bot, [fleeDirs[this.deaths % 4], fleeDirs[(this.deaths + 1) % 4]])
-                  : pickDryDir(bot, fleeDirs);
+                dirsOk.length > 0
+                  ? this.deaths >= 2
+                    ? pickDryDir(bot, [dirsOk[this.deaths % dirsOk.length], dirsOk[(this.deaths + 1) % dirsOk.length]])
+                    : pickDryDir(bot, dirsOk)
+                  : (() => {
+                      const ax = pf.x - czD.x;
+                      const az = pf.z - czD.z;
+                      const n = Math.max(Math.abs(ax), Math.abs(az)) || 1;
+                      return [Math.round((ax / n) * 200), Math.round((az / n) * 200)];
+                    })();
               this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
               await fleeUntilClear(fdx, fdz).catch(() => {});
             } else {

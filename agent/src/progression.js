@@ -1429,6 +1429,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     log?.("[burrow] no safe column — carving into tunnel wall");
   }
   if (!spot) {
+    // a pillar is NOT cover from a ranged camper — a skeleton shoots you off
+    // the top before it finishes. With a shooter in range the only working
+    // move is to keep sprinting and break line of sight (arrows whiff a
+    // sprint-jumping target past ~25m); a melee-only camp is what pillars beat
+    const rangedNear = Object.values(bot.entities || {}).some(
+      (e) =>
+        e?.position &&
+        (e.kind === "Hostile mobs" || /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || ""))) &&
+        /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || "")) &&
+        e.position.distanceTo(bot.entity.position) < 36
+    );
+    if (rangedNear) {
+      log?.("[burrow] no safe column + ranged camper — keep fleeing, pillar is suicide");
+      return { ok: false, reason: "ranged camper — pillar exposed" };
+    }
     // last resort: pillar up where we stand — mobs can't climb 6+ blocks
     // (skeletons can still shoot; still better than standing on the ground)
     log?.("[burrow] no safe column — pillaring up");
@@ -2596,7 +2611,13 @@ async function gotoLogSite(bot, mcData, state, p) {
   const cellOf = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
   const site = (state?.logSites || [])
     .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
-    .filter((e) => e.d > 30 && e.d < 400 && !dead[cellOf(e.s.x, e.s.z)])
+    .filter(
+      (e) =>
+        e.d > 30 &&
+        e.d < 400 &&
+        !dead[cellOf(e.s.x, e.s.z)] &&
+        !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150)
+    )
     .sort((a, b) => a.d - b.d)[0];
   if (!site) return false;
   if (state) state.lastSiteCell = cellOf(site.s.x, site.s.z);
