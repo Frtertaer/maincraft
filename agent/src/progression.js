@@ -1559,6 +1559,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
           let climbed = 0;
           let stairWhy = "";
+          const stairTrail = [];
           // the fallback runs right after failed jump attempts — the bot can
           // still be airborne with the cell under its feet reading air. Wait
           // to land, then use the column we were pillaring on as the stand
@@ -1599,6 +1600,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
                 await pt(bot.equip(s1, "hand"), 6000, "equip").catch(() => {});
                 try {
                   await pt(bot.placeBlock(stand, new Vec3(dx, 0, dz)), 7000, "stair-bridge");
+                  stairTrail.push(bridgePos.clone());
                 } catch (be) {
                   stairWhy = `bridge-refused(${be?.message || be})`;
                   continue;
@@ -1618,6 +1620,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               await pt(bot.equip(s2, "hand"), 6000, "equip").catch(() => {});
               try {
                 await pt(bot.placeBlock(riserBase, new Vec3(0, 1, 0)), 7000, "stair-riser");
+                stairTrail.push(riserBase.position.offset(0, 1, 0));
               } catch (re) {
                 stairWhy = `riser-refused(${re?.message || re})`;
                 continue;
@@ -1647,6 +1650,20 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             break;
           }
           log?.(`[burrow] staircase +${climbed}`);
+          // a staircase is WALKABLE — zombies climb it (the on-pillar death).
+          // Break the bottom steps: the column top stays unreachable
+          const topY = bot.entity.position.floored().y;
+          for (const p of stairTrail) {
+            if (p.y > topY - 2) continue;
+            const b = bot.blockAt(p);
+            if (!b || b.name === "air" || !diggable(b)) continue;
+            try {
+              await pt(bot.dig(b), 8000, "stair-cut");
+            } catch {
+              /* unreachable from here — leave it */
+            }
+            await sleep(150);
+          }
           continue;
         }
         raised += 1;
