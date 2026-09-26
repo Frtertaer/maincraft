@@ -520,18 +520,19 @@ export class CombatReflex {
       const dz = bot.entity.position.z - fromEntity.position.z;
       const yaw = Math.atan2(-dx, -dz);
       bot.entity.yaw = yaw;
-      bot.setControlState("back", true);
+      // yaw already faces AWAY from the threat — press forward, not back:
+      // facing away + back walked the bot into the creeper it was fleeing
+      bot.setControlState("forward", true);
       bot.setControlState("sprint", true);
-      bot.setControlState("jump", true);
+      bot.setControlState("jump", false);
       this._stats.kites += 1;
       setTimeout(() => {
         try {
-          bot.setControlState("back", false);
-          bot.setControlState("jump", false);
+          bot.setControlState("forward", false);
         } catch {
           /* ignore */
         }
-      }, 350);
+      }, 450);
     } catch {
       /* ignore */
     }
