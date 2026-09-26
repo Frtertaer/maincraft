@@ -489,6 +489,25 @@ export class ClearRunner {
           // place next to the mob instead of sealing or relocating
           bot._burrowActive = true;
           try {
+            // a melee mob already in blast/reach range detonates mid-build —
+            // sprint out ~1.4s first for separation (sprint ~5.6 vs mob ~2.3
+            // m/s buys ~8m of buffer), then start the shelter work
+            const melee = Object.values(bot.entities || {})
+              .filter((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || "").toLowerCase();
+                return /zombie|creeper|spider|husk|vex|enderman|slime/.test(n);
+              })
+              .sort(
+                (a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
+              )[0];
+            if (melee && melee.position.distanceTo(bot.entity.position) < 7) {
+              const away = bot.entity.position.minus(melee.position);
+              const sdx = Math.sign(away.x || 1) * 40;
+              const sdz = Math.sign(away.z || 1) * 40;
+              this.log(`[clear] separation sprint away from ${melee.name}`);
+              await sprintBurst(sdx, sdz, 1400).catch(() => {});
+            }
             // bed first on real nights — a slept night is ~30s of exposure
             // vs ~9.5min sealed; burrow remains the fallback. In daylight it
             // still places+activates a bed to claim the spawn point — after
