@@ -414,6 +414,23 @@ export class ClearRunner {
               }
             }
             try {
+              // a melee camper on the respawn kills the build mid-work the
+              // same way it does the night burrow — separation burst first
+              const melee2 = Object.values(bot.entities || {})
+                .filter((e) => {
+                  if (!e?.position || e === bot.entity) return false;
+                  const n = String(e.name || "").toLowerCase();
+                  return /zombie|creeper|spider|husk|vex|enderman|slime/.test(n);
+                })
+                .sort(
+                  (a, b) =>
+                    a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
+                )[0];
+              if (melee2 && melee2.position.distanceTo(bot.entity.position) < 9) {
+                const away = bot.entity.position.minus(melee2.position);
+                this.log(`[clear] separation sprint away from ${melee2.name}`);
+                await sprintBurst(Math.sign(away.x || 1) * 40, Math.sign(away.z || 1) * 40, 1500).catch(() => {});
+              }
               // a camper at spawn survives every respawn — a bed activate
               // moves the spawn point permanently, no sleep needed in daylight
               const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
