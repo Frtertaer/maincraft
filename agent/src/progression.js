@@ -1287,10 +1287,41 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // follows forever must not recurse forever
     state = state || {};
     state._camperHops = state._camperHops || 0;
-    if (findHostile(bot, 12) && state._camperHops < 3) {
+    const camperNow = findHostile(bot, 12);
+    if (camperNow && state._camperHops < 3) {
       state._camperHops += 1;
       log?.("[burrow] camper followed — keep hopping");
       return retryElsewhere("camper at site");
+    }
+    // hops never lose a follower — the only way to break contact is to
+    // out-sprint it (zombie 2.3m/s vs sprint ~5.6). Hard sprint, then try
+    // the burrow again at the far site; digging in place with a mob inside
+    // reach is exactly the mid-carve death loop
+    if (camperNow && !state._camperFled) {
+      state._camperFled = true;
+      log?.("[burrow] camper sticky — hard sprint to break contact");
+      try {
+        const away = bot.entity.position.minus(camperNow.position);
+        const yaw = Math.atan2(-away.x, -away.z);
+        bot.setControlState("sprint", true);
+        bot.setControlState("forward", true);
+        const t0 = Date.now();
+        while (Date.now() - t0 < 10000) {
+          bot.look(yaw, 0, true);
+          bot.setControlState("jump", Date.now() % 800 < 400);
+          await sleep(160);
+        }
+        bot.setControlState("forward", false);
+        bot.setControlState("sprint", false);
+        bot.setControlState("jump", false);
+      } catch {
+        /* best effort — retry wherever we landed */
+      }
+      state._camperHops = 0;
+      return retryElsewhere("fled camper");
+    }
+    if (camperNow && state._camperFled) {
+      return { ok: false, reason: "camper kept up through the flee" };
     }
     return burrowForNight(bot, mcData, log, force, _depth + 1, state);
   };
