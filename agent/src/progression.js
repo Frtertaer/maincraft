@@ -629,6 +629,27 @@ async function ensureTable(bot, mcData) {
       }
     }
   }
+  // still nothing — a ±3m hop never leaves water or a cliff face; jump to
+  // real ground ~12m out and rescan once more
+  if (supportCandidates.length === 0) {
+    const f0 = bot.entity.position.floored();
+    const [hx, hz] = pickDryDir(bot, [[12, 0], [-12, 0], [0, 12], [0, -12]]);
+    await executeAction(
+      bot,
+      { type: "goto", x: f0.x + hx, y: f0.y, z: f0.z + hz, range: 3, timeoutMs: 15000 },
+      mcData
+    ).catch(() => {});
+    const f2 = bot.entity.position.floored();
+    for (const [ax, az] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const solid = bot.blockAt(f2.offset(ax, -1, az));
+      if (!solid || solid.name === "air" || solid.name === "cave_air") continue;
+      if (solid.boundingBox && solid.boundingBox !== "block") continue;
+      const above = bot.blockAt(solid.position.offset(0, 1, 0));
+      if (above && (above.name === "air" || above.name === "cave_air" || above.name === "snow")) {
+        supportCandidates.push(solid);
+      }
+    }
+  }
 
   let lastMsg = "no solid support";
   for (const solid of supportCandidates) {
