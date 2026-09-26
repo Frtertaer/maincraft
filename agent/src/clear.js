@@ -217,7 +217,14 @@ export class ClearRunner {
         // rocky terrain → stand still → mob walks up. Chain short hops instead:
         // instant sprint then a bounded goto, repeated until the camper is
         // genuinely out of reach (30m+) or hops run out
-        const fleeUntilClear = async (fdx, fdz, hops = 4) => {
+        const fleeUntilClear = async (fdx, fdz, hops = 6) => {
+          // zombies walk ~2.3m/s and pathfind — a sustained sprint (~5.6m/s)
+          // outruns them forever, while the old burst+goto hop walked at
+          // 4.3m/s between bursts and let the swarm catch up on every stall.
+          // Pure sprint chains with a slight heading drift each hop also
+          // slide off obstacles the pathfinder used to stall on.
+          let dirX = fdx;
+          let dirZ = fdz;
           for (let h = 0; h < hops; h++) {
             const still = Object.values(bot.entities || {}).some((e) => {
               if (!e?.position || e === bot.entity) return false;
@@ -228,17 +235,16 @@ export class ClearRunner {
               return hostile && e.position.distanceTo(bot.entity.position) < 30;
             });
             if (!still) return;
-            await sprintBurst(fdx, fdz, 2200).catch(() => {});
-            const pp = bot.entity.position;
-            try {
-              await executeAction(
-                bot,
-                { type: "goto", x: pp.x + fdx * 0.5, y: pp.y, z: pp.z + fdz * 0.5, range: 6, timeoutMs: 18000 },
-                this.mcData
-              );
-            } catch {
-              /* hop failed — next sprint still gains ground */
-            }
+            await sprintBurst(dirX, dirZ, 3500).catch(() => {});
+            // drift the heading ~30° each hop: keeps distance from the swarm
+            // arc and bounces us around cliffs/water instead of dead-stalling
+            const rot = (h % 2 === 0 ? 1 : -1) * 0.55;
+            const cos = Math.cos(rot);
+            const sin = Math.sin(rot);
+            const nx = dirX * cos - dirZ * sin;
+            const nz = dirX * sin + dirZ * cos;
+            dirX = nx;
+            dirZ = nz;
           }
         };
         const nightTod = bot.time?.timeOfDay;
