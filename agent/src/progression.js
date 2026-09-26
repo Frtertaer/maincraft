@@ -2428,7 +2428,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
       if (blk.position.y <= feet.y - 12) return false;
       return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
     },
-    maxDistance: 32,
+    maxDistance: 72,
   });
   if (!block) {
     // nothing in scan range — wander toward new ground instead of stalling.
@@ -2451,8 +2451,17 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
             [0, -60],
           ];
           state.wanderDir = pickDryDir(bot, dirs);
+          state.wanderLeg = 0;
         }
-        const hop = Math.min(60 + Math.floor(state.noLogStreak / 3) * 30, 180);
+        // a fixed heading can walk a treeless basin away from every forest —
+        // rotate the heading a quarter-turn per hop and grow the radius each
+        // revolution, an expanding square spiral covering all bearings
+        if (state.wanderLeg > 0) {
+          const a = Math.atan2(state.wanderDir[1], state.wanderDir[0]) + Math.PI / 2;
+          state.wanderDir = [Math.round(Math.cos(a)) * 60, Math.round(Math.sin(a)) * 60];
+        }
+        state.wanderLeg = (state.wanderLeg || 0) + 1;
+        const hop = Math.min(60 + Math.floor((state.wanderLeg - 1) / 4) * 40, 200);
         const wx = Math.sign(state.wanderDir[0]) * hop;
         const wz = Math.sign(state.wanderDir[1]) * hop;
         try {
