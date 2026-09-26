@@ -30,7 +30,7 @@ const DEFAULTS = {
   holdMsAfterHit: 8000,
   equipEveryMs: 2500,
   shieldVsProjectile: true,
-  kiteCreeperDistance: 5.5,
+  kiteCreeperDistance: 7.5,
   prioritizeExploders: true,
   strafe: true,
   jumpCrit: true,
@@ -798,7 +798,15 @@ export class CombatReflex {
           /* ignore */
         }
       }
-      if (this._isArmed() && dist > 3.0 && dist < 4.8 && now - this._lastHitAt >= this.cfg.cooldownMs) {
+      // the hit-window gamble only pays at healthy hp — a whiffed swing at
+      // low hp is how most marathon creeper deaths happened
+      if (
+        this._isArmed() &&
+        dist > 3.0 &&
+        dist < 4.8 &&
+        (bot.health == null || bot.health > 14) &&
+        now - this._lastHitAt >= this.cfg.cooldownMs
+      ) {
         void this._meleeHit(target);
       }
       return;
