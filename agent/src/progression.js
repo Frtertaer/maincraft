@@ -1740,46 +1740,62 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           }
           // wall+roof toward the nearest camper — a 3-high stack on one brim
           // cell, then a roof block on the top wall's inward face (lands
-          // directly overhead at feet+2)
-          const h = findHostile(bot, 40);
-          if (h) {
-            const dx = Math.sign(h.position.x - bot.entity.position.x);
-            const dz = Math.sign(h.position.z - bot.entity.position.z);
-            const [wx, wz] = Math.abs(h.position.x - bot.entity.position.x) >
-              Math.abs(h.position.z - bot.entity.position.z)
-              ? [dx, 0]
-              : [0, dz];
-            if (wx || wz) {
-              const brim = bot.blockAt(bot.entity.position.floored().offset(wx, -1, wz));
-              if (brim && brim.name !== "air") {
-                let wall = brim;
-                for (let w = 0; w < 3; w++) {
-                  const s = refugeSolid();
-                  if (!s) break;
-                  try {
-                    await pt(bot.equip(s, "hand"), 6000, "equip");
-                    await pt(bot.placeBlock(wall, new Vec3(0, 1, 0)), 6000, "placeBlock");
-                    wall = bot.blockAt(wall.position.offset(0, 1, 0));
-                  } catch {
-                    break;
-                  }
-                  await sleep(120);
-                }
-                if (wall && wall.position.y >= bot.entity.position.floored().y + 2) {
-                  const s = refugeSolid();
-                  if (s) {
-                    try {
-                      await pt(bot.equip(s, "hand"), 6000, "equip");
-                      await pt(bot.placeBlock(wall, new Vec3(-wx, 0, -wz)), 6000, "placeBlock");
-                      log?.("[burrow] refuge: brim+wall+roof up");
-                    } catch {
-                      /* roof refused — wall alone still blocks arrows */
-                    }
-                  }
+          // directly overhead at feet+2). Cover BOTH dominant axes: a mob
+          // strafing off-axis keeps LOS through a single 1-wide wall
+          const raiseWall = async (wx, wz) => {
+            if (!wx && !wz) return false;
+            const brim = bot.blockAt(bot.entity.position.floored().offset(wx, -1, wz));
+            if (!brim || brim.name === "air") return false;
+            let wall = brim;
+            for (let w = 0; w < 3; w++) {
+              const s = refugeSolid();
+              if (!s) break;
+              try {
+                await pt(bot.equip(s, "hand"), 6000, "equip");
+                await pt(bot.placeBlock(wall, new Vec3(0, 1, 0)), 6000, "placeBlock");
+                wall = bot.blockAt(wall.position.offset(0, 1, 0));
+              } catch {
+                break;
+              }
+              await sleep(120);
+            }
+            if (wall && wall.position.y >= bot.entity.position.floored().y + 2) {
+              const s = refugeSolid();
+              if (s) {
+                try {
+                  await pt(bot.equip(s, "hand"), 6000, "equip");
+                  await pt(bot.placeBlock(wall, new Vec3(-wx, 0, -wz)), 6000, "placeBlock");
+                } catch {
+                  /* roof refused — wall alone still blocks arrows */
                 }
               }
+              return true;
             }
-          }
+            return false;
+          };
+          const wallDirs = (h) => {
+            const ddx = Math.sign(h.position.x - bot.entity.position.x);
+            const ddz = Math.sign(h.position.z - bot.entity.position.z);
+            const axes = [];
+            if (Math.abs(h.position.x - bot.entity.position.x) >=
+                Math.abs(h.position.z - bot.entity.position.z) * 0.5 && ddx) axes.push([ddx, 0]);
+            if (Math.abs(h.position.z - bot.entity.position.z) >=
+                Math.abs(h.position.x - bot.entity.position.x) * 0.5 && ddz) axes.push([0, ddz]);
+            return axes;
+          };
+          const walled = new Set();
+          const wallToward = async (h) => {
+            for (const [wx, wz] of wallDirs(h)) {
+              const key = `${wx},${wz}`;
+              if (walled.has(key)) continue;
+              if (await raiseWall(wx, wz)) {
+                walled.add(key);
+                log?.("[burrow] refuge wall +roof up");
+              }
+            }
+          };
+          const h = findHostile(bot, 40);
+          if (h) await wallToward(h);
         } catch {
           /* refuge dressing failed — the pillar itself still stands */
         }
@@ -1789,6 +1805,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           if (state?._diedAt && Date.now() - state._diedAt < 6000) {
             log?.("[burrow] died on the pillar — aborting shelter");
             return false;
+          }
+          // a ranged mob that arrives (or strafes onto an unwalled axis)
+          // mid-wait still shoots through — extend the wall toward it
+          const shooter = Object.values(bot.entities || {})
+            .filter((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return /skeleton|stray|pillager|witch|drowned|blaze/.test(n) &&
+                e.position.distanceTo(bot.entity.position) < 26;
+            })
+            .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+          if (shooter) {
+            try {
+              await wallToward(shooter);
+            } catch {
+              /* wall extension best-effort */
+            }
           }
           if (Date.now() - lastBeat > 90000) {
             lastBeat = Date.now();
