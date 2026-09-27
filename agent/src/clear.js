@@ -724,8 +724,30 @@ export class ClearRunner {
           (nightSoon || (hostileNear && this.deaths > 0)) &&
           Date.now() - (this._lastBurrow || 0) > 120000
         ) {
-          this._lastBurrow = Date.now();
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
+          // daylight escape beats hiding: a sprint clears the camp in ~4s a
+          // leg while a hide costs ~90s and the mob is still there when you
+          // leave. Burrow only when the escape genuinely fails (dense pack).
+          if (!isNight) {
+            const pf0 = bot.entity.position;
+            let escDirs = [
+              [70, 0],
+              [-70, 0],
+              [0, 70],
+              [0, -70],
+            ];
+            const cz0 = this.state?.campZone;
+            if (cz0) {
+              const ok = escDirs.filter(([dx, dz]) => Math.hypot(pf0.x + dx - cz0.x, pf0.z + dz - cz0.z) > 120);
+              if (ok.length) escDirs = ok;
+            }
+            const [ex0, ez0] = pickDryDir(bot, escDirs);
+            this.log(`[clear] day escape sprint ${ex0},${ez0}`);
+            await fleeUntilClear(ex0, ez0).catch(() => {});
+            if (!hostileClose()) continue; // outran it — back to the step
+            this.log(`[clear] escape failed — still camped, burrowing`);
+          }
+          this._lastBurrow = Date.now();
           // park the reflex for the whole attempt: a hostile in range makes
           // its engage-goto supersede every burrow hop — the bot cycles in
           // place next to the mob instead of sealing or relocating
