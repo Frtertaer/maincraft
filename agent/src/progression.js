@@ -2629,9 +2629,35 @@ export async function ensureFed(bot, mcData, log, state = null) {
   }
   // hunt: chase down farm animals within 48 — each kill ~1-3 raw meat.
   // Zombies count when starving: rotten_flesh restores 4 food (the 30%
-  // hunger-effect risk beats guaranteed starvation at food=0).
+  // hunger-effect risk beats guaranteed starvation at food=0). But at
+  // one-hit hp, meleeing a zombie barehanded is suicide — animals don't
+  // fight back, so at hp<=4 only prey that can't retaliate counts.
   const starving = bot.food <= 4;
-  const preyList = starving ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"] : ["cow", "pig", "sheep", "rabbit", "chicken"];
+  const fragile = (bot.health ?? 20) <= 4;
+  // dawn cleanup: burned zombies leave rotten_flesh on the ground — free
+  // calories with zero melee risk, grab any edible drop lying within 12m
+  const drop = droppedItemEntity(bot, mcData, [
+    "rotten_flesh", "beef", "porkchop", "mutton", "chicken", "rabbit",
+    "bread", "potato", "carrot", "apple", "cooked_beef", "cooked_porkchop",
+    "cooked_mutton", "cooked_chicken", "baked_potato",
+  ]);
+  if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
+    await executeAction(
+      bot,
+      { type: "goto", x: Math.floor(drop.position.x), y: Math.floor(drop.position.y), z: Math.floor(drop.position.z), range: 1, timeoutMs: 10000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    const got = bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name) || SAFE_RAW.test(i.name) || i.name === "rotten_flesh");
+    if (got && bot.food < 19) {
+      const e = await executeAction(bot, { type: "eat", item: got.name, timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+      if (e.ok) {
+        ate = true;
+        log?.(`[food] scavenged ${got.name} (food=${bot.food})`);
+      }
+    }
+    if (bot.food >= 10) return { ok: true, ate };
+  }
+  const preyList = starving && !fragile ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"] : ["cow", "pig", "sheep", "rabbit", "chicken"];
   for (const prey of preyList) {
     if (bot.food >= 12) break;
     for (let i = 0; i < 3 && bot.food < 12; i++) {
