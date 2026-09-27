@@ -764,6 +764,26 @@ export class ClearRunner {
             this.log(`[clear] day escape retry ${ex1},${ez1}`);
             await fleeUntilClear(ex1, ez1).catch(() => {});
             if (!hostileClose()) continue;
+            // underground a "day-hide" is just re-camping the same cave: both
+            // escape legs ran through tunnels into more of the pack. Climb for
+            // daylight where escapes actually work — burrow only if that stalls
+            const underground = (() => {
+              try {
+                return (bot.blockAt(bot.entity.position.floored())?.skyLight ?? 15) < 4;
+              } catch {
+                return false;
+              }
+            })();
+            if (underground) {
+              const p0 = bot.entity.position.floored();
+              this.log(`[clear] cave camp — climbing for daylight`);
+              await executeAction(
+                bot,
+                { type: "goto", x: p0.x, y: p0.y + 24, z: p0.z, range: 4, timeoutMs: 30000 },
+                this.mcData
+              ).catch(() => {});
+              if (!hostileClose()) continue;
+            }
             this.log(`[clear] escape failed — still camped, burrowing`);
           }
           this._lastBurrow = Date.now();
