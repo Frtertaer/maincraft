@@ -450,8 +450,10 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
     return near;
   }
   if (countItem(bot, "chest") < 1) {
-    const pl = await ensurePlanks(bot, mcData, 8);
-    if (!pl.ok && countItem(bot, (i) => i.name.includes("planks")) < 8) return null;
+    await ensurePlanks(bot, mcData, 8);
+    // a chest needs a full ring of 8 — ensurePlanks reports ok for a partial
+    // convert, so trust the real count or ensureCraft throws missing-ingredient
+    if (countItem(bot, (i) => i.name.includes("planks")) < 8) return null;
     const cr = await ensureCraft(bot, mcData, "chest", 1);
     if (!cr.ok) return null;
   }
