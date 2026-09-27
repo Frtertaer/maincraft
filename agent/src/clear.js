@@ -667,6 +667,21 @@ export class ClearRunner {
           continue;
         }
         yieldCount = 0;
+        // Survival for surface phases: burrow at night (mobs will come), and
+        // also in daylight when a hostile is camped nearby and the run has
+        // died before — creepers/spiders don't burn at dawn.
+        const surfacePhase = ["wood", "stone", "iron"].includes(detectPhase(bot));
+        const hostileClose = () => Object.values(bot.entities || {}).some((e) => {
+          if (!e?.position || e === bot.entity) return false;
+          const n = String(e.name || e.displayName || "").toLowerCase();
+          const hostile = e.kind === "Hostile mobs" && e.name !== "enderman" || /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+          if (!hostile) return false;
+          const d = e.position.distanceTo(bot.entity.position);
+          // ranged mobs engage from ~16m — a skeleton just past the melee
+          // bound still snipes us mid-work, so it counts as "close" further out
+          return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n) ? d < 26 : d < 14;
+        });
+        const hostileNear = hostileClose();
         // Food: foodLevel 0 means no sprint and ~0.5hp — starvation is the
         // quiet killer of the marathon. Eat carried food or hunt animals.
         // At food<=4 it's a CRISIS — the bot can't sprint and dies to one
@@ -688,6 +703,12 @@ export class ClearRunner {
           const hungerT0 = Date.now();
           let foundFood = false;
           while (bot.food != null && bot.food <= 8 && Date.now() - hungerT0 < 90000) {
+            // a hostile in range turns the hunt into target practice — break
+            // to the burrow check below, which seals first and eats after
+            if (hostileClose()) {
+              this.log(`[clear] starving + hostile near — shelter before food`);
+              break;
+            }
             try {
               const fed2 = await ensureFed(bot, this.mcData, this.log, this.state);
               if (fed2?.ate) {
@@ -704,34 +725,20 @@ export class ClearRunner {
           // at 1hp instead of looping forever; a death resets hunger anyway
           this._starveBail = foundFood || bot.food > 8 ? 0 : (this._starveBail || 0) + 1;
         }
-        // Survival for surface phases: burrow at night (mobs will come), and
-        // also in daylight when a hostile is camped nearby and the run has
-        // died before — creepers/spiders don't burn at dawn.
-        const surfacePhase = ["wood", "stone", "iron"].includes(detectPhase(bot));
-        const hostileClose = () => Object.values(bot.entities || {}).some((e) => {
-          if (!e?.position || e === bot.entity) return false;
-          const n = String(e.name || e.displayName || "").toLowerCase();
-          const hostile = e.kind === "Hostile mobs" && e.name !== "enderman" || /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-          if (!hostile) return false;
-          const d = e.position.distanceTo(bot.entity.position);
-          // ranged mobs engage from ~16m — a skeleton just past the melee
-          // bound still snipes us mid-work, so it counts as "close" further out
-          return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n) ? d < 26 : d < 14;
-        });
-        const hostileNear = hostileClose();
+        const hostileNow = hostileNear || hostileClose();
         if (
           surfacePhase &&
-          (nightSoon || (hostileNear && this.deaths > 0)) &&
+          (nightSoon || (hostileNow && this.deaths > 0)) &&
           Date.now() - (this._lastBurrow || 0) > 120000
         ) {
-          this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNear}`);
+          this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNow}`);
           // daylight escape beats hiding: a sprint clears the camp in ~4s a
           // leg while a hide costs ~90s and the mob is still there when you
           // leave. Burrow only when the escape genuinely fails (dense pack).
           // Only worth sprinting when there is a camp to escape — at dusk
           // with nothing nearby the flee resolves instantly and the loop
           // re-enters forever; go straight to sealing instead.
-          if (!isNight && hostileClose()) {
+          if (!isNight && hostileClose() && bot.food > 6) {
             const pf0 = bot.entity.position;
             // inside a camp zone a 70m hop still lands inside it — widen the
             // ring by repeat deaths like the respawn flee does, so the escape
