@@ -85,7 +85,12 @@ async function craftDirect(bot, recipe, count, craftingTable) {
         win.selectedItem.type !== ing.id ||
         (ing.metadata != null && win.selectedItem.metadata !== ing.metadata)
       ) {
-        const src = win.findInventoryItem(ing.id, ing.metadata);
+        // ingredients stranded in the crafting grid/result slots by an
+        // aborted earlier craft count in inventory totals but sit outside
+        // findInventoryItem's range — check those cells too before failing
+        const src =
+          win.findInventoryItem(ing.id, ing.metadata) ||
+          win.findItemRange(0, win.inventoryStart, ing.id, ing.metadata);
         if (!src) throw new Error("missing ingredient");
         await withTimeout(bot.clickWindow(src.slot, 0, 0), CLICK_MS, "pick");
       }
