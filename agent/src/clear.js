@@ -525,11 +525,25 @@ export class ClearRunner {
                 ? (d) => Math.hypot(pf.x + d[0] - czD.x, pf.z + d[1] - czD.z) > 120
                 : () => true;
               const dirsOk = fleeDirs.filter(campOk);
+              // the driest direction is not always the emptiest: a 140m leg
+              // through a zombie cluster re-aggros mid-flee — that's death
+              // #6's chain. Score each bearing by hostiles in its quadrant
+              // (weighted by closeness); ties fall back to the dry pick
+              const mobScore = (d) =>
+                Object.values(bot.entities || {}).reduce((acc, e) => {
+                  if (!e?.position || e === bot.entity) return acc;
+                  const n = String(e.name || "").toLowerCase();
+                  if (!/zombie|skeleton|creeper|spider|husk|drowned|stray|pillager|vex|slime|witch/.test(n)) return acc;
+                  const rel = e.position.minus(bot.entity.position);
+                  if (d[0] !== 0 && Math.sign(rel.x) !== Math.sign(d[0])) return acc;
+                  if (d[1] !== 0 && Math.sign(rel.z) !== Math.sign(d[1])) return acc;
+                  const dist = e.position.distanceTo(bot.entity.position);
+                  return dist < 60 ? acc + (60 - dist) : acc;
+                }, 0);
+              const ranked = [...dirsOk].sort((a, b) => mobScore(a) - mobScore(b));
               const [fdx, fdz] =
-                dirsOk.length > 0
-                  ? this.deaths >= 2
-                    ? pickDryDir(bot, [dirsOk[this.deaths % dirsOk.length], dirsOk[(this.deaths + 1) % dirsOk.length]])
-                    : pickDryDir(bot, dirsOk)
+                ranked.length > 0
+                  ? ranked[0]
                   : (() => {
                       const ax = pf.x - czD.x;
                       const az = pf.z - czD.z;
