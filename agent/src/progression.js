@@ -1022,6 +1022,28 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
   let sealTried = 0;
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
+    // the strip killer is a mob walking up the 1x2 shaft from behind while
+    // the digger faces a wall — check the tunnel, not just the next cell:
+    // wall it off at distance, swing when it's already in melee
+    const close = nearestHostile(7);
+    if (close) {
+      if (close.position.distanceTo(bot.entity.position) > 2.6) {
+        if (await sealToward(close.position)) {
+          log?.(`[stripMine] walled ${close.name} mid-tunnel @${Math.round(close.position.distanceTo(bot.entity.position))}m`);
+          continue;
+        }
+      } else {
+        const w = bot.inventory.items().find((it) => /sword|_axe/.test(it.name));
+        if (w) {
+          try {
+            await pt(bot.equip(w, "hand"), 5000, "eq");
+            await pt(bot.attack(close), 6000, "atk");
+          } catch {
+            /* swung and missed — reflex/night cycle handles the rest */
+          }
+        }
+      }
+    }
     // a pickaxe broke mid-strip — stop hand-tapping stone and recraft one
     // on the spot (log+sticks or cobble+sticks are usually in the bag);
     // bail only when even that fails
