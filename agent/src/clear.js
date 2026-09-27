@@ -756,6 +756,14 @@ export class ClearRunner {
             this.log(`[clear] day escape sprint ${ex0},${ez0}`);
             await fleeUntilClear(ex0, ez0).catch(() => {});
             if (!hostileClose()) continue; // outran it — back to the step
+            // one failed leg usually means the heading stalled on terrain or
+            // a second pack — a rotated retry (~30s) still beats a ~3min hide
+            // that just re-camps the pocket it exits from
+            const esc2 = escDirs.filter(([dx, dz]) => Math.abs(dx - ex0) > 1 || Math.abs(dz - ez0) > 1);
+            const [ex1, ez1] = pickDryDir(bot, esc2.length ? esc2 : escDirs);
+            this.log(`[clear] day escape retry ${ex1},${ez1}`);
+            await fleeUntilClear(ex1, ez1).catch(() => {});
+            if (!hostileClose()) continue;
             this.log(`[clear] escape failed — still camped, burrowing`);
           }
           this._lastBurrow = Date.now();
