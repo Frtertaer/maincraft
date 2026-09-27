@@ -844,19 +844,11 @@ export class ClearRunner {
             // don't burn) — if it's still camped on us, sprint out of its
             // 14m reach instead of looping straight back into a burrow
             if (burrowed && !isNight && hostileClose()) {
-              const pf2 = bot.entity.position;
               const [fdx2, fdz2] = pickDryDir(bot, [[70, 0], [-70, 0], [0, 70], [0, -70]]);
               this.log(`[clear] day-flee ${fdx2},${fdz2} — camper survived the hide`);
-              await sprintBurst(fdx2, fdz2).catch(() => {});
-              try {
-                await executeAction(
-                  bot,
-                  { type: "goto", x: pf2.x + fdx2, y: pf2.y, z: pf2.z + fdz2, range: 8, timeoutMs: 40000 },
-                  this.mcData
-                );
-              } catch {
-                /* superseded */
-              }
+              // sustained sprint until the camper is beyond ~52m — a burst+goto
+              // walks at ~4.3m/s and a tracking creeper stays in fuse range
+              await fleeUntilClear(fdx2, fdz2, 10).catch(() => {});
             }
             // Night burrow gave up entirely (no diggable ground anywhere):
             // surface work in the dark is a death loop — keep looking for
