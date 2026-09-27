@@ -415,14 +415,29 @@ export class ClearRunner {
             // the escape gap is ~15s before the horde re-converges — a log
             // punch (~30-60s) or a sheep hunt (~60s) spends it entirely and
             // the burrow never starts. Only prep when genuinely clear.
-            const stillClose = Object.values(bot.entities || {}).some((e) => {
-              if (!e?.position || e === bot.entity) return false;
-              const n = String(e.name || "").toLowerCase();
-              const hostile =
-                e.kind === "Hostile mobs" ||
-                /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|enderman|witch/.test(n);
-              return hostile && e.position.distanceTo(bot.entity.position) < 40;
-            });
+            const packClose = () =>
+              Object.values(bot.entities || {}).some((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || "").toLowerCase();
+                const hostile =
+                  e.kind === "Hostile mobs" ||
+                  /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|enderman|witch/.test(n);
+                return hostile && e.position.distanceTo(bot.entity.position) < 40;
+              });
+            // burrowing while the pack trails inside 40m is how every carve
+            // dies mid-seal (~20-30s dig vs ~15s walk). Sprint legs until the
+            // gap actually opens — rotate ~90° each leg so the swarm's
+            // pathfind loses the line instead of trailing forever
+            let legs = 0;
+            let stillClose = packClose();
+            while (stillClose && legs < 3) {
+              this.log(`[clear] pack still <40m — flee leg ${legs + 1}`);
+              const rot = legs % 2 === 0 ? [ -fdz, fdx ] : [ fdz, -fdx ];
+              await fleeUntilClear(rot[0], rot[1], 6).catch(() => {});
+              legs += 1;
+              stillClose = packClose();
+            }
+            if (stillClose) this.log(`[clear] pack won't shake — burrowing anyway`);
             if (!stillClose) {
               try {
                 // bare-handed on stone ground the burrow can't dig — punch a
