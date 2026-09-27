@@ -2040,6 +2040,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const under = bot.blockAt(feet.offset(0, -1, 0));
     const below = bot.blockAt(feet.offset(0, -2, 0));
     if (danger(under) || !diggable(under)) break;
+    // digging a falling block (sand/gravel) just refills the cell from the
+    // column above — every dig resets until timeout while mobs walk up
+    if (/sand$|gravel|concrete_powder/.test(under.name)) break;
     // don't break a cave ceiling — landing cell must be solid ground
     if (!below || /air|lava|water|magma_block|bedrock/.test(below.name)) {
       log?.(`[burrow] cave below at dy=-2 — stopping on ceiling`);
