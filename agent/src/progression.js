@@ -1357,7 +1357,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     solid = items.find((i) => !SEAL_BAD.test(i.name)) || items[0] || null;
     return solid;
   };
-  let solid = refreshSolid();
+  let solid = null;
+  refreshSolid();
   const danger = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
   // diggable = terrain the bot can actually break with what it carries —
   // mineflayer's b.diggable doesn't account for harvestTools, so check by
