@@ -495,7 +495,10 @@ export class ClearRunner {
             );
             const respawnHostile = respawnHostiles.length > 0 || rangedNear;
             const creepNear = respawnHostiles.some(
-              (e) => /creeper/.test(String(e.name || "")) && e.position.distanceTo(bot.entity.position) < 14
+              // a creeper anywhere inside the respawn-hostile radius is a bomb
+              // on a timer — it closes ~3.2m/s and the ~10s carve seals slower
+              // than it arrives; 14m was still losing spawn-camp loops
+              (e) => /creeper/.test(String(e.name || "")) && e.position.distanceTo(bot.entity.position) < 20
             );
             // a melee swarm camps the respawn — you cannot dig/pillar while
             // two+ zombies are already inside reach; only a long sprint opens
