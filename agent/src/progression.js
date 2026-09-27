@@ -1200,23 +1200,39 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
 // pick the flee direction with the least water and jungle canopy along the
 // path — drowned rivers and tree trunks are where flee-and-burrow dies
 export function pickDryDir(bot, dirs) {
+  const feet = bot.entity.position.floored();
   let best = dirs[0];
   let bestScore = Infinity;
-  const feet = bot.entity.position.floored();
   for (const [dx, dz] of dirs) {
     const sx = Math.sign(dx);
     const sz = Math.sign(dz);
-    let score = 0;
-    // water is where drowned live and where a sprint dies — a river past the
-    // old 24m horizon was invisible, so the flee "picked dry" into one
-    for (const step of [6, 12, 18, 24, 32, 40]) {
-      for (const dy of [-2, -1, 0]) {
+    const leg = Math.max(Math.abs(dx), Math.abs(dz));
+    // measure the dry runway: how far this leg stays out of water. Legs now
+    // scale past 200m and drowned kill in any river the sprint crosses, so
+    // score = distance to the first water cell along the whole leg (all-wet
+    // picks the longest dry stretch instead of blindly diving in)
+    let runway = leg + 1;
+    for (let step = 6; step <= Math.min(leg, 90); step += 6) {
+      let wet = false;
+      for (const dy of [-3, -2, -1, 0]) {
         const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
-        if (!b) continue;
-        if (/water|kelp|seagrass|ice|bubble/.test(b.name)) score += 8;
-        else if (/_log$|_stem$|leaves$/.test(b.name)) score += 1;
+        if (b && /water|kelp|seagrass|ice|bubble/.test(b.name)) {
+          wet = true;
+          break;
+        }
+      }
+      if (wet) {
+        runway = step;
+        break;
       }
     }
+    // dense forest slows the sprint — prefer open water-free ground
+    let trees = 0;
+    for (const step of [8, 16, 24]) {
+      const b = bot.blockAt(feet.offset(sx * step, -1, sz * step));
+      if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
+    }
+    const score = -runway * 10 + trees;
     if (score < bestScore) {
       bestScore = score;
       best = [dx, dz];
