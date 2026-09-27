@@ -3212,6 +3212,38 @@ async function phaseIron(bot, mcData, state, log) {
       if (!bot.findBlock({ matching: (b) => b?.name === "furnace", maxDistance: 8 })) {
         await executeAction(bot, { type: "place", item: "furnace" }, mcData);
       }
+      // in a 1-wide tunnel every adjacent cell is solid rock — carve a
+      // feet-level niche, then place the furnace into it
+      if (!bot.findBlock({ matching: (b) => b?.name === "furnace", maxDistance: 8 })) {
+        const feet2 = bot.entity.position.floored();
+        for (const [dx, dz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const cell = bot.blockAt(feet2.offset(dx, 0, dz));
+          const floor = bot.blockAt(feet2.offset(dx, -1, dz));
+          if (
+            cell &&
+            !["air", "cave_air", "void_air"].includes(cell.name) &&
+            diggableBlock(bot, cell) &&
+            floor &&
+            !["air", "cave_air", "void_air"].includes(floor.name)
+          ) {
+            await executeAction(bot, { type: "dig", x: cell.position.x, y: cell.position.y, z: cell.position.z }, mcData).catch(() => {});
+            const now = bot.blockAt(feet2.offset(dx, 0, dz));
+            if (now && ["air", "cave_air", "void_air"].includes(now.name)) {
+              await executeAction(
+                bot,
+                { type: "place", item: "furnace", x: now.position.x, y: now.position.y, z: now.position.z, face: "top" },
+                mcData
+              ).catch(() => {});
+              break;
+            }
+          }
+        }
+      }
     }
 
     // fuel preference: coal > charcoal > log > planks
