@@ -372,10 +372,6 @@ export class CombatReflex {
       // trigger itself, and teleports+40hp beat any non-iron kit anyway.
       // It still counts hostile for safe()/burrow, which pockets beat.
       if (eName === "enderman") continue;
-      // bare hands lose every trade — an unarmed engage is a respawn, not
-      // a defence. Post-death window (empty inventory until the first
-      // sword) is exactly when this saves the flee.
-      if (!this._isArmed()) continue;
       const score = this._threatScore(e, d);
       if (score > bestScore) {
         bestScore = score;
