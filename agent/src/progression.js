@@ -2247,6 +2247,50 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         { x: feet.x + px, y: feet.y, z: feet.z + pz },
         { x: feet.x + px, y: feet.y + 1, z: feet.z + pz },
       ];
+      // a mob chasing in DURING the carve gets sealed inside with us — the
+      // pre-seal check ran before the plug went up. Recheck now: fight it if
+      // armed, otherwise break back out — a sealed-in mob is a coffin
+      const intruder = Object.values(bot.entities || {}).find((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || e.displayName || "").toLowerCase();
+        if (
+          !(
+            e.kind === "Hostile mobs" ||
+            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+          )
+        )
+          return false;
+        const ex = e.position.x - feet.x;
+        const ez = e.position.z - feet.z;
+        const fwd = px * ex + pz * ez;
+        const lat = Math.abs(px * ez - pz * ex);
+        return fwd >= -0.5 && fwd < carvedDepth + 3 && lat < 1.5;
+      });
+      if (intruder) {
+        const wpn = bot.inventory.items().find((i) => /sword|_axe/.test(i.name));
+        let killed = false;
+        if (wpn) {
+          try {
+            await pt(bot.equip(wpn, "hand"), 5000, "eq");
+            for (let s = 0; s < 8 && bot.entities[intruder.id]; s += 1) {
+              await pt(bot.attack(bot.entities[intruder.id]), 5000, "atk");
+              await sleep(350);
+            }
+            killed = !bot.entities[intruder.id];
+          } catch {
+            killed = false;
+          }
+        }
+        if (!killed) {
+          // couldn't finish it — open the plug back up and abandon the pocket
+          for (const c of sealedCells) {
+            await executeAction(bot, { type: "dig", x: c.x, y: c.y, z: c.z, timeoutMs: 8000 }, mcData).catch(() => {});
+          }
+          sealedCells = null;
+          sealMiss("mob-sealed-in");
+          continue;
+        }
+      }
       // far end of the pocket — the wait loop re-pins the bot here so it
       // never drifts into melee reach of the doorway plug
       pocketDeep = { x: feet.x + px * carvedDepth + 0.5, y: feet.y, z: feet.z + pz * carvedDepth + 0.5 };
