@@ -2601,6 +2601,44 @@ const EDIBLE_FOOD =
   /cooked|beef|pork|bread|apple|carrot|potato|baked|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit/;
 const SAFE_RAW = /beef|porkchop|mutton|^rabbit$|raw_rabbit|cod|salmon/;
 
+function stockFoodCount(bot) {
+  return bot.inventory
+    .items()
+    .reduce((n, i) => n + (EDIBLE_FOOD.test(i.name) || SAFE_RAW.test(i.name) || i.name === "rotten_flesh" ? i.count : 0), 0);
+}
+
+// bank carried food for a descent: hunts prey but KEEPS the drops instead
+// of topping the meter — the strip mine at y<=16 offers no food for ~10+
+// min, and descending empty-handed is how the underground starving loop starts
+async function stockFood(bot, mcData, state, log, want = 6) {
+  const carried = () => stockFoodCount(bot);
+  // free calories first: an edible drop on the ground costs a walk, not a chase
+  const drop = droppedItemEntity(bot, mcData, [
+    "rotten_flesh", "beef", "porkchop", "mutton", "rabbit",
+    "bread", "potato", "carrot", "apple",
+  ]);
+  if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
+    await executeAction(
+      bot,
+      { type: "goto", x: Math.floor(drop.position.x), y: Math.floor(drop.position.y), z: Math.floor(drop.position.z), range: 1, timeoutMs: 10000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+  }
+  // raw chicken carries the hunger effect and isn't counted edible — skip it
+  for (const prey of ["cow", "pig", "sheep", "rabbit"]) {
+    for (let i = 0; i < 2 && carried() < want; i++) {
+      const r = await executeAction(
+        bot,
+        { type: "attack", name: prey, maxDurationMs: 14000, maxDistance: 48 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!r.ok) break;
+      await sleep(400);
+    }
+  }
+  return { ok: carried() >= want, stocked: carried() };
+}
+
 export async function ensureFed(bot, mcData, log, state = null) {
   if (bot.food == null || bot.food >= 14) return { ok: true, ate: false };
   let ate = false;
@@ -3344,6 +3382,15 @@ async function phaseIron(bot, mcData, state, log) {
       if (bot.food != null && bot.food < 10) {
         const fed = await ensureFed(bot, mcData, log, state);
         if (fed.ate) return { ok: true, phase: "iron", message: "pre-descend food" };
+      }
+      // never descend on an empty pack either: the meter refills above ground
+      // but the ~10min strip mine drains it with nothing edible below — bank
+      // ~6 raw meals while prey still renders, or the mine ends in the
+      // starving-staircase loop at 0.5hp
+      const foodStock = stockFoodCount(bot);
+      if (foodStock < 6) {
+        const sf = await stockFood(bot, mcData, state, log, 6);
+        if (sf.stocked > foodStock) return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
       }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
       // tools and table/table-fuel must come down with us
