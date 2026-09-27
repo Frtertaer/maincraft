@@ -2622,7 +2622,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // starving underground: nothing edible spawns below the surface — climb
   // back up the stair toward daylight where animals/hunts actually exist,
   // instead of grinding on at 0.5hp until something touches us
-  if (bot.food <= 4 && !canSeeSky && state) {
+  if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 300000) {
     const p0 = bot.entity.position.floored();
     const up = await executeAction(
       bot,
@@ -2631,6 +2631,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
     ).catch(() => ({ ok: false }));
     log?.(`[food] starving underground — climbing for surface (y=${Math.floor(bot.entity.position.y)})`);
     if (up.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "ascend for food" };
+    state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
   return { ok: bot.food > 4, ate };
