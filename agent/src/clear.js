@@ -730,16 +730,27 @@ export class ClearRunner {
           // leave. Burrow only when the escape genuinely fails (dense pack).
           if (!isNight) {
             const pf0 = bot.entity.position;
+            // inside a camp zone a 70m hop still lands inside it — widen the
+            // ring by repeat deaths like the respawn flee does, so the escape
+            // actually leaves the pack field
+            const ring0 = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
             let escDirs = [
-              [70, 0],
-              [-70, 0],
-              [0, 70],
-              [0, -70],
+              [ring0, 0],
+              [-ring0, 0],
+              [0, ring0],
+              [0, -ring0],
             ];
             const cz0 = this.state?.campZone;
             if (cz0) {
               const ok = escDirs.filter(([dx, dz]) => Math.hypot(pf0.x + dx - cz0.x, pf0.z + dz - cz0.z) > 120);
               if (ok.length) escDirs = ok;
+              else {
+                // every cardinal lands inside the camp — straight line out
+                const ax0 = pf0.x - cz0.x;
+                const az0 = pf0.z - cz0.z;
+                const n0 = Math.max(Math.abs(ax0), Math.abs(az0)) || 1;
+                escDirs = [[Math.round((ax0 / n0) * ring0 * 2), Math.round((az0 / n0) * ring0 * 2)]];
+              }
             }
             const [ex0, ez0] = pickDryDir(bot, escDirs);
             this.log(`[clear] day escape sprint ${ex0},${ez0}`);
