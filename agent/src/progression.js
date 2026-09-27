@@ -1333,13 +1333,31 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // only full-cube blocks can carry a pillar or a doorway wall — torches,
   // saplings and other "empty" bounding-box items place but support nothing
   const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
-  let solid = bot.inventory.items().find(isCube);
+  // seal/pillar material: prefer real terrain blocks. Tile entities and
+  // interactables (furnace, chest, workbenches, bed, tnt) are full cubes but
+  // place unreliably — oriented placement gets refused or silently dropped
+  const SEAL_BAD =
+    /furnace|chest|barrel|table|bed$|sign|skull|_head$|banner|campfire|piston|observer|dispenser|dropper|hopper|jukebox|note_block|beehive|bee_nest|spawner|shulker|ender|tnt|lectern|lodestone|respawn_anchor|bell|grindstone|stonecutter|loom|smithing|fletching|cartography|command_block|structure|jigsaw|portal|chorus|slime_block|honey|magma|ice$|snow$|pointed|conduit|beacon|composter|cauldron|brewing|enchanting|sculk|frame|soul_campfire|decorated_pot|trial|vault|crafter/;
+  const SEAL_RANK = [
+    /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|sand|red_sand|gravel)$/,
+    /^(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|sandstone|red_sandstone|dirt_path)$/,
+    /_log$|_stem$|_wood$|_hyphae$|planks|bricks?$|wool$|terracotta|concrete$/,
+  ];
   const refreshSolid = () => {
     // always re-find: items() hands out fresh objects, the old ref's count
     // never updates — a fully-consumed stack would still look usable
-    solid = bot.inventory.items().find(isCube);
+    const items = bot.inventory.items().filter(isCube);
+    for (const re of SEAL_RANK) {
+      const m = items.find((i) => re.test(i.name) && !SEAL_BAD.test(i.name));
+      if (m) {
+        solid = m;
+        return solid;
+      }
+    }
+    solid = items.find((i) => !SEAL_BAD.test(i.name)) || items[0] || null;
     return solid;
   };
+  let solid = refreshSolid();
   const danger = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
   // diggable = terrain the bot can actually break with what it carries —
   // mineflayer's b.diggable doesn't account for harvestTools, so check by
@@ -2089,6 +2107,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           continue;
         }
         const doorwayFloor = bot.blockAt(feet.offset(px, -1, pz));
+        const doorwayCell = bot.blockAt(feet.offset(px, 0, pz));
+        // water in the doorway can't take a plug — the place gets refused
+        // and water keeps flowing into the pocket anyway
+        if (doorwayCell && /water|lava/.test(doorwayCell.name)) {
+          sealMiss("doorway-fluid");
+          continue;
+        }
         const farFloor = bot.blockAt(feet.offset(px * depth, -1, pz * depth));
         if (!doorwayFloor || doorwayFloor.name === "air") {
           sealMiss("doorway-floor-air");
@@ -2179,6 +2204,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         sealMiss(`place1: ${String(p1.message || "").slice(0, 40)}`);
         continue;
       }
+      // place1 resolves on the client echo — the head plug fires against a
+      // reference block the server may not have confirmed yet. Give it a beat
+      // so place2's face sees the new wall block, not stale air
+      await sleep(180);
       const p2 = await executeAction(
         bot,
         { type: "place", item: solid.name, x: feet.x + px, y: feet.y + 1, z: feet.z + pz, face: "top", timeoutMs: 8000 },
