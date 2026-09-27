@@ -728,7 +728,10 @@ export class ClearRunner {
           // daylight escape beats hiding: a sprint clears the camp in ~4s a
           // leg while a hide costs ~90s and the mob is still there when you
           // leave. Burrow only when the escape genuinely fails (dense pack).
-          if (!isNight) {
+          // Only worth sprinting when there is a camp to escape — at dusk
+          // with nothing nearby the flee resolves instantly and the loop
+          // re-enters forever; go straight to sealing instead.
+          if (!isNight && hostileClose()) {
             const pf0 = bot.entity.position;
             // inside a camp zone a 70m hop still lands inside it — widen the
             // ring by repeat deaths like the respawn flee does, so the escape
