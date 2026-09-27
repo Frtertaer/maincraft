@@ -1566,8 +1566,51 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         e.position.distanceTo(bot.entity.position) < 36
     );
     if (rangedNear) {
-      log?.("[burrow] no safe column + ranged camper — keep fleeing, pillar is suicide");
-      return { ok: false, reason: "ranged camper — pillar exposed" };
+      // A wall on the shooter's bearing breaks its line of sight in ~2s —
+      // cheap enough to try before fleeing (which loses on open plains: the
+      // skeleton just tracks and shoots the running target). If the wall
+      // can't go up we keep the old answer and stay mobile.
+      const shooter = Object.values(bot.entities || {}).find(
+        (e) =>
+          e?.position &&
+          /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || "")) &&
+          e.position.distanceTo(bot.entity.position) < 36
+      );
+      let walled = false;
+      if (shooter) {
+        const feet0 = bot.entity.position.floored();
+        const vx = shooter.position.x - bot.entity.position.x;
+        const vz = shooter.position.z - bot.entity.position.z;
+        const [bx, bz] = Math.abs(vx) >= Math.abs(vz) ? [Math.sign(vx) || 1, 0] : [0, Math.sign(vz) || 1];
+        const solid0 = refreshSolid();
+        if (solid0) {
+          try {
+            await pt(bot.equip(solid0, "hand"), 6000, "equip-wall");
+            for (let t = 0; t < 10 && !bot.heldItem; t += 1) await sleep(80);
+            if (bot.heldItem) {
+              for (let dy = 0; dy < 3; dy += 1) {
+                const ref = bot.blockAt(feet0.offset(bx * 2, dy - 1, bz * 2));
+                const dst = bot.blockAt(feet0.offset(bx * 2, dy, bz * 2));
+                if (!ref || ref.name === "air" || !dst || dst.name !== "air") continue;
+                const okPlace = await executeAction(
+                  bot,
+                  { type: "place", item: solid0.name, x: dst.position.x, y: dst.position.y, z: dst.position.z, timeoutMs: 3000 },
+                  mcData
+                ).catch(() => ({ ok: false }));
+                if (!okPlace.ok) break;
+                walled = true;
+              }
+            }
+          } catch {
+            /* wall best-effort */
+          }
+        }
+      }
+      log?.(
+        walled
+          ? "[burrow] LOS wall up vs ranged camper — pillaring behind it"
+          : "[burrow] no wall vs ranged camper — pillaring anyway, open-plain flight is a death sentence"
+      );
     }
     // last resort: pillar up where we stand — mobs can't climb 6+ blocks
     // (skeletons can still shoot; still better than standing on the ground)
