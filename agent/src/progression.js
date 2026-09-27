@@ -151,7 +151,21 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
             ).catch(() => {});
           } else {
             // nothing visible either — walk to a remembered productive log
-            // site (dead cells/camp zones skipped) instead of failing in place
+            // site (dead cells/camp zones skipped). Underground the path
+            // never reaches a surface site, so ascend to daylight first.
+            const p0 = bot.entity.position.floored();
+            const underground = (() => {
+              try {
+                return (bot.blockAt(p0)?.skyLight ?? 15) < 4;
+              } catch {
+                return false;
+              }
+            })();
+            if (underground) {
+              // the pathfinder can't leave a sealed cave — staircase up
+              // through rock until sky, then walk the log sites
+              await stairwayUp(bot, mcData, 14, log);
+            }
             await gotoLogSite(bot, mcData, state, bot.entity.position.floored());
           }
         }
@@ -2628,12 +2642,8 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // instead of grinding on at 0.5hp until something touches us
   if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 300000) {
     const p0 = bot.entity.position.floored();
-    const up = await executeAction(
-      bot,
-      { type: "goto", x: p0.x, y: p0.y + 24, z: p0.z, range: 4, timeoutMs: 30000 },
-      mcData
-    ).catch(() => ({ ok: false }));
-    log?.(`[food] starving underground — climbing for surface (y=${Math.floor(bot.entity.position.y)})`);
+    log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
+    const up = await stairwayUp(bot, mcData, 14, log);
     if (up.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "ascend for food" };
     state.foodClimbFailAt = Date.now();
   }
@@ -3532,6 +3542,87 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
     await sleep(400);
   }
   return { ok: true, digs, y: Math.floor(bot.entity.position.y), from: startY };
+}
+
+// Staircase up through rock: for each step, clear the 3 cells above a
+// notch in direction d (step floor at y, body at y+1, headroom y+2..3),
+// place a floor if the step cell is hollow, then walk onto it. Rotates
+// direction when a step is undiggable (lava/bedrock). Returns when sky
+// appears or steps run out — the only way out of a sealed dead-end cave,
+// where the pathfinder has no route.
+async function stairwayUp(bot, mcData, maxSteps = 14, log) {
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  let di = 0;
+  const placeable = () =>
+    bot.inventory
+      .items()
+      .find(
+        (i) =>
+          mcData.blocksByName[i.name]?.boundingBox === "block" &&
+          !/pickaxe|sword|_axe|shovel|_hoe|bucket|torch|sign|bed|chest|crafting|furnace|boat|ladder|door|slab|stairs|fence|wall|glass|pane|leaf|leaves|wool|carpet/.test(i.name)
+      );
+  for (let step = 0; step < maxSteps; step++) {
+    const feet = bot.entity.position.floored();
+    try {
+      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 4) return { ok: true, steps: step };
+    } catch {
+      /* keep digging */
+    }
+    const [dx, dz] = dirs[di % 4];
+    let rotated = false;
+    // clear body + headroom cells of the next stair position
+    for (const dy of [1, 2, 3]) {
+      const cell = bot.blockAt(feet.offset(dx, dy, dz));
+      if (!cell || /^(air|cave_air|void_air)$/.test(cell.name)) continue;
+      if (/bedrock|lava|water|obsidian/.test(cell.name)) {
+        rotated = true;
+        break;
+      }
+      const dig = await executeAction(
+        bot,
+        { type: "dig", x: cell.position.x, y: cell.position.y, z: cell.position.z, timeoutMs: 12000 },
+        mcData
+      );
+      if (!dig.ok) {
+        rotated = true;
+        break;
+      }
+      await sleep(150);
+    }
+    if (rotated) {
+      di += 1;
+      continue;
+    }
+    // the stair floor at (x+dx, y, z+dz) must be solid — place one if not
+    const base = bot.blockAt(feet.offset(dx, 0, dz));
+    if (!base || /^(air|cave_air|void_air|water|lava)$/.test(base.name)) {
+      const s = placeable();
+      const under = bot.blockAt(feet.offset(dx, -1, dz));
+      if (!s || !under || /^(air|cave_air|void_air|water|lava)$/.test(under.name)) {
+        di += 1;
+        continue;
+      }
+      try {
+        if (bot.heldItem?.name !== s.name) await pt(bot.equip(s, "hand"), 6000, "equip");
+        await pt(bot.placeBlock(under, new Vec3(0, 1, 0)), 7000, "stair floor");
+      } catch {
+        di += 1;
+        continue;
+      }
+    }
+    const w = await executeAction(
+      bot,
+      { type: "goto", x: feet.x + dx, y: feet.y + 1, z: feet.z + dz, range: 0, timeoutMs: 8000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (!w.ok) di += 1;
+  }
+  return { ok: false, y: Math.floor(bot.entity.position.y) };
 }
 
 function isDiggableStone(name) {
