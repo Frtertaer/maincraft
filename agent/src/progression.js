@@ -149,6 +149,10 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
               { type: "goto", x: t.position.x, y: t.position.y, z: t.position.z, range: 6, timeoutMs: 15000 },
               mcData
             ).catch(() => {});
+          } else {
+            // nothing visible either — walk to a remembered productive log
+            // site (dead cells/camp zones skipped) instead of failing in place
+            await gotoLogSite(bot, mcData, state, bot.entity.position.floored());
           }
         }
         return {
