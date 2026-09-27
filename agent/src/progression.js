@@ -2578,6 +2578,55 @@ export async function ensureFed(bot, mcData, log, state = null) {
     } else break;
   }
   if (bot.food >= 10) return { ok: true, ate };
+  // Cook raw meat before hunting for more: a raw porkchop is 3 food, cooked
+  // is 8 — with a furnace and any fuel, smelting what's in hand triples the
+  // yield and beats another chase. Any furnace-type block counts (the iron
+  // phase carries one), any burnable item fuels it.
+  try {
+    const raw = bot.inventory.items().find((i) => /^(beef|porkchop|mutton|rabbit|chicken|cod|salmon|potato)$/.test(i.name));
+    let furnaceBlock = null;
+    try {
+      furnaceBlock = bot.findBlock?.({ matching: (b) => b?.name === "furnace", maxDistance: 24 });
+    } catch {
+      /* keep null */
+    }
+    if (!furnaceBlock && bot.inventory.items().some((i) => i.name === "furnace")) {
+      const feet0 = bot.entity.position.floored();
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const cell = bot.blockAt(feet0.offset(dx, 0, dz));
+        const under = bot.blockAt(feet0.offset(dx, -1, dz));
+        if (!cell || cell.name !== "air" || !under || under.name === "air") continue;
+        const pl = await executeAction(
+          bot,
+          { type: "place", item: "furnace", x: cell.position.x, y: cell.position.y, z: cell.position.z, timeoutMs: 8000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        if (pl.ok) break;
+      }
+    }
+    const fuel = bot.inventory.items().find((i) => /coal|charcoal|_log$|_planks$|stick|blaze_rod|lava_bucket/.test(i.name));
+    if (raw && fuel && bot.food < 10) {
+      const sm = await executeAction(
+        bot,
+        { type: "smelt", item: raw.name, fuel: fuel.name, count: Math.min(raw.count, 4), timeoutMs: 30000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (sm.ok) log?.(`[food] cooked ${raw.name}`);
+      // eat the freshly cooked batch
+      for (let i = 0; i < 4 && bot.food < 19; i++) {
+        const f = bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name));
+        if (!f) break;
+        const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+        if (r.ok) {
+          ate = true;
+          log?.(`[food] ate ${f.name} (food=${bot.food})`);
+        } else break;
+      }
+      if (bot.food >= 10) return { ok: true, ate };
+    }
+  } catch {
+    /* cook is best-effort — fall through to the hunt */
+  }
   // hunt: chase down farm animals within 48 — each kill ~1-3 raw meat.
   // Zombies count when starving: rotten_flesh restores 4 food (the 30%
   // hunger-effect risk beats guaranteed starvation at food=0).
