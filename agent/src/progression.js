@@ -248,8 +248,8 @@ function findHostile(bot, range) {
     if (!e?.position || e === bot.entity) return false;
     const n = String(e.name || e.displayName || "").toLowerCase();
     const hostile =
-      e.kind === "Hostile mobs" ||
-      /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+      e.kind === "Hostile mobs" && e.name !== "enderman" ||
+      /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
     return hostile && e.position.distanceTo(bot.entity.position) < range;
   });
 }
@@ -779,8 +779,8 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         if (!e?.position || e === bot.entity) return false;
         const n = String(e.name || e.displayName || "").toLowerCase();
         return (
-          (e.kind === "Hostile mobs" ||
-            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
+          (e.kind === "Hostile mobs" && e.name !== "enderman" ||
+            /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
           e.position.distanceTo(door) < 12
         );
       });
@@ -953,8 +953,8 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
       if (!e?.position || e === bot.entity) return false;
       const n = String(e.name || e.displayName || "").toLowerCase();
       return (
-        (e.kind === "Hostile mobs" ||
-          /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
+        (e.kind === "Hostile mobs" && e.name !== "enderman" ||
+          /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
         e.position.distanceTo(cell) < 10
       );
     });
@@ -965,8 +965,8 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
       if (!e?.position || e === bot.entity) continue;
       const n = String(e.name || e.displayName || "").toLowerCase();
       if (
-        !(e.kind === "Hostile mobs" ||
-          /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n))
+        !(e.kind === "Hostile mobs" && e.name !== "enderman" ||
+          /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n))
       )
         continue;
       const d = e.position.distanceTo(bot.entity.position);
@@ -1397,8 +1397,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       if (!e?.position || e === bot.entity) return false;
       const n = String(e.name || e.displayName || "").toLowerCase();
       const hostile =
-        e.kind === "Hostile mobs" ||
-        /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+        e.kind === "Hostile mobs" && e.name !== "enderman" ||
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
       return hostile && e.position.distanceTo(bot.entity.position) < 40;
     });
   };
@@ -1513,7 +1513,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const rangedNear = Object.values(bot.entities || {}).some(
       (e) =>
         e?.position &&
-        (e.kind === "Hostile mobs" || /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || ""))) &&
+        (e.kind === "Hostile mobs" && e.name !== "enderman" || /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || ""))) &&
         /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || "")) &&
         e.position.distanceTo(bot.entity.position) < 36
     );
@@ -1668,8 +1668,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           (e) =>
             e?.position &&
             e !== bot.entity &&
-            (e.kind === "Hostile mobs" ||
-              /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex|piglin/.test(
+            (e.kind === "Hostile mobs" && e.name !== "enderman" ||
+              /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|piglin/.test(
                 String(e.name || "")
               )) &&
             e.position.distanceTo(bot.entity.position) < 5
@@ -1958,7 +1958,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           const anyRanged = Object.values(bot.entities || {}).some((e) => {
             if (!e?.position || e === bot.entity) return false;
             const n = String(e.name || "").toLowerCase();
-            return (e.kind === "Hostile mobs" || /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n)) &&
+            return (e.kind === "Hostile mobs" && e.name !== "enderman" || /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n)) &&
               /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n) &&
               e.position.distanceTo(bot.entity.position) < 40;
           });
@@ -2029,7 +2029,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           .filter((e) => {
             if (!e?.position || e === bot.entity) return false;
             const n = String(e.name || "").toLowerCase();
-            return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
+            return /zombie|creeper|spider|husk|vex|slime|skeleton|stray|pillager|drowned/.test(n);
           })
           .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
         if (waiter && waiter.position.distanceTo(bot.entity.position) < 26) {
@@ -2192,8 +2192,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const n = String(e.name || e.displayName || "").toLowerCase();
         if (
           !(
-            e.kind === "Hostile mobs" ||
-            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+            e.kind === "Hostile mobs" && e.name !== "enderman" ||
+            /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
           )
         )
           return false;
@@ -2255,8 +2255,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const n = String(e.name || e.displayName || "").toLowerCase();
         if (
           !(
-            e.kind === "Hostile mobs" ||
-            /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+            e.kind === "Hostile mobs" && e.name !== "enderman" ||
+            /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
           )
         )
           return false;
@@ -2455,7 +2455,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         if (!e?.position || e === bot.entity) return false;
         const n = String(e.name || "").toLowerCase();
         return (
-          /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n) &&
+          /zombie|creeper|spider|husk|vex|slime|skeleton|stray|pillager|drowned/.test(n) &&
           e.position.distanceTo(bot.entity.position) < 50
         );
       });
@@ -2464,7 +2464,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         .filter((e) => {
           if (!e?.position || e === bot.entity) return false;
           const n = String(e.name || "").toLowerCase();
-          return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager|drowned/.test(n);
+          return /zombie|creeper|spider|husk|vex|slime|skeleton|stray|pillager|drowned/.test(n);
         })
         .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
     bot.setControlState("sprint", true);

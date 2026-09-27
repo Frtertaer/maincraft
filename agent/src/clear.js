@@ -289,8 +289,8 @@ export class ClearRunner {
               if (!e?.position || e === bot.entity) return false;
               const n = String(e.name || e.displayName || "").toLowerCase();
               const hostile =
-                e.kind === "Hostile mobs" ||
-                /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+                e.kind === "Hostile mobs" && e.name !== "enderman" ||
+                /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
               return hostile && e.position.distanceTo(bot.entity.position) < 52;
             });
             if (!still) return;
@@ -397,7 +397,7 @@ export class ClearRunner {
                 if (!e?.position || e === bot.entity) return false;
                 const n = String(e.name || "").toLowerCase();
                 const hostile =
-                  e.kind === "Hostile mobs" ||
+                  e.kind === "Hostile mobs" && e.name !== "enderman" ||
                   /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
                 return hostile && toward(e);
               });
@@ -420,8 +420,8 @@ export class ClearRunner {
                 if (!e?.position || e === bot.entity) return false;
                 const n = String(e.name || "").toLowerCase();
                 const hostile =
-                  e.kind === "Hostile mobs" ||
-                  /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|enderman|witch/.test(n);
+                  e.kind === "Hostile mobs" && e.name !== "enderman" ||
+                  /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|witch/.test(n);
                 return hostile && e.position.distanceTo(bot.entity.position) < 40;
               });
             // burrowing while the pack trails inside 40m is how every carve
@@ -484,7 +484,7 @@ export class ClearRunner {
             };
             const respawnHostiles = Object.values(bot.entities || {}).filter((e) => {
               const n = String(e?.name || "");
-              const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+              const hostile = e.kind === "Hostile mobs" && e.name !== "enderman" || /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
               return hostile && dist(e) < 20;
             });
             // a ranged camper shoots straight through a sprint: a skeleton at
@@ -503,7 +503,7 @@ export class ClearRunner {
             const meleeSwarm =
               respawnHostiles.filter(
                 (e) =>
-                  /zombie|spider|husk|vex|enderman|slime|drowned/.test(String(e.name || "")) &&
+                  /zombie|spider|husk|vex|slime|drowned/.test(String(e.name || "")) &&
                   dist(e) < 10
               ).length >= 2;
             if (!respawnHostile || creepNear || meleeSwarm) {
@@ -598,7 +598,7 @@ export class ClearRunner {
                 .filter((e) => {
                   if (!e?.position || e === bot.entity) return false;
                   const n = String(e.name || "").toLowerCase();
-                  return /zombie|creeper|spider|husk|vex|enderman|slime|skeleton|stray|pillager/.test(n);
+                  return /zombie|creeper|spider|husk|vex|slime|skeleton|stray|pillager/.test(n);
                 })
                 .sort(
                   (a, b) =>
@@ -697,7 +697,7 @@ export class ClearRunner {
         const hostileClose = () => Object.values(bot.entities || {}).some((e) => {
           if (!e?.position || e === bot.entity) return false;
           const n = String(e.name || e.displayName || "").toLowerCase();
-          const hostile = e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|enderman|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+          const hostile = e.kind === "Hostile mobs" && e.name !== "enderman" || /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
           if (!hostile) return false;
           const d = e.position.distanceTo(bot.entity.position);
           // ranged mobs engage from ~16m — a skeleton just past the melee
@@ -724,7 +724,7 @@ export class ClearRunner {
               .filter((e) => {
                 if (!e?.position || e === bot.entity) return false;
                 const n = String(e.name || "").toLowerCase();
-                return /zombie|creeper|spider|husk|vex|enderman|slime/.test(n);
+                return /zombie|creeper|spider|husk|vex|slime/.test(n);
               })
               .sort(
                 (a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
