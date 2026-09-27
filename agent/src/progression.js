@@ -1247,7 +1247,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           if (a1?.name !== "air" || a2?.name !== "air") return false;
           // two diggable cells below too — grass-over-stone tops dig one
           // layer then stall on the same mountain that just failed
-          return diggable(bb) && diggable(bot.blockAt(bb.position.offset(0, -1, 0))) && diggable(bot.blockAt(bb.position.offset(0, -2, 0)));
+          if (!(diggable(bb) && diggable(bot.blockAt(bb.position.offset(0, -1, 0))) && diggable(bot.blockAt(bb.position.offset(0, -2, 0))))) return false;
+          // and at least one side carves a depth-2 pocket — a diggable
+          // column ringed by stone walls is a guaranteed seal(undiggable)
+          // fail that just burns another relocate hop
+          return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) =>
+            [1, 2].every((i) =>
+              [1, 2].every((dy) =>
+                diggable(bot.blockAt(bb.position.offset(dx * i, dy, dz * i)))
+              )
+            )
+          );
         },
         maxDistance: 40,
         count: 6,
@@ -1392,7 +1402,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // kills the exit — 16m was too small to hold through)
   const safe = () => {
     const t = bot.time?.timeOfDay;
-    if (t != null && t >= 12541) return false;
+    // null time = unread clock, not daytime — a stale time read once let
+    // the bot unseal at true night straight into the camper it hid from
+    if (t == null || t >= 12541) return false;
     return !Object.values(bot.entities || {}).some((e) => {
       if (!e?.position || e === bot.entity) return false;
       const n = String(e.name || e.displayName || "").toLowerCase();
@@ -2348,7 +2360,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // whole day otherwise, turning one mob into a 570s sit-out; the caller
     // sprints out instead
     const waitCap = force ? 150000 : 570000;
-    while (!safe() && Date.now() - t0 < waitCap) {
+    // exit needs the day to HOLD: one good read then back to night/hostile
+    // is the tod flap that unsealed the bot into a creeper — two consecutive
+    // safe reads (each loop is ~4-16s) means the day is real
+    let safeStreak = 0;
+    while (Date.now() - t0 < waitCap) {
+      if (safe()) {
+        safeStreak += 1;
+        if (safeStreak >= 2) break;
+      } else {
+        safeStreak = 0;
+      }
     // died inside the pocket and respawned somewhere else — the shelter is
     // gone with the corpse; abort so the runner can flee/re-gear instead of
     // standing naked on open ground for the rest of the night
