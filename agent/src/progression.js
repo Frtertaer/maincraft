@@ -3462,24 +3462,29 @@ async function phaseIron(bot, mcData, state, log) {
       }
     }
 
-    // Fuel: logs burn at 1.5 smelts each, planks at the same rate but 1 log
-    // crafts into 4 — always convert first. When nothing burnable is left,
-    // dig coal in sight or walk a remembered log site before retrying smelt,
-    // instead of failing in place every step.
-    const fuelEnergy = () =>
-      bot.inventory.items().reduce((sum, i) => {
-        if (/lava_bucket$/.test(i.name)) return sum + 100 * i.count;
-        if (/coal_block$/.test(i.name)) return sum + 80 * i.count;
-        if (/^(coal|charcoal)$/.test(i.name)) return sum + 8 * i.count;
-        if (/(_log|_wood|_planks)$/.test(i.name)) return sum + 1.5 * i.count;
-        if (/stick$/.test(i.name)) return sum + 0.5 * i.count;
-        return sum;
-      }, 0);
-    const need0 = Math.min(8 - ingots, raw, 8);
-    if (fuelEnergy() < need0) {
-      if (countItem(bot, (i) => /(_log|_wood)$/.test(i.name)) > 0) await ensurePlanks(bot, mcData, 8);
+    // Fuel: pick the inventory stack with the most total burn energy and size
+    // the batch to what that ONE stack can smelt — smeltItems only inserts a
+    // single fuel stack, so a batch bigger than its capacity can never start.
+    // Logs convert to planks first (1 log -> 4 planks at the same 1.5 rate).
+    const capOf = (n) =>
+      /lava_bucket$/.test(n) ? 100
+      : /coal_block$/.test(n) ? 80
+      : /^(coal|charcoal)$/.test(n) ? 8
+      : /(_log|_wood|_planks)$/.test(n) ? 1.5
+      : /stick$/.test(n) ? 0.5
+      : 0;
+    const bestFuel = () =>
+      bot.inventory
+        .items()
+        .map((i) => ({ name: i.name, count: i.count, cap: capOf(i.name) }))
+        .filter((x) => x.cap > 0)
+        .sort((a, b) => b.cap * b.count - a.cap * a.count)[0] || null;
+    let bf = bestFuel();
+    if ((!bf || bf.cap * bf.count < 1) && countItem(bot, (i) => /(_log|_wood)$/.test(i.name)) > 0) {
+      await ensurePlanks(bot, mcData, 8);
+      bf = bestFuel();
     }
-    if (fuelEnergy() < need0) {
+    if (!bf || bf.cap * bf.count < 1) {
       const coal = bot.findBlock({ matching: (b) => /^(coal_ore|deepslate_coal_ore)$/.test(b?.name || ""), maxDistance: 40 });
       if (coal) {
         const dg = await executeAction(
@@ -3493,10 +3498,8 @@ async function phaseIron(bot, mcData, state, log) {
       if (went.ok) return { ok: true, phase: "iron", message: "fuel run: to log site" };
       return { ok: false, phase: "iron", message: "no fuel for smelt and no coal/log site known" };
     }
-    let fuel = "coal";
-    if (countItem(bot, "coal") < 1 && countItem(bot, "charcoal") > 0) fuel = "charcoal";
-    else if (countItem(bot, "coal") < 1) fuel = null; // auto-pick any fuel item
-    const need = Math.min(8 - ingots, raw, 8);
+    const fuel = bf.name;
+    const need = Math.min(8 - ingots, raw, 8, Math.max(1, Math.floor(bf.cap * bf.count)));
     const sm = await executeAction(
       bot,
       { type: "smelt", input: "raw_iron", output: "iron_ingot", fuel, count: need },
