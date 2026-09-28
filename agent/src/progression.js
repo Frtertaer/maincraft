@@ -2819,6 +2819,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
     const up = await stairwayUp(bot, mcData, 14, log);
     if (up.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "ascend for food" };
+    // staircase can't route from a sealed pocket — dig a straight 1x1 shaft:
+    // every target is adjacent so pathfinding isn't needed, and the overhead
+    // hazard scan keeps lava/water/gravel off our 1hp head
+    log?.(`[food] staircase stuck — shaft straight up (y=${Math.floor(bot.entity.position.y)})`);
+    const sh = await shaftUp(bot, mcData, 56, log);
+    if (sh.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "shaft for food" };
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
@@ -3763,6 +3769,139 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
 // direction when a step is undiggable (lava/bedrock). Returns when sky
 // appears or steps run out — the only way out of a sealed dead-end cave,
 // where the pathfinder has no route.
+// Vertical escape shaft: when stairwayUp can't route (sealed pocket where
+// every stair target is beyond dig reach), mine straight up a 1x1 column —
+// every dig is an adjacent cell so no pathfinding is needed. Scans 5 cells
+// overhead for lava/water/gravel/sand BEFORE each dig (one drop is death at
+// 1hp); a blocked column shifts the shaft one cell sideways instead.
+async function shaftUp(bot, mcData, maxRise = 56, log = null) {
+  const isAir = (b) => !b || /^(air|cave_air|void_air)$/.test(b.name);
+  const hazard = (b) => b && /lava|water|bubble|gravel|sand|obsidian|bedrock|magma/.test(b.name);
+  const placeable = () =>
+    bot.inventory
+      .items()
+      .find(
+        (i) =>
+          mcData.blocksByName[i.name]?.boundingBox === "block" &&
+          !/pickaxe|sword|_axe|shovel|_hoe|bucket|torch|sign|bed|chest|crafting|furnace|boat|ladder|door|slab|stairs|fence|wall|glass|pane|leaf|leaves|wool|carpet/.test(i.name)
+      );
+  const digCell = async (b) => {
+    if (!b || isAir(b)) return true;
+    const r = await executeAction(
+      bot,
+      { type: "dig", x: b.position.x, y: b.position.y, z: b.position.z, timeoutMs: 12000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    return r.ok;
+  };
+  let rise = 0;
+  while (rise < maxRise) {
+    const feet = bot.entity.position.floored();
+    try {
+      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 4) return { ok: true, rise };
+    } catch {
+      /* keep digging */
+    }
+    // hazard scan before opening the column: anything that falls or burns
+    // overhead must move the shaft sideways, not get dug under our own head
+    let columnBlocked = false;
+    for (const dy of [1, 2, 3, 4, 5]) {
+      if (hazard(bot.blockAt(feet.offset(0, dy, 0)))) {
+        columnBlocked = true;
+        break;
+      }
+    }
+    if (columnBlocked) {
+      let shifted = false;
+      for (const [dx, dz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        let sideOk = true;
+        for (const dy of [1, 2, 3, 4, 5]) {
+          if (hazard(bot.blockAt(feet.offset(dx, dy, dz)))) {
+            sideOk = false;
+            break;
+          }
+        }
+        if (!sideOk) continue;
+        for (const dy of [0, 1]) {
+          const c = bot.blockAt(feet.offset(dx, dy, dz));
+          if (c && !isAir(c)) {
+            if (!(await digCell(c))) {
+              sideOk = false;
+              break;
+            }
+            await sleep(150);
+          }
+        }
+        if (!sideOk) continue;
+        const step = await executeAction(
+          bot,
+          { type: "goto", x: feet.x + dx, y: feet.y, z: feet.z + dz, range: 0, timeoutMs: 6000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        if (step.ok) {
+          shifted = true;
+          break;
+        }
+      }
+      if (!shifted) return { ok: false, rise, message: "column blocked overhead" };
+      continue;
+    }
+    // clear the two cells overhead (adjacent — no pathfinding involved)
+    let dug = true;
+    for (const dy of [1, 2]) {
+      const c = bot.blockAt(feet.offset(0, dy, 0));
+      if (c && !isAir(c)) {
+        if (!(await digCell(c))) {
+          dug = false;
+          break;
+        }
+        await sleep(150);
+      }
+    }
+    if (!dug) return { ok: false, rise, message: "dig failed" };
+    // stand on a new block under our own feet: same predictive window as the
+    // refuge pillar — offer the place only while the apply-time feet
+    // position clears the destination cell's top
+    const s = placeable();
+    if (!s) return { ok: false, rise, message: "no block to stand on" };
+    try {
+      if (bot.heldItem?.name !== s.name) await pt(bot.equip(s, "hand"), 6000, "equip");
+    } catch {
+      return { ok: false, rise, message: "equip failed" };
+    }
+    let placed = false;
+    for (let attempt = 0; attempt < 3 && !placed; attempt++) {
+      const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+      if (!ref || isAir(ref)) break;
+      bot.setControlState("jump", true);
+      const lift = Date.now();
+      while (Date.now() - lift < 2600) {
+        const vy = bot.entity.velocity?.y ?? 0;
+        const feetAtApply = bot.entity.position.y + vy * 2.5 - 0.25;
+        if (vy > 0.08 && feetAtApply >= ref.position.y + 2.02) {
+          try {
+            await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "shaft place");
+            placed = true;
+          } catch {
+            /* refused mid-air — re-hop */
+          }
+          break;
+        }
+        await sleep(40);
+      }
+      bot.setControlState("jump", false);
+    }
+    if (!placed) return { ok: false, rise, message: "pillar place failed" };
+    rise += 1;
+  }
+  return { ok: true, rise, message: "max rise" };
+}
+
 async function stairwayUp(bot, mcData, maxSteps = 14, log) {
   const dirs = [
     [1, 0],
