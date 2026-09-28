@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, logSitesLoadFile } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -98,6 +98,15 @@ export class ClearRunner {
       // productive log grounds remembered on disk — a restart (or a `!clear`
       // after deaths wiped in-memory state) keeps the compass
       logSites: logSitesLoadFile(this.bot).slice(-8),
+      // kill ring remembered on disk too — an OOM/crash restart must not
+      // forget the camp zone and wander back into it
+      ...(() => {
+        const dz = deathZonesLoadFile(this.bot);
+        return {
+          _deathPts: dz.pts,
+          campZone: dz.camp ? { x: dz.camp.x, z: dz.camp.z } : null,
+        };
+      })(),
     };
     this._deathHandler = () => {
       this.deaths += 1;
@@ -122,6 +131,7 @@ export class ClearRunner {
             this.log(`[clear] camp zone marked ${cx},${cz} — avoiding`);
           }
         }
+        deathZonesSaveFile(this.bot, this.state._deathPts, this.state.campZone);
       }
     };
     this._respawnHandler = () => {
@@ -152,6 +162,7 @@ export class ClearRunner {
             this.state.campZone = { x: zx, z: zz };
             this.log(`[clear] camp zone anchored on respawn ${zx},${zz}`);
           }
+          deathZonesSaveFile(this.bot, this.state._deathPts, this.state.campZone);
         }
         // Spawn-camp escape: next loop iteration moves ~40 blocks away from
         // the respawn kill-zone before resuming progression. Bare-handed

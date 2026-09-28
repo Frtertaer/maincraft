@@ -440,6 +440,40 @@ function logSiteRecord(pos, bot, state) {
   }
 }
 
+// remembered death spots + the mob camp they cluster around — persisted
+// like log sites so a process restart keeps steering clear of the kill
+// ring instead of wandering back into it
+const DEATH_ZONE_FILE = path.resolve(__dirname, "../../logs/death-zones.json");
+const DEATH_ZONE_FRESH_MS = 30 * 60 * 1000;
+
+export function deathZonesLoadFile(bot) {
+  try {
+    const o = JSON.parse(fs.readFileSync(DEATH_ZONE_FILE, "utf8"));
+    const sp = bot?.spawnPoint;
+    const same = (p) => !sp || p.sx == null || Math.hypot(p.sx - sp.x, p.sz - sp.z) < 32;
+    const live = (p) => same(p) && Date.now() - p.t < DEATH_ZONE_FRESH_MS;
+    const pts = Array.isArray(o?.pts) ? o.pts.filter((p) => p && Number.isFinite(p.x) && Number.isFinite(p.t) && live(p)) : [];
+    const camp = o?.camp && Number.isFinite(o.camp.x) && Number.isFinite(o.camp.t) && live(o.camp) ? o.camp : null;
+    return { pts, camp };
+  } catch {
+    return { pts: [], camp: null };
+  }
+}
+
+export function deathZonesSaveFile(bot, pts, camp) {
+  try {
+    const sp = bot?.spawnPoint;
+    const tag = sp ? { sx: Math.round(sp.x), sz: Math.round(sp.z) } : {};
+    fs.mkdirSync(path.dirname(DEATH_ZONE_FILE), { recursive: true });
+    fs.writeFileSync(DEATH_ZONE_FILE, JSON.stringify({
+      pts: (pts || []).slice(-24).map((p) => ({ x: Math.round(p.x), z: Math.round(p.z), t: p.t, ...tag })),
+      ...(camp ? { camp: { x: Math.round(camp.x), z: Math.round(camp.z), t: camp.t || Date.now(), ...tag } } : {}),
+    }));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 function stashRecord(pos, bot) {
   try {
     const list = stashLoadFile(bot);
