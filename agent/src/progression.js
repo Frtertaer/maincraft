@@ -1455,14 +1455,41 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       /* find failed — fall back to directional wander */
     }
     if (target) {
-      try {
-        await executeAction(
-          bot,
-          { type: "goto", x: target.x + 0.5, y: target.y + 1, z: target.z + 0.5, range: 1, timeoutMs: 15000 },
-          mcData
-        );
-      } catch {
-        /* move didn't land — try the burrow from wherever we are */
+      // a pathfinder goto while a shooter is in range is the relocate death —
+      // it stands still planning then walks at 4.3m/s. Sprint the leg instead:
+      // instant, ~5.6m/s, and slides off obstacles. Only when clear is the
+      // (slower, precise) walk worth it
+      const danger = Object.values(bot.entities || {}).some((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || "").toLowerCase();
+        const hostile =
+          e.kind === "Hostile mobs" && e.name !== "enderman" ||
+          /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+        return hostile && e.position.distanceTo(bot.entity.position) < 34;
+      });
+      if (danger) {
+        const yaw = Math.atan2(-(target.x - bot.entity.position.x), -(target.z - bot.entity.position.z));
+        bot.setControlState("sprint", true);
+        bot.setControlState("forward", true);
+        const ts = Date.now();
+        while (Date.now() - ts < 5000) {
+          bot.look(yaw + (Math.random() - 0.5) * 0.5, 0, true);
+          bot.setControlState("jump", Date.now() % 700 < 350);
+          await sleep(260);
+        }
+        bot.setControlState("jump", false);
+        bot.setControlState("forward", false);
+        bot.setControlState("sprint", false);
+      } else {
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: target.x + 0.5, y: target.y + 1, z: target.z + 0.5, range: 1, timeoutMs: 15000 },
+            mcData
+          );
+        } catch {
+          /* move didn't land — try the burrow from wherever we are */
+        }
       }
     } else {
       // memory beats a blind hop: spots where logs were punched before
