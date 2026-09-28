@@ -2265,7 +2265,15 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
         const t0 = Date.now();
         let lastBeat = 0;
-        while (!safe() && Date.now() - t0 < 620000) {
+        // the cap is an escape valve, not an unseal trigger: when it lands
+        // inside dusk/night, climbing down dumps the bot into the mob pack
+        // below — hold the pillar until real dawn (safe() only passes at
+        // tod<9500), same rule as the pocket wait
+        while (
+          !safe() &&
+          (Date.now() - t0 < 620000 ||
+            ((bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 800000))
+        ) {
           if (state?._diedAt && Date.now() - state._diedAt < 6000) {
             log?.("[burrow] died on the pillar — aborting shelter");
             return false;
