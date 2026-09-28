@@ -114,7 +114,25 @@ export class ClearRunner {
       const killer = this.combat?.getStats?.().lastTarget || "";
       const p = this.bot.entity?.position;
       const at = p ? ` @${p.x | 0},${p.y | 0},${p.z | 0}` : "";
-      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${at}`);
+      // empty lastTarget + no engaged mob means the kill came from the
+      // environment (lava into the strip, gravel suffocation, a creeper that
+      // reached the fuse before the reflex locked on) — log which so the
+      // cause is diagnosable instead of a silent "died underground"
+      let cause = "";
+      if (!killer && p) {
+        try {
+          const feet = this.bot.blockAt(p.floored());
+          const near = [];
+          for (const e of Object.values(this.bot.entities || {})) {
+            if (!e || !e.position || !e.name) continue;
+            const d = e.position.distanceTo(p);
+            if (d < 8 && /zombie|skeleton|creeper|spider|witch|drowned|enderman|pillager|slime|hoglin|blaze/.test(e.name)) near.push(`${e.name}@${d | 0}m`);
+          }
+          if (feet && /lava|fire/.test(feet.name)) cause = ` env=${feet.name}`;
+          else if (near.length) cause = ` mob:${near.join(",")}`;
+        } catch {}
+      }
+      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
       if (p) {
         this.state._diedPos = { x: p.x, z: p.z };
         // a spawn camp is a place, not a moment — two deaths inside ~150m of

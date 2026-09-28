@@ -3866,6 +3866,25 @@ async function phaseIron(bot, mcData, state, log) {
       // no open-cave exposure
       const { mined, oreHits } = await stripMine(bot, mcData, 22, log);
       gained = countItem(bot, "raw_iron") + countItem(bot, "iron_ore") + countItem(bot, "deepslate_iron_ore") - before;
+      // a dry stretch keeps tunneling through plain stone forever — after 4
+      // oreless strips shift ~24m sideways into a fresh vein field; iron is
+      // vein-clustered so the same tunnel can stay barren for whole days
+      if (state) {
+        if (oreHits === 0 && gained === 0) state.stripDry = (state.stripDry || 0) + 1;
+        else state.stripDry = 0;
+        if (state.stripDry >= 4) {
+          state.stripDry = 0;
+          const p0 = bot.entity.position.floored();
+          const dirs = [[24, 0], [-24, 0], [0, 24], [0, -24]];
+          const [rx, rz] = dirs[Math.floor(Math.random() * dirs.length)];
+          await executeAction(
+            bot,
+            { type: "goto", x: p0.x + rx, y: p0.y, z: p0.z + rz, range: 3, timeoutMs: 15000 },
+            mcData
+          ).catch(() => {});
+          return { ok: true, phase: "iron", message: `strip dry — relocating ${rx},${rz} @y=${p0.y}` };
+        }
+      }
       return {
         ok: gained > 0 || mined > 4,
         phase: "iron",
