@@ -400,7 +400,9 @@ export async function executeAction(bot, action, mcData) {
           });
         }
         if (!block) return { ok: false, message: `block not found: ${blockName || "coords"}` };
-        await equipBestTool(bot, block);
+        // equip can park forever on a dropped window-transaction ack — bound
+        // it; the harvest check below still gates digging with the wrong tool
+        await withTimeout(equipBestTool(bot, block), 9000, "equip tool timeout").catch(() => {});
         const dist = bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5));
         if (dist > 4.2) {
           try {
@@ -760,7 +762,7 @@ export async function executeAction(bot, action, mcData) {
         const dest = action.destination || "hand";
         const item = bot.inventory.items().find((i) => i.name === itemName || i.name.includes(itemName));
         if (!item) return { ok: false, message: `no item ${itemName}` };
-        await bot.equip(item, dest);
+        await withTimeout(bot.equip(item, dest), 8000, "equip timeout");
         return { ok: true, message: `equipped ${item.name} -> ${dest}` };
       }
 
@@ -849,7 +851,7 @@ export async function executeAction(bot, action, mcData) {
         if (ref.position.distanceTo(bot.entity.position) > 4.2) {
           await goto(bot, new goals.GoalNear(ref.position.x, ref.position.y, ref.position.z, 3), 30000);
         }
-        await bot.equip(item, "hand");
+        await withTimeout(bot.equip(item, "hand"), 6000, "equip timeout");
         // equip resolves before the server swaps the held slot — placing
         // with a stale item (e.g. wooden_sword in hand) makes the server
         // refuse, and mineflayer's error names heldItem, not our item
@@ -857,7 +859,7 @@ export async function executeAction(bot, action, mcData) {
           await sleep(120);
           if (bot.heldItem?.name !== item.name) {
             try {
-              await bot.equip(item, "hand");
+              await withTimeout(bot.equip(item, "hand"), 6000, "equip timeout");
               await sleep(120);
             } catch {
               /* fall through to the desync check */
@@ -1093,7 +1095,7 @@ async function useHeldItem(bot, action) {
   if (itemName) {
     const item = findInventoryItem(bot, itemName);
     if (!item) return { ok: false, message: `no item ${itemName}` };
-    await bot.equip(item, action.offHand ? "off-hand" : "hand");
+    await withTimeout(bot.equip(item, action.offHand ? "off-hand" : "hand"), 6000, "equip timeout");
   }
   if (!bot.heldItem && !action.offHand) return { ok: false, message: "no held item to use" };
 
@@ -1115,7 +1117,7 @@ async function useWorldBlock(bot, action) {
   if (itemName) {
     const item = findInventoryItem(bot, itemName);
     if (!item) return { ok: false, message: `no item ${itemName}` };
-    await bot.equip(item, action.offHand ? "off-hand" : "hand");
+    await withTimeout(bot.equip(item, action.offHand ? "off-hand" : "hand"), 6000, "equip timeout");
   }
   const direction = faceVec(action.face || "top");
   await withTimeout(
@@ -1277,7 +1279,7 @@ export async function equipBestWeapon(bot, requestedName) {
   const candidates = bot.inventory.items().filter((item) => /_(sword|axe)$/.test(item.name));
   candidates.sort((a, b) => weaponScore(b.name, materialScore) - weaponScore(a.name, materialScore));
   const weapon = requested || candidates[0];
-  if (weapon) await bot.equip(weapon, "hand");
+  if (weapon) await withTimeout(bot.equip(weapon, "hand"), 6000, "equip timeout");
   return weapon || null;
 }
 
@@ -1285,7 +1287,7 @@ export async function equipBestShield(bot) {
   const shield = bot.inventory.items().find((item) => item.name === "shield");
   if (!shield) return null;
   try {
-    await bot.equip(shield, "off-hand");
+    await withTimeout(bot.equip(shield, "off-hand"), 6000, "equip timeout");
     return shield;
   } catch {
     return null;
@@ -1391,7 +1393,7 @@ function withTimeout(promise, timeoutMs, message) {
 async function equipBestTool(bot, block) {
   try {
     if (bot.tool?.equipForBlock) {
-      await bot.tool.equipForBlock(block, { requireHarvest: true });
+      await withTimeout(bot.tool.equipForBlock(block, { requireHarvest: true }), 8000, "equipForBlock timeout");
       return;
     }
   } catch {
@@ -1405,7 +1407,7 @@ async function equipBestTool(bot, block) {
   const tool = bot.inventory.items().find((i) => i.name.includes(prefer));
   if (tool) {
     try {
-      await bot.equip(tool, "hand");
+      await withTimeout(bot.equip(tool, "hand"), 6000, "equip timeout");
     } catch {
       /* ignore */
     }
