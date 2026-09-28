@@ -279,6 +279,18 @@ export async function executeAction(bot, action, mcData) {
     }
   }
 
+  // a leaked container/craft window remaps slot numbering — equip/moveSlotItem
+  // then silently hit the WRONG slots (e.g. place keeps the pickaxe held and
+  // the server refuses every block). Close anything left open before acting.
+  if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+    try {
+      bot.closeWindow(bot.currentWindow);
+      await sleep(120);
+    } catch {
+      /* already closed */
+    }
+  }
+
   try {
     switch (type) {
       case "chat":
@@ -848,9 +860,15 @@ export async function executeAction(bot, action, mcData) {
               await bot.equip(item, "hand");
               await sleep(120);
             } catch {
-              /* fall through to the place attempt */
+              /* fall through to the desync check */
             }
           }
+        }
+        // equip resolved but the held slot never changed — the move was
+        // silently rejected (stale window state, leaked container). Bail with
+        // the real cause instead of a guaranteed server refuse.
+        if (bot.heldItem?.name !== item.name) {
+          return { ok: false, message: `equip desync: held=${bot.heldItem?.name || "empty"} want=${item.name}` };
         }
         await bot.placeBlock(ref, direction);
         const placed = bot.blockAt(target);
