@@ -1617,15 +1617,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     if (!d.ok) break;
     await sleep(120);
   }
-  // a broken pickaxe makes every stone column undiggable underground —
-  // recraft before scanning so y<0 depth isn't mistaken for unworkable ground
-  if (!hasPickaxe(bot)) {
-    const pk = await ensurePickaxe(bot, mcData).catch(() => null);
-    if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
-  }
   // Bare-handed respawn: nothing to cap/brim/pillar with — every downstream
   // shelter dies mid-build (solids<8 and no pick means stone ground is
-  // untouchable too). One bounded log punch buys all of it back.
+  // untouchable too). One bounded log punch buys all of it back — run it
+  // BEFORE the pickaxe recraft so the wood can become planks+sticks+pick.
   const solidsHere = () =>
     bot.inventory.items().reduce((n, i) => n + (mcData.blocksByName[i.name] ? i.count : 0), 0);
   if (solidsHere() < 8) {
@@ -1637,6 +1632,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       log?.("[burrow] bare-handed — punching a log for shelter material");
       await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
     }
+  }
+  // a broken pickaxe makes every stone column undiggable underground —
+  // recraft before scanning so y<0 depth isn't mistaken for unworkable ground
+  if (!hasPickaxe(bot)) {
+    const pk = await ensurePickaxe(bot, mcData).catch(() => null);
+    if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
   }
   // Try up to 9 candidate spots for a dig-down column: here, then east, west,
   // south, north at 3 and 6 blocks — the ground must be solid to -6.
