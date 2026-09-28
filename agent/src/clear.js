@@ -768,14 +768,33 @@ export class ClearRunner {
                 escDirs = [[Math.round((ax0 / n0) * ring0 * 2), Math.round((az0 / n0) * ring0 * 2)]];
               }
             }
+            // escaping toward a known resource site beats a bare heading:
+            // nearest logSite/stash that also exits the camp zone
+            const sites = [...(this.state?.logSites || []), this.state?.stash].filter(Boolean);
+            if (sites.length) {
+              let best = null;
+              for (const s of sites) {
+                const dx = s.x - pf0.x;
+                const dz = s.z - pf0.z;
+                const dist = Math.hypot(dx, dz);
+                if (dist < 60) continue;
+                if (cz0 && Math.hypot(s.x - cz0.x, s.z - cz0.z) < 120) continue;
+                if (!best || dist < best.dist) best = { dist, dx, dz };
+              }
+              if (best) {
+                const n = Math.max(Math.abs(best.dx), Math.abs(best.dz)) || 1;
+                escDirs.unshift([Math.round((best.dx / n) * ring0 * 2), Math.round((best.dz / n) * ring0 * 2)]);
+              }
+            }
             const [ex0, ez0] = pickDryDir(bot, escDirs);
             this.log(`[clear] day escape sprint ${ex0},${ez0}`);
             await fleeUntilClear(ex0, ez0).catch(() => {});
             if (!hostileClose()) continue; // outran it — back to the step
             // one failed leg usually means the heading stalled on terrain or
             // a second pack — a rotated retry (~30s) still beats a ~3min hide
-            // that just re-camps the pocket it exits from
-            const esc2 = escDirs.filter(([dx, dz]) => Math.abs(dx - ex0) > 1 || Math.abs(dz - ez0) > 1);
+            // that just re-camps the pocket it exits from. Never pick the
+            // reverse heading: running back crosses the pack we just left
+            const esc2 = escDirs.filter(([dx, dz]) => (Math.abs(dx - ex0) > 1 || Math.abs(dz - ez0) > 1) && dx * ex0 + dz * ez0 >= 0);
             const [ex1, ez1] = pickDryDir(bot, esc2.length ? esc2 : escDirs);
             this.log(`[clear] day escape retry ${ex1},${ez1}`);
             await fleeUntilClear(ex1, ez1).catch(() => {});
