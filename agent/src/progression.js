@@ -1612,14 +1612,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // name class: a small set is always hand-breakable, everything else
   // (stone/ore/bricks) needs a pickaxe in inventory
   const diggable = (b) => diggableBlock(bot, b);
-  // safe() = daylight and no hostile within 28 (creepers/spiders don't burn,
-  // spawn-campers outlast sunrise; a crawler at ~20m still sprints in and
-  // kills the exit — 16m was too small to hold through)
+  // safe() = usable daylight and no hostile within 28 (creepers/spiders
+  // don't burn, spawn-campers outlast sunrise; a crawler at ~20m still
+  // sprints in and kills the exit — 16m was too small to hold through)
   const safe = () => {
     const t = bot.time?.timeOfDay;
     // null time = unread clock, not daytime — a stale time read once let
-    // the bot unseal at true night straight into the camper it hid from
-    if (t == null || t >= 12541) return false;
+    // the bot unseal at true night straight into the camper it hid from.
+    // tod 9500-12541 is the last ~2.5min of day: unsealing there buys
+    // seconds of light then throws the bot into the dusk mob wave — hold
+    // the shelter through the night and release at the real dawn instead
+    if (t == null || t >= 9500) return false;
     return !Object.values(bot.entities || {}).some((e) => {
       if (!e?.position || e === bot.entity) return false;
       const n = String(e.name || e.displayName || "").toLowerCase();
@@ -2712,9 +2715,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const waitCap = force ? 150000 : 570000;
     // exit needs the day to HOLD: one good read then back to night/hostile
     // is the tod flap that unsealed the bot into a creeper — two consecutive
-    // safe reads (each loop is ~4-16s) means the day is real
+    // safe reads (each loop is ~4-16s) means the day is real.
+    // A day-hide (or proactive dusk burrow) whose cap lands inside dusk or
+    // night must NOT release at the cap — the exit would drop the bot into
+    // the mob wave it dug in to avoid. Keep waiting to the night-length
+    // ceiling; the safe() check above only releases on real daylight
     let safeStreak = 0;
-    while (Date.now() - t0 < waitCap) {
+    while (
+      Date.now() - t0 < waitCap ||
+      (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 570000)
+    ) {
       if (safe()) {
         safeStreak += 1;
         if (safeStreak >= 2) break;
