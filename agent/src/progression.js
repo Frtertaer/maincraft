@@ -130,11 +130,16 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
   try {
     // drowning first — nothing else matters while the air bar empties:
     // progression steps keep running (strip spins, flee paths) as the bot
-    // stands underwater. Swim for air before any phase logic. Head-cell
-    // only: feet-deep wading is normal travel, not drowning.
+    // stands underwater. Swim for air before any phase logic. Deep water
+    // = under-feet is water too (can't stand) — 1-deep wading is normal
+    // travel. The head-only check missed the real trap: treading at the
+    // surface with no ledge — head in air, feet swimming, nowhere to land.
     {
-      const headW = bot.blockAt(bot.entity.position.floored().offset(0, 1, 0));
-      if (/water|bubble_column|kelp|seagrass/.test(String(headW?.name || ""))) {
+      const feetP = bot.entity.position.floored();
+      const headW = bot.blockAt(feetP.offset(0, 1, 0));
+      const underW = bot.blockAt(feetP.offset(0, -1, 0));
+      const wetCell = (b) => /water|bubble_column|kelp|seagrass/.test(String(b?.name || ""));
+      if (!bot.entity.vehicle && (wetCell(headW) || wetCell(underW))) {
         const wasDeep = bot.entity.position.y < 48;
         const sw = await surfaceForAir(bot, mcData, log);
         if (sw.ok && wasDeep) {
@@ -1055,12 +1060,60 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
   return dug;
 }
 
-// Strip-mine a 1x2 tunnel `steps` long: dig head+feet cells ahead, step in,
-// collect any ore vein now visible in the tunnel walls. Never opens into
-// caves — a bad cell ahead rotates the tunnel 90° instead.
-// Swim up out of a flooded cave/mine: hold jump (rises straight up in water)
-// and drift toward an adjacent column when the cell overhead is solid — the
-// water column going up is the way out. Air = head cell reads non-water.
+// Place a shore step into the water beside a wall face so a treading bot
+// gets a landing to climb onto. executeAction's place refuses water targets
+// (its occupied check only allows air cells), but vanilla allows waterlog
+// placement — go through bot.placeBlock directly.
+async function placeShoreStep(bot, mcData) {
+  const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+  const SEAL_BAD =
+    /furnace|chest|barrel|table|bed$|sign|skull|_head$|banner|campfire|piston|observer|dispenser|dropper|hopper|jukebox|note_block|beehive|bee_nest|spawner|shulker|ender|tnt|lectern|lodestone|respawn_anchor|bell|grindstone|stonecutter|loom|smithing|fletching|cartography|command_block|structure|jigsaw|portal|chorus|slime_block|honey|magma|ice$|snow$|pointed|conduit|beacon|composter|cauldron|brewing|enchanting|sculk|frame|soul_campfire|decorated_pot|trial|vault|crafter/;
+  const item = bot.inventory.items().find(
+    (i) =>
+      isCube(i) &&
+      !SEAL_BAD.test(i.name) &&
+      // gravity blocks sink through the column instead of holding the step
+      !/sand$|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|red_sand/.test(i.name)
+  );
+  if (!item) return false;
+  const p = bot.entity.position.floored();
+  for (const [dx, dz] of [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ]) {
+    const target = p.offset(dx, 0, dz);
+    const tB = bot.blockAt(target);
+    if (!/water|bubble_column/.test(String(tB?.name || ""))) continue;
+    for (const [ox, oy, oz, fx, fy, fz] of [
+      [0, -1, 0, 0, 1, 0],
+      [1, 0, 0, -1, 0, 0],
+      [-1, 0, 0, 1, 0, 0],
+      [0, 0, 1, 0, 0, -1],
+      [0, 0, -1, 0, 0, 1],
+    ]) {
+      const ref = bot.blockAt(target.offset(ox, oy, oz));
+      if (!ref || ref.boundingBox !== "block") continue;
+      if (ref.position.distanceTo(bot.entity.position) > 4.0) continue;
+      try {
+        await pt(bot.equip(item, "hand"), 4000, "equip");
+        if (bot.heldItem?.name !== item.name) continue;
+        await pt(bot.placeBlock(ref, new Vec3(fx, fy, fz)), 5000, "shore place");
+        const placed = bot.blockAt(target);
+        if (placed && placed.name !== "air") return true;
+      } catch {
+        /* next face */
+      }
+    }
+  }
+  return false;
+}
+
+// Swim up out of water: hold jump to rise, and once the head is out seek a
+// climbable lip (a solid top at the water line). No lip = a flooded pocket
+// or deep pool — place a shore step against a wall face, or drift toward
+// the next probe direction until a shore scan finds land.
 async function surfaceForAir(bot, mcData, log) {
   const t0 = Date.now();
   let dirIdx = 0;
@@ -1070,12 +1123,72 @@ async function surfaceForAir(bot, mcData, log) {
     [0, 1],
     [0, -1],
   ];
+  const WET = /water|bubble_column|kelp|seagrass/;
+  const PASS = /air|cave_air|void_air|water|bubble_column|kelp|seagrass|snow|snow_layer|grass|fern|vine|tall_grass|short_grass/;
+  // climbable lip: a solid block whose top is at or ~1 above the water line
+  // with passable room for the body — a jump from the surface grabs it
+  const findShore = () => {
+    const p = bot.entity.position.floored();
+    let best = null;
+    let bestD = 1e9;
+    for (let dx = -4; dx <= 4; dx += 1) {
+      for (let dz = -4; dz <= 4; dz += 1) {
+        if (!dx && !dz) continue;
+        for (let dy = -2; dy <= 1; dy += 1) {
+          const b = bot.blockAt(p.offset(dx, dy, dz));
+          if (!b || b.boundingBox !== "block" || WET.test(b.name)) continue;
+          const a1 = bot.blockAt(b.position.offset(0, 1, 0));
+          const a2 = bot.blockAt(b.position.offset(0, 2, 0));
+          if (!a1 || !a2 || !PASS.test(a1.name) || !PASS.test(a2.name)) continue;
+          // the lip can't be a wall — reject tops the swim can't mount
+          if (b.position.y + 1 - bot.entity.position.y > 1.4) continue;
+          const d = Math.hypot(dx, dz);
+          if (d < bestD) {
+            bestD = d;
+            best = b.position;
+          }
+        }
+      }
+    }
+    return best;
+  };
   try {
-    while (Date.now() - t0 < 25000) {
+    while (Date.now() - t0 < 30000) {
       const feet = bot.entity.position.floored();
       const head = bot.blockAt(feet.offset(0, 1, 0));
-      if (!/water|bubble_column|kelp|seagrass/.test(String(head?.name || ""))) {
-        return { ok: true };
+      const under = bot.blockAt(feet.offset(0, -1, 0));
+      const headWet = WET.test(String(head?.name || ""));
+      const swimming = WET.test(String(under?.name || ""));
+      if (!headWet && !swimming) return { ok: true };
+      const shore = findShore();
+      if (shore) {
+        // a lip exists — swim at it; close in with a sprint-jump to mount
+        const cx = shore.x + 0.5;
+        const cz = shore.z + 0.5;
+        const dx = cx - bot.entity.position.x;
+        const dz = cz - bot.entity.position.z;
+        bot.look(Math.atan2(-dx, -dz), 0, true);
+        bot.setControlState("jump", true);
+        bot.setControlState("forward", true);
+        bot.setControlState("sprint", Math.hypot(dx, dz) < 2.4);
+        await sleep(280);
+        continue;
+      }
+      if (!headWet) {
+        // head in air, no lip — try a placed step into the water beside a
+        // wall face, else drift toward the next probe direction
+        if (await placeShoreStep(bot, mcData)) {
+          await sleep(200);
+          continue;
+        }
+        const [dx, dz] = dirs[dirIdx % 4];
+        dirIdx += 1;
+        bot.look(Math.atan2(-dx, -dz), 0, true);
+        bot.setControlState("forward", true);
+        bot.setControlState("jump", false);
+        bot.setControlState("sprint", false);
+        await sleep(400);
+        continue;
       }
       const above = bot.blockAt(feet.offset(0, 2, 0));
       if (above && !/water|bubble_column|air|cave_air|kelp|seagrass/.test(above.name)) {
@@ -1096,9 +1209,13 @@ async function surfaceForAir(bot, mcData, log) {
   } finally {
     bot.setControlState("jump", false);
     bot.setControlState("forward", false);
+    bot.setControlState("sprint", false);
   }
 }
 
+// Strip-mine a 1x2 tunnel `steps` long: dig head+feet cells ahead, step in,
+// collect any ore vein now visible in the tunnel walls. Never opens into
+// caves — a bad cell ahead rotates the tunnel 90° instead.
 async function stripMine(bot, mcData, steps = 20, log = null) {
   const dirs = [
     [1, 0],
