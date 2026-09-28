@@ -1027,6 +1027,17 @@ export class ClearRunner {
             this._note(`Босс повержен: ${nextObj}!`);
           }
           step.phase = `${nextObj}_prep`;
+        } else if (bot.food != null && bot.food <= 4) {
+          // starving: the progression step descends for iron while ensureFed
+          // climbs for surface — the gotos supersede each other and the bot
+          // stalls at 1hp between them (the y~52 stall). The food run IS the
+          // productive step until hunger clears.
+          try {
+            const fed = await ensureFed(bot, this.mcData, this.log, state);
+            step = { ok: fed?.ok !== false, phase: phaseBefore, message: `food: ${fed?.message || "hunger"}` };
+          } catch (err) {
+            step = { ok: false, phase: phaseBefore, message: `food: ${err?.message || err}` };
+          }
         } else {
           try {
             step = await progressionStep(bot, this.mcData, state, this.log);
