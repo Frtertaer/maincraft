@@ -3401,8 +3401,55 @@ async function phaseWood(bot, mcData, state, log) {
         if (await gotoLogSite(bot, mcData, state, p)) {
           return { ok: true, phase: "wood", message: "zero-gain — back to log site" };
         }
-        await wander(bot, mcData, 80);
-        return { ok: true, phase: "wood", message: "zero-gain — wandering for trees" };
+        // a remembered-site scan came back empty — the local basin is cut out.
+        // A random 80m hop just ping-pongs inside a ~200m dead zone: trek one
+        // heading far enough to actually leave it, biased toward directions
+        // with trees (the target) and away from water and camp rings.
+        const dzFile = deathZonesLoadFile(bot) || { pts: [], camp: null };
+        const campZones = [
+          ...(state?._deathPts || []),
+          state?.campZone,
+          ...(dzFile.pts || []),
+          dzFile.camp,
+        ].filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+        let trek = null;
+        let trekScore = -Infinity;
+        for (const [dx, dz] of [
+          [180, 0],
+          [-180, 0],
+          [0, 180],
+          [0, -180],
+          [128, 128],
+          [-128, 128],
+          [128, -128],
+          [-128, -128],
+        ]) {
+          const sx = Math.sign(dx);
+          const sz = Math.sign(dz);
+          const tx = p.x + dx;
+          const tz = p.z + dz;
+          if (campZones.some((c) => Math.hypot(c.x - tx, c.z - tz) < 150)) continue;
+          let trees = 0;
+          let wet = false;
+          for (const step of [10, 25, 40]) {
+            const b = bot.blockAt(p.offset(sx * step, -1, sz * step));
+            if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
+            const w = bot.blockAt(p.offset(sx * step, -1, sz * step));
+            if (w && /water|kelp|ice|bubble/.test(w.name)) wet = true;
+          }
+          const score = trees * 3 - (wet ? 5 : 0) + Math.random();
+          if (score > trekScore) {
+            trekScore = score;
+            trek = [dx, dz];
+          }
+        }
+        if (!trek) trek = pickDryDir(bot, [[180, 0], [-180, 0], [0, 180], [0, -180]]);
+        await executeAction(
+          bot,
+          { type: "goto", x: p.x + trek[0], y: p.y, z: p.z + trek[1], range: 6, timeoutMs: 45000 },
+          mcData
+        ).catch(() => null);
+        return { ok: true, phase: "wood", message: "zero-gain — trekking for forest" };
       }
       // dug logs but the drops landed somewhere unreachable — walk onto the
       // nearest dropped log/plank item and let the pickup radius grab it
