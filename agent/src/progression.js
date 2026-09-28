@@ -733,6 +733,46 @@ async function ensureTable(bot, mcData) {
     }
   }
 
+  // sealed-pocket fallback: a sealed 1x1 has no top-face spot anywhere — the
+  // only free cells are air gaps BEHIND walls (below floor level, beside the
+  // feet). A table can still hang on a side or bottom face into such a gap:
+  // scan nearby air cells and place against any solid neighbor face.
+  // face = direction from the reference block TO the target cell
+  const FACE_NAMES = [
+    [[0, -1, 0], "top"],
+    [[0, 1, 0], "bottom"],
+    [[1, 0, 0], "west"],
+    [[-1, 0, 0], "east"],
+    [[0, 0, 1], "north"],
+    [[0, 0, -1], "south"],
+  ];
+  for (const dx of [-1, 0, 1, -2, 2]) {
+    for (const dz of [-1, 0, 1, -2, 2]) {
+      if (dx === 0 && dz === 0) continue;
+      for (const dy of [-1, -2, 1]) {
+        const cell = bot.blockAt(feet.offset(dx, dy, dz));
+        if (!cell || !/^(air|cave_air|void_air|snow)$/.test(cell.name)) continue;
+        if (cell.position.x === feet.x && cell.position.y === feet.y && cell.position.z === feet.z) continue;
+        for (const [off, faceName] of FACE_NAMES) {
+          const ref = bot.blockAt(cell.position.offset(off[0], off[1], off[2]));
+          if (!ref || /^(air|cave_air|void_air|water|lava|snow|tall_grass)$/.test(ref.name)) continue;
+          if (ref.boundingBox && ref.boundingBox !== "block") continue;
+          const r = await executeAction(
+            bot,
+            { type: "place", item: "crafting_table", x: cell.position.x, y: cell.position.y, z: cell.position.z, face: faceName },
+            mcData
+          );
+          lastMsg = r.message;
+          if (r.ok || /placed crafting_table/i.test(String(r.message || ""))) {
+            await sleep(200);
+            const b = bot.findBlock({ matching: (bl) => bl?.name === "crafting_table", maxDistance: 5 });
+            if (b) return { ok: true, message: r.message, block: b };
+          }
+        }
+      }
+    }
+  }
+
   // last resort: let actions.js auto-pick a neighbor of feet
   const auto = await executeAction(bot, { type: "place", item: "crafting_table" }, mcData);
   await sleep(200);
