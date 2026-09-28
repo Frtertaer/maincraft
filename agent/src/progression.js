@@ -2279,7 +2279,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         };
         try {
           // brim ring on the column's top block side faces — spiders climbing
-          // the column hit the lip and can't wrap around it
+          // the column hit the lip and can't wrap around it. Cardinals sit on
+          // the column face; diagonals hang off a cardinal brim face — the
+          // corner cells are what keep diagonal shooter angles closed
           const colB = hasTop();
           if (colB) {
             for (const [bx, bz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -2294,6 +2296,27 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
                 /* refused/occupied — skip this side */
               }
               await sleep(120);
+            }
+            for (const [bx, bz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+              const cell = bot.blockAt(colB.position.offset(bx, 0, bz));
+              if (cell && cell.name !== "air") continue;
+              for (const [ax, az] of [
+                [bx, 0],
+                [0, bz],
+              ]) {
+                const base = bot.blockAt(colB.position.offset(ax, 0, az));
+                if (!base || base.name === "air") continue;
+                const s = refugeSolid();
+                if (!s) break;
+                try {
+                  await pt(bot.equip(s, "hand"), 6000, "equip");
+                  await pt(bot.placeBlock(base, new Vec3(bx - ax, 0, bz - az)), 6000, "placeBlock");
+                  break;
+                } catch {
+                  /* refused — try the other cardinal base */
+                }
+                await sleep(120);
+              }
             }
           }
           // wall+roof toward the nearest camper — a 3-high stack on one brim
@@ -2318,13 +2341,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               await sleep(120);
             }
             if (wall && wall.position.y >= bot.entity.position.floored().y + 2) {
-              const s = refugeSolid();
-              if (s) {
-                try {
-                  await pt(bot.equip(s, "hand"), 6000, "equip");
-                  await pt(bot.placeBlock(wall, new Vec3(-wx, 0, -wz)), 6000, "placeBlock");
-                } catch {
-                  /* roof refused — wall alone still blocks arrows */
+              // roof only on cardinal walls — the diagonal inward face lands
+              // on the column the bot stands on and gets refused anyway
+              if (!wx || !wz) {
+                const s = refugeSolid();
+                if (s) {
+                  try {
+                    await pt(bot.equip(s, "hand"), 6000, "equip");
+                    await pt(bot.placeBlock(wall, new Vec3(-wx, 0, -wz)), 6000, "placeBlock");
+                  } catch {
+                    /* roof refused — wall alone still blocks arrows */
+                  }
                 }
               }
               return true;
@@ -2332,13 +2359,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             return false;
           };
           const wallDirs = (h) => {
-            const ddx = Math.sign(h.position.x - bot.entity.position.x);
-            const ddz = Math.sign(h.position.z - bot.entity.position.z);
+            const dx = h.position.x - bot.entity.position.x;
+            const dz = h.position.z - bot.entity.position.z;
+            const ddx = Math.sign(dx);
+            const ddz = Math.sign(dz);
             const axes = [];
-            if (Math.abs(h.position.x - bot.entity.position.x) >=
-                Math.abs(h.position.z - bot.entity.position.z) * 0.5 && ddx) axes.push([ddx, 0]);
-            if (Math.abs(h.position.z - bot.entity.position.z) >=
-                Math.abs(h.position.x - bot.entity.position.x) * 0.5 && ddz) axes.push([0, ddz]);
+            // a host sitting on the diagonal plinks through the corner gap
+            // between cardinal walls — wall the corner cell itself first,
+            // then the two cardinals flanking it
+            if (
+              ddx &&
+              ddz &&
+              Math.min(Math.abs(dx), Math.abs(dz)) > Math.max(Math.abs(dx), Math.abs(dz)) * 0.5
+            ) {
+              axes.push([ddx, ddz]);
+            }
+            if (Math.abs(dx) >= Math.abs(dz) * 0.5 && ddx) axes.push([ddx, 0]);
+            if (Math.abs(dz) >= Math.abs(dx) * 0.5 && ddz) axes.push([0, ddz]);
             return axes;
           };
           const walled = new Set();
@@ -2369,7 +2406,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               e.position.distanceTo(bot.entity.position) < 40;
           });
           if (anyRanged) {
-            for (const [wx, wz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            for (const [wx, wz] of [
+              [1, 0],
+              [-1, 0],
+              [0, 1],
+              [0, -1],
+              [1, 1],
+              [1, -1],
+              [-1, 1],
+              [-1, -1],
+            ]) {
               if (walled.has(`${wx},${wz}`)) continue;
               if (await raiseWall(wx, wz)) {
                 walled.add(`${wx},${wz}`);
