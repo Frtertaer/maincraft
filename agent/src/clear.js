@@ -372,16 +372,36 @@ export class ClearRunner {
             }
             // starving respawn can't sprint at all (food<=6 kills the sprint
             // flag) — a 210m flee is a slow walk a spider/jockey outruns
-            // instantly. The only shelter that survives is a sealed pocket
-            // dug right where we stand; skip every other option
+            // instantly. If anything edible is in the bag, eat first — even
+            // one meal re-enables the sprint that breaks the camp; only then
+            // burrow where we stand
             if (bot.food != null && bot.food <= 4) {
-              this.log(`[clear] starving respawn (food=${bot.food | 0}) — burrow on the spot`);
-              try {
-                await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
-              } catch (err) {
-                this.log(`[clear] starve-burrow fail: ${err?.message || err}`);
+              this.log(`[clear] starving respawn (food=${bot.food | 0}) — eat-or-burrow on the spot`);
+              // eat ONLY what's already in the bag — the ensureFed hunt walk
+              // under an adjacent spider is just a slower death than the dig
+              const edible = bot.inventory
+                .items()
+                .find((i) => this.mcData.foodsByName?.[i.name] || /apple|bread|pork|beef|mutton|chicken|rabbit|flesh|carrot|potato|stew|soup|cookie|melon|pumpkin_pie|salmon|cod|berries|chorus/.test(i.name));
+              if (edible) {
+                const tOut = (p, ms) => Promise.race([p, new Promise((_, rj) => setTimeout(() => rj(new Error("timeout")), ms))]);
+                try {
+                  await tOut(bot.equip(edible, "hand"), 5000);
+                  await tOut(bot.consume(), 6000);
+                  this.log(`[clear] starve-ate ${edible.name}`);
+                } catch {
+                  /* eat refused — burrow anyway */
+                }
               }
-              continue;
+              if (bot.food != null && bot.food > 6) {
+                // got the sprint back — real flee now
+              } else {
+                try {
+                  await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                } catch (err) {
+                  this.log(`[clear] starve-burrow fail: ${err?.message || err}`);
+                }
+                continue;
+              }
             }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
