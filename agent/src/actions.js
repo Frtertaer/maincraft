@@ -489,7 +489,8 @@ export async function executeAction(bot, action, mcData) {
               b &&
               canHarvest(b) &&
               exposed(b) &&
-              (bot._badCollect?.get(badK(b.position)) || 0) < 2
+              (bot._badCollect?.get(badK(b.position)) || 0) < 2 &&
+              (typeof action.filter !== "function" || action.filter(b))
           );
         if (!blocks.length) {
           return { ok: false, message: `no reachable ${blockName} (buried or missing tool)` };

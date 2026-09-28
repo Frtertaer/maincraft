@@ -172,9 +172,15 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         const rr = await punchNearbyLogs(bot, mcData, 4, state);
         if (!rr.ok) {
           // tree visible but unreachable (cliff/lava spawn) — walk toward the
-          // nearest log so the next attempt searches a different space
+          // nearest log so the next attempt searches a different space.
+          // Never toward one inside the death ring — that pull is how the
+          // bot re-walks into the camp that killed it
+          const cz = campZonesFor(bot, state);
           const t = bot.findBlock({
-            matching: (b) => b && b.name.endsWith("_log"),
+            matching: (b) => {
+              const bp = b?.position ?? b;
+              return b && b.name.endsWith("_log") && bp && !posInCamp(bp, cz);
+            },
             maxDistance: 48,
           });
           if (t) {
@@ -463,6 +469,23 @@ export function deathZonesLoadFile(bot) {
   } catch {
     return { pts: [], camp: null };
   }
+}
+
+// merged camp ring: in-memory death points + camp + the persisted set —
+// every gather/pull target inside it is a re-death trap, so navigation and
+// collection reject them uniformly instead of re-walking the kill ring
+export function campZonesFor(bot, state) {
+  const dzFile = deathZonesLoadFile(bot) || { pts: [], camp: null };
+  return [
+    ...(state?._deathPts || []),
+    state?.campZone,
+    ...(dzFile.pts || []),
+    dzFile.camp,
+  ].filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+}
+
+export function posInCamp(pos, zones, r = 120) {
+  return zones.some((c) => Math.hypot(c.x - pos.x, c.z - pos.z) < r);
 }
 
 export function deathZonesSaveFile(bot, pts, camp) {
@@ -3417,11 +3440,19 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     "mangrove_log",
     "pale_oak_log",
   ];
-  // Prefer small collect batches (less pathfinder thrash / OOM)
+  // Prefer small collect batches (less pathfinder thrash / OOM). Targets
+  // inside a death camp are never collected — a visible trunk in the kill
+  // ring is exactly what drags the bot back to its death site
+  const campZones = campZonesFor(bot, state);
+  const campFree = (b) => !posInCamp(b.position, campZones);
   const logCount = () => countItem(bot, CRAFTABLE_LOG);
   for (const b of logNames) {
     const before = logCount();
-    const rr = await executeAction(bot, { type: "collect", block: b, count: 4, maxDistance: 32 }, mcData);
+    const rr = await executeAction(
+      bot,
+      { type: "collect", block: b, count: 4, maxDistance: 32, filter: campFree },
+      mcData
+    );
     // collect resolves ok even when it gathered nothing — a 0-gain 'ok'
     // must not early-return or the tree-less spot never triggers a wander
     if (rr.ok && logCount() > before) {
@@ -3439,6 +3470,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
       const blk = b && b.position ? b : b && bot.blockAt(b);
       if (!blk || !(blk.name.endsWith("_log") || blk.name.endsWith("_stem"))) return false;
       if (blk.position.y <= feet.y - 12) return false;
+      if (!campFree(blk)) return false;
       return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
     },
     maxDistance: 72,
@@ -3560,9 +3592,14 @@ async function phaseWood(bot, mcData, state, log) {
     }
     if (!rr.ok) {
       // walk toward the nearest visible log — cliff spawns leave trees
-      // visible but unreachable until the approach changes the space
+      // visible but unreachable until the approach changes the space. A
+      // trunk inside the death ring is a re-kill pull, never a gather target
+      const cz = campZonesFor(bot, state);
       const t = bot.findBlock({
-        matching: (b) => b && b.name.endsWith("_log"),
+        matching: (b) => {
+          const bp = b?.position ?? b;
+          return b && b.name.endsWith("_log") && bp && !posInCamp(bp, cz);
+        },
         maxDistance: 48,
       });
       if (t) {
