@@ -783,27 +783,38 @@ export class ClearRunner {
             // ring by repeat deaths like the respawn flee does, so the escape
             // actually leaves the pack field
             const ring0 = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
-            let escDirs = [
-              [ring0, 0],
-              [-ring0, 0],
-              [0, ring0],
-              [0, -ring0],
-            ];
             const cz0 = this.state?.campZone;
-            if (cz0) {
-              const ok = escDirs.filter(([dx, dz]) => Math.hypot(pf0.x + dx - cz0.x, pf0.z + dz - cz0.z) > 120);
-              if (ok.length) escDirs = ok;
-              else {
-                // every cardinal lands inside the camp — straight line out
-                const ax0 = pf0.x - cz0.x;
-                const az0 = pf0.z - cz0.z;
-                const n0 = Math.max(Math.abs(ax0), Math.abs(az0)) || 1;
-                escDirs = [[Math.round((ax0 / n0) * ring0 * 2), Math.round((az0 / n0) * ring0 * 2)]];
+            let escDirs;
+            if (cz0 && Math.hypot(pf0.x - cz0.x, pf0.z - cz0.z) < 160) {
+              // inside the pack field any ~70m cardinal still lands inside it
+              // (the >120 filter passes a 137m landing) — straight 210m line
+              // out of the camp center, guaranteed past the field edge
+              const ax0 = pf0.x - cz0.x;
+              const az0 = pf0.z - cz0.z;
+              const n0 = Math.hypot(ax0, az0) || 1;
+              escDirs = [[Math.round((ax0 / n0) * 210), Math.round((az0 / n0) * 210)]];
+            } else {
+              escDirs = [
+                [ring0, 0],
+                [-ring0, 0],
+                [0, ring0],
+                [0, -ring0],
+              ];
+              if (cz0) {
+                const ok = escDirs.filter(([dx, dz]) => Math.hypot(pf0.x + dx - cz0.x, pf0.z + dz - cz0.z) > 150);
+                if (ok.length) escDirs = ok;
+                else {
+                  // every cardinal lands inside the camp — straight line out
+                  const ax0 = pf0.x - cz0.x;
+                  const az0 = pf0.z - cz0.z;
+                  const n0 = Math.max(Math.abs(ax0), Math.abs(az0)) || 1;
+                  escDirs = [[Math.round((ax0 / n0) * ring0 * 2), Math.round((az0 / n0) * ring0 * 2)]];
+                }
               }
             }
             // escaping toward a known resource site beats a bare heading:
             // nearest logSite/stash that also exits the camp zone
-            const sites = [...(this.state?.logSites || []), this.state?.stash].filter(Boolean);
+            const sites = [...(this.state?.logSites || []), this.state?.stash, ...stashLoadFile(bot)].filter(Boolean);
             if (sites.length) {
               let best = null;
               for (const s of sites) {
@@ -811,7 +822,7 @@ export class ClearRunner {
                 const dz = s.z - pf0.z;
                 const dist = Math.hypot(dx, dz);
                 if (dist < 60) continue;
-                if (cz0 && Math.hypot(s.x - cz0.x, s.z - cz0.z) < 120) continue;
+                if (cz0 && Math.hypot(s.x - cz0.x, s.z - cz0.z) < 150) continue;
                 if (!best || dist < best.dist) best = { dist, dx, dz };
               }
               if (best) {
