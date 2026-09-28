@@ -727,10 +727,22 @@ export class ClearRunner {
           let foundFood = false;
           while (bot.food != null && bot.food <= 8 && Date.now() - hungerT0 < 90000) {
             // a hostile in range turns the hunt into target practice — break
-            // to the burrow check below, which seals first and eats after
+            // to the burrow check below, which seals first and eats after.
+            // Exception: a flesh-dropper stalker IS the food — armed and able
+            // to take a hit, melee it for rotten_flesh (+4 food → sprint
+            // unlocks) instead of sheltering from the very thing we need.
             if (hostileClose()) {
-              this.log(`[clear] starving + hostile near — shelter before food`);
-              break;
+              const fleshStalker = Object.values(bot.entities || {}).some((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || e.displayName || "").toLowerCase();
+                return /^(zombie|husk|drowned)$/.test(n) && e.position.distanceTo(bot.entity.position) < 14;
+              });
+              const armed = bot.inventory.items().some((i) => /_(sword|axe)$/.test(i.name));
+              if (!(fleshStalker && armed && (bot.health ?? 20) > 6)) {
+                this.log(`[clear] starving + hostile near — shelter before food`);
+                break;
+              }
+              this.log(`[clear] starving — the stalker IS food (hunting it)`);
             }
             try {
               const fed2 = await ensureFed(bot, this.mcData, this.log, this.state);
