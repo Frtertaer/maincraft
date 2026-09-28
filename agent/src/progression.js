@@ -2246,10 +2246,86 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     sealWhy[why] = (sealWhy[why] || 0) + 1;
   };
   if (refreshSolid() && (dug >= 3 || !needsShaft)) {
+    // GRAVE: a hostile already on top of us converges mid-carve — the full
+    // pocket takes ~20-30s, capping the 3-deep shaft takes ~2s and a capped
+    // 1x1 is unreachable (mobs don't dig). Only when the shaft dug fully
+    // (head below the mouth cell), the cap material isn't a falling block,
+    // and nothing is already inside the shaft with us.
+    if (needsShaft && dug >= 3 && !sealedCells) {
+      const urgent = findHostile(bot, 20);
+      const mouthY = feet.y + dug - 1;
+      const mouth = bot.blockAt(new Vec3(feet.x, mouthY, feet.z));
+      const capSolid = bot.inventory
+        .items()
+        .find(
+          (i) =>
+            isCube(i) &&
+            !SEAL_BAD.test(i.name) &&
+            !/sand$|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|red_sand/.test(i.name)
+        );
+      const shaftMate = Object.values(bot.entities || {}).find((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || e.displayName || "").toLowerCase();
+        if (
+          !(
+            (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+            /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+          )
+        )
+          return false;
+        return (
+          Math.abs(e.position.x - (feet.x + 0.5)) < 1.3 &&
+          Math.abs(e.position.z - (feet.z + 0.5)) < 1.3 &&
+          e.position.y > feet.y - 0.5 &&
+          e.position.y < mouthY + 1.5
+        );
+      });
+      if (urgent && capSolid && mouth && mouth.name === "air" && !shaftMate) {
+        // bank climb-out material first: cap costs 1 and the pillar-up exit
+        // needs ~dug solids — a naked bot only got ~dug drops from the shaft.
+        // Dig head-level side cells into the shaft for the shortfall.
+        const cubes = () => bot.inventory.items().reduce((n, i) => n + (isCube(i) ? i.count : 0), 0);
+        for (let m = 0; m < dug + 2 - cubes() && m < 6; m += 1) {
+          const [mx, mz] = [[1, 0], [-1, 0], [0, 1], [0, -1]][m % 4];
+          const mat = bot.blockAt(new Vec3(feet.x + mx, feet.y + 1, feet.z + mz));
+          if (!mat || !diggable(mat)) continue;
+          const md = await executeAction(
+            bot,
+            { type: "dig", x: mat.position.x, y: mat.position.y, z: mat.position.z, timeoutMs: 8000 },
+            mcData
+          );
+          if (!md.ok) continue;
+          await sleep(200);
+        }
+        // place the cap through a shaft wall at mouth level — each face name
+        // selects the adjacent wall on the opposite side (west → wall at +x)
+        for (const [wx, wz, face] of [
+          [1, 0, "west"],
+          [-1, 0, "east"],
+          [0, 1, "north"],
+          [0, -1, "south"],
+        ]) {
+          const wall = bot.blockAt(new Vec3(feet.x + wx, mouthY, feet.z + wz));
+          if (!wall || danger(wall)) continue;
+          const cap = await executeAction(
+            bot,
+            { type: "place", item: capSolid.name, x: feet.x, y: mouthY, z: feet.z, face, timeoutMs: 8000 },
+            mcData
+          );
+          if (cap.ok) {
+            sealedCells = [{ x: feet.x, y: mouthY, z: feet.z }];
+            pocketDeep = { x: feet.x + 0.5, y: feet.y, z: feet.z + 0.5 };
+            log?.(`[burrow] capped shaft — grave (${urgent.name}@${Math.round(urgent.position.distanceTo(bot.entity.position))}m)`);
+            break;
+          }
+          sealMiss(`cap: ${String(cap.message || "").slice(0, 40)}`);
+        }
+      }
+    }
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
-    for (const [px, pz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    for (const [px, pz] of sealedCells ? [] : [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       let carvedDepth = 0;
       for (const depth of [4, 3, 2]) {
         const cells = [];
