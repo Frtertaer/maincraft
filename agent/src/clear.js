@@ -551,7 +551,17 @@ export class ClearRunner {
               const campOk = czD
                 ? (d) => Math.hypot(pf.x + d[0] - czD.x, pf.z + d[1] - czD.z) > 120
                 : () => true;
-              const dirsOk = fleeDirs.filter(campOk);
+              // every prior kill site is a lit marker — a flee that lands
+              // ~40m from a recorded death re-enters the same mob pocket.
+              // Filter landings that touch any remembered death, not just the
+              // camp centroid.
+              const dzFile = deathZonesLoadFile(bot) || { pts: [], camp: null };
+              const killSites = [...(this.state._deathPts || []), ...(dzFile.pts || [])]
+                .filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+              const siteOk = (d) =>
+                killSites.every((c) => Math.hypot(pf.x + d[0] - c.x, pf.z + d[1] - c.z) > 60);
+              const dirsAll = fleeDirs.filter(campOk);
+              const dirsOk = dirsAll.filter(siteOk).length ? dirsAll.filter(siteOk) : dirsAll;
               // the driest direction is not always the emptiest: a 140m leg
               // through a zombie cluster re-aggros mid-flee — that's death
               // #6's chain. Score each bearing by hostiles in its quadrant
