@@ -1526,6 +1526,26 @@ export function pickDryDir(bot, dirs) {
       const b = bot.blockAt(feet.offset(sx * step, -1, sz * step));
       if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
     }
+    // a dry leg that runs through a mob cluster re-aggros mid-sprint — the
+    // zombie waiting at (111,-50) scored zero on water but killed anyway.
+    // Cap the runway at the first hostile standing in this leg's corridor,
+    // same as water: proj = distance along the leg, blocked when the mob is
+    // within ~7m of the leg line
+    const ul = Math.hypot(dx, dz) || 1;
+    const ux = dx / ul;
+    const uz = dz / ul;
+    for (const e of Object.values(bot.entities || {})) {
+      if (!e?.position || e === bot.entity) continue;
+      const n = String(e.name || "").toLowerCase();
+      if (!/zombie|skeleton|creeper|spider|husk|drowned|stray|pillager|vex|slime|witch|zoglin|zombified/.test(n)) continue;
+      const rx = e.position.x - bot.entity.position.x;
+      const rz = e.position.z - bot.entity.position.z;
+      const proj = rx * ux + rz * uz;
+      if (proj < 4 || proj > Math.min(leg, 90)) continue;
+      const perp = Math.abs(rx * uz - rz * ux);
+      if (perp > 7) continue;
+      if (proj < runway) runway = Math.max(1, Math.floor(proj));
+    }
     const score = -runway * 10 + trees;
     if (score < bestScore) {
       bestScore = score;
