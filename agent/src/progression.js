@@ -2542,6 +2542,24 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   entry = spot;
   if (needsShaft) for (let i = 0; i < 3; i++) {
     const feet = bot.entity.position.floored();
+    // a hostile that can reach the mouth before the cap lands simply paths
+    // down the open shaft and shares the 1x1 — unwinnable. Bail while the
+    // hole is still shallow enough to step out of (dug<=1) and let the
+    // reflex make space before the next shelter attempt
+    if (dug <= 1) {
+      const close = Object.values(bot.entities || {}).find((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || "").toLowerCase();
+        if (!/zombie|creeper|spider|husk|drowned|vex|slime|skeleton|stray|witch|pillager/.test(n)) return false;
+        const dx = e.position.x - (feet.x + 0.5);
+        const dz = e.position.z - (feet.z + 0.5);
+        return Math.abs(dx) < 7 && Math.abs(dz) < 7 && e.position.y > feet.y - 1;
+      });
+      if (close) {
+        log?.(`[burrow] ${close.name} too close to shaft mouth — aborting dig`);
+        return false;
+      }
+    }
     const under = bot.blockAt(feet.offset(0, -1, 0));
     const below = bot.blockAt(feet.offset(0, -2, 0));
     if (danger(under) || !diggable(under)) break;
