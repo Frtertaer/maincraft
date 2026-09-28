@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -368,7 +368,11 @@ export class ClearRunner {
             // nothing to pillar with. Bias the direction toward a remembered
             // log site (dirt ground + wood for pillar blocks) when one is in
             // reach; otherwise keep the dry-window pick
-            const siteDir = (this.state?.logSites || [])
+            // the stash chest outranks a log site when empty-handed — the
+            // restart kit inside (food+tools) IS the survival baseline; a
+            // fresh respawn has neither. Sites inside the camp still skipped.
+            const sitePool = [...(this.state?.logSites || []), this.state?.stash, ...stashLoadFile(bot)].filter(Boolean);
+            const siteDir = sitePool
               .map((s) => ({ s, d: Math.hypot(s.x - pf.x, s.z - pf.z) }))
               .filter(
                 (e) =>

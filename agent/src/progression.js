@@ -391,7 +391,7 @@ function stashKeepCount(name) {
 // positions on disk so a restart/respawn can still find them
 const STASH_FILE = path.resolve(__dirname, "../../logs/stash.json");
 
-function stashLoadFile(bot) {
+export function stashLoadFile(bot) {
   try {
     const a = JSON.parse(fs.readFileSync(STASH_FILE, "utf8"));
     const all = Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
