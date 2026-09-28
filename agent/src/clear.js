@@ -370,6 +370,19 @@ export class ClearRunner {
             } catch {
               /* fall through to the flee */
             }
+            // starving respawn can't sprint at all (food<=6 kills the sprint
+            // flag) — a 210m flee is a slow walk a spider/jockey outruns
+            // instantly. The only shelter that survives is a sealed pocket
+            // dug right where we stand; skip every other option
+            if (bot.food != null && bot.food <= 4) {
+              this.log(`[clear] starving respawn (food=${bot.food | 0}) — burrow on the spot`);
+              try {
+                await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+              } catch (err) {
+                this.log(`[clear] starve-burrow fail: ${err?.message || err}`);
+              }
+              continue;
+            }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
