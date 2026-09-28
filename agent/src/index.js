@@ -189,6 +189,21 @@ async function main() {
     if (session.controller) session.brain.setController(session.controller);
     session.brain.start();
 
+    // AUTOCLEAR: resume the beat-the-game run after a process restart (OOM
+    // guard, crash, manual kill) without waiting for a console !clear —
+    // position/inventory persist server-side, so the marathon just continues
+    if (process.env.MAINCRAFT_AUTOCLEAR) {
+      setTimeout(() => {
+        if (session.ended || runtime.session !== session) return;
+        applyCommand(
+          session,
+          { type: "clear", op: "start", objectives: ["dragon"] },
+          "console",
+          "autoclear"
+        ).catch((err) => log(`[autoclear] ${err?.message || err}`));
+      }, 20000);
+    }
+
     // NeuroSkyrim-style ambient NPC: world events feed memory; when chat is
     // quiet the companion may comment on its own (mantella.ambientEveryMs).
     if (session.brain.mantella) {
@@ -620,6 +635,14 @@ async function main() {
           if (String(ev).startsWith("blockUpdate")) blockUpdates += n;
         }
         log(`[mem] heap=${heap}MB cols=${Object.keys(bot.world.async.columns).length} listeners=${totalListeners} blockUpdate=${blockUpdates} handles=${process._getActiveHandles().length}`);
+        // spikes (giant pathfinder searches, flood of block updates) can add
+        // ~1GB/min — a hard OOM ends the run silently. Restart cleanly while
+        // the supervisor wrapper brings the bot back with inventory intact.
+        if (heap > 1500) {
+          log(`[mem] heap=${heap}MB critical — graceful restart before OOM`);
+          void shutdown(3);
+          return;
+        }
         if (typeof global.gc === "function") global.gc();
       } catch (err) {
         log(`[mem] prune fail: ${err?.message || err}`);
