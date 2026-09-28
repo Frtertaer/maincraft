@@ -3415,24 +3415,20 @@ async function phaseWood(bot, mcData, state, log) {
         // nearest visible trunk wins over a sampled heading — direction
         // sampling only checks 3 points per axis and misses off-axis trees
         const nearTrunk = bot.findBlock({
-          matching: (b) => b && /_log$|_stem$/.test(b.name || "") && !(state?.deadLogCells?.[`${Math.round(b.position.x / 32)},${Math.round(b.position.z / 32)}`]),
+          matching: (b) => {
+            const bp = b?.position ?? b;
+            if (!bp || !/(_log|_stem)$/.test(b?.name || "")) return false;
+            return !state?.deadLogCells?.[`${Math.round(bp.x / 32)},${Math.round(bp.z / 32)}`];
+          },
           maxDistance: 96,
         });
         if (nearTrunk) {
-          const camped = campZones.some(
-            (c) => Math.hypot(c.x - nearTrunk.position.x, c.z - nearTrunk.position.z) < 120
-          );
+          const tp = nearTrunk.position ?? nearTrunk;
+          const camped = campZones.some((c) => Math.hypot(c.x - tp.x, c.z - tp.z) < 120);
           if (!camped) {
             await executeAction(
               bot,
-              {
-                type: "goto",
-                x: nearTrunk.position.x,
-                y: nearTrunk.position.y,
-                z: nearTrunk.position.z,
-                range: 6,
-                timeoutMs: 45000,
-              },
+              { type: "goto", x: tp.x, y: tp.y, z: tp.z, range: 6, timeoutMs: 45000 },
               mcData
             ).catch(() => null);
             return { ok: true, phase: "wood", message: "zero-gain — to visible trunk" };
