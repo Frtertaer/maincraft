@@ -426,18 +426,24 @@ export class ClearRunner {
               });
             // burrowing while the pack trails inside 40m is how every carve
             // dies mid-seal (~20-30s dig vs ~15s walk). Sprint legs until the
-            // gap actually opens — rotate ~90° each leg so the swarm's
-            // pathfind loses the line instead of trailing forever. Keep
-            // sprinting (up to 6 legs) while they trail: a trailing pack
-            // always reaches a 10s carve before it seals, and only a dead
-            // sprint meter (food<=6) makes the dig the better bet
+            // gap actually opens — HOLD the bearing: zigzagging ±90° inside a
+            // camp ring covers ~0.7× distance and never exits it; a straight
+            // 6-leg run is ~350m, out of any pack field. Rotate only when a
+            // leg stalls on terrain (<20m gained) — and only a dead sprint
+            // meter (food<=6) makes the dig the better bet
             let legs = 0;
             let stillClose = packClose();
+            let lastPos = bot.entity.position;
+            let legDir = [fdx, fdz];
             while (stillClose && legs < 6 && bot.food > 6) {
               this.log(`[clear] pack still <40m — flee leg ${legs + 1}`);
-              const rot = legs % 2 === 0 ? [ -fdz, fdx ] : [ fdz, -fdx ];
-              await fleeUntilClear(rot[0], rot[1], 6).catch(() => {});
+              await fleeUntilClear(legDir[0], legDir[1], 6).catch(() => {});
               legs += 1;
+              const moved = bot.entity.position.distanceTo(lastPos);
+              // stalled on terrain (<20m) — try perpendicular once, then the other side
+              if (moved < 20) legDir = legDir[0] === fdx ? [-fdz, fdx] : [fdz, -fdx];
+              else legDir = [fdx, fdz];
+              lastPos = bot.entity.position;
               stillClose = packClose();
             }
             if (stillClose) this.log(`[clear] pack won't shake — burrowing anyway`);
