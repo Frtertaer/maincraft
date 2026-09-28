@@ -767,11 +767,18 @@ export class CombatReflex {
 
     // Bare hands lose every trade — never engage unarmed, just create
     // distance (the respawn-camp death spiral lesson: punching a zombie
-    // bare-handed is a guaranteed loss)
+    // bare-handed is a guaranteed loss). Ranged plinks from ~30 though —
+    // kiting only under 14m lets a skeleton shoot the working bot in the
+    // back. Hold the lock while fleeing so phase steps yield to the flee.
     if (!this._isArmed() && !isBossMobName(name)) {
       this._lockedId = null;
-      this._engagedUntil = 0;
-      if (dist < 14) this._kiteAway(target);
+      const kiteRange = RANGED.has(name) ? 30 : 14;
+      if (dist < kiteRange) {
+        this._engagedUntil = Math.max(this._engagedUntil, now + 1200);
+        this._kiteAway(target);
+      } else {
+        this._engagedUntil = 0;
+      }
       return;
     }
 
