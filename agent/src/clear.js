@@ -480,7 +480,22 @@ export class ClearRunner {
               stillClose = packClose();
             }
             if (stillClose) this.log(`[clear] pack won't shake — burrowing anyway`);
-            if (!stillClose) {
+            // only chase shelter material when the ground under our feet is
+            // undiggable — a 32m collect-goto at night respawn pathfinds into
+            // the mob field and the timeout stall is how the loop dies (the
+            // skeleton that was >40m walks back in while it stands still).
+            // On diggable ground the pocket IS the shelter — carve now.
+            const feetBlk = bot.entity.position.floored();
+            const groundB = bot.blockAt(feetBlk.offset(0, -1, 0));
+            const diggable = (b) =>
+              b &&
+              /dirt|grass|sand|gravel|clay|mud|snow|mycelium|podzol|coarse_dirt|rooted_dirt|farmland|moss|soul_sand|soul_soil/.test(
+                b.name || ""
+              );
+            const hasShelterMat = bot.inventory
+              .items()
+              .some((i) => this.mcData.blocksByName[i.name]?.boundingBox === "block");
+            if (!stillClose && (!diggable(groundB) || !hasShelterMat)) {
               try {
                 // bare-handed on stone ground the burrow can't dig — punch a
                 // few logs first so planks exist for the pillar fallback
