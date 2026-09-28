@@ -128,6 +128,35 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
   }
 
   try {
+    // drowning first — nothing else matters while the air bar empties:
+    // progression steps keep running (strip spins, flee paths) as the bot
+    // stands underwater. Swim for air before any phase logic. Head-cell
+    // only: feet-deep wading is normal travel, not drowning.
+    {
+      const headW = bot.blockAt(bot.entity.position.floored().offset(0, 1, 0));
+      if (/water|bubble_column|kelp|seagrass/.test(String(headW?.name || ""))) {
+        const wasDeep = bot.entity.position.y < 48;
+        const sw = await surfaceForAir(bot, mcData, log);
+        if (sw.ok && wasDeep) {
+          // a flooded aquifer just refills the same column — hop laterally so
+          // the next descend digs dry ground
+          const p = bot.entity.position.floored();
+          const dirs = [
+            [24, 0],
+            [-24, 0],
+            [0, 24],
+            [0, -24],
+          ];
+          const [wx, wz] = dirs[Math.floor(Math.random() * dirs.length)];
+          await executeAction(
+            bot,
+            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 3, timeoutMs: 12000 },
+            mcData
+          ).catch(() => {});
+        }
+        return { ok: true, phase, message: sw.ok ? "surfaced for air" : "still submerged" };
+      }
+    }
     // Wood is the universal prerequisite for the surface toolchain — a
     // leftover pick can push detectPhase past wood with zero logs in
     // inventory, and then nothing craftable is ever reachable.
@@ -995,6 +1024,47 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
 // Strip-mine a 1x2 tunnel `steps` long: dig head+feet cells ahead, step in,
 // collect any ore vein now visible in the tunnel walls. Never opens into
 // caves — a bad cell ahead rotates the tunnel 90° instead.
+// Swim up out of a flooded cave/mine: hold jump (rises straight up in water)
+// and drift toward an adjacent column when the cell overhead is solid — the
+// water column going up is the way out. Air = head cell reads non-water.
+async function surfaceForAir(bot, mcData, log) {
+  const t0 = Date.now();
+  let dirIdx = 0;
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  try {
+    while (Date.now() - t0 < 25000) {
+      const feet = bot.entity.position.floored();
+      const head = bot.blockAt(feet.offset(0, 1, 0));
+      if (!/water|bubble_column|kelp|seagrass/.test(String(head?.name || ""))) {
+        return { ok: true };
+      }
+      const above = bot.blockAt(feet.offset(0, 2, 0));
+      if (above && !/water|bubble_column|air|cave_air|kelp|seagrass/.test(above.name)) {
+        // ceiling overhead — drift toward the next side hoping the water
+        // column continues past this lip
+        const [dx, dz] = dirs[dirIdx % 4];
+        dirIdx += 1;
+        bot.look(Math.atan2(-dx, -dz), -1.2, true);
+      } else {
+        // open above — rise straight up
+        bot.look(bot.entity.yaw, -1.4, true);
+      }
+      bot.setControlState("jump", true);
+      bot.setControlState("forward", true);
+      await sleep(280);
+    }
+    return { ok: false };
+  } finally {
+    bot.setControlState("jump", false);
+    bot.setControlState("forward", false);
+  }
+}
+
 async function stripMine(bot, mcData, steps = 20, log = null) {
   const dirs = [
     [1, 0],
@@ -1082,6 +1152,14 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
   let sealTried = 0;
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
+    // submerged head = drowning — a flooded aquifer returns mined=0 on every
+    // direction and the caller loop spins while the air bar empties. Bail so
+    // the iron phase can swim for air and relocate the mine
+    const headB = bot.blockAt(p.offset(0, 1, 0));
+    if (/water|bubble_column/.test(String(headB?.name || ""))) {
+      log?.("[stripMine] submerged — bailing for air");
+      break;
+    }
     // the strip killer is a mob walking up the 1x2 shaft from behind while
     // the digger faces a wall — check the tunnel, not just the next cell:
     // wall it off at distance, swing when it's already in melee
