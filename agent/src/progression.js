@@ -3729,18 +3729,50 @@ async function phaseIron(bot, mcData, state, log) {
             // no tree in reach — walk to a remembered log site instead of
             // no-oping here forever (the ok:true loop was the stuck=∞ bug)
             const pp = bot.entity.position.floored();
+            const dead = state?.deadLogCells || {};
             const site = (state?.logSites || [])
               .map((s) => ({ s, d: Math.hypot(s.x - pp.x, s.z - pp.z) }))
-              .filter((e) => e.d > 24 && e.d < 400)
+              .filter((e) => e.d > 24 && e.d < 400 && !dead[`${Math.round(e.s.x / 32)},${Math.round(e.s.z / 32)}`])
               .sort((a, b) => a.d - b.d)[0]?.s;
             if (site) {
-              await executeAction(
+              const moved = await executeAction(
                 bot,
                 { type: "goto", x: site.x, y: site.y, z: site.z, range: 6, timeoutMs: 60000 },
                 mcData
-              ).catch(() => {});
+              ).then(() => true).catch(() => false);
+              // an unreachable remembered site used to return ok:true each
+              // ~2s — the "pre-descend wood (N)" stuck loop. Track fails and
+              // demote the site so the next iteration walks the next one;
+              // after 3 failed sites, fall through to the forest trek below.
+              if (!moved && state) {
+                state.siteGotoFails = state.siteGotoFails || new Map();
+                const k = `${Math.round(site.x / 32)},${Math.round(site.z / 32)}`;
+                state.siteGotoFails.set(k, (state.siteGotoFails.get(k) || 0) + 1);
+                (state.deadLogCells = state.deadLogCells || {})[k] = true;
+              }
             } else {
-              return { ok: false, phase: "iron", message: `no wood within reach (stock=${woodStock})` };
+              // no site and nothing in scan: trek out of the basin — the same
+              // deforested-band problem the wood-phase trek solves
+              const tr = bot.findBlock({
+                matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
+                maxDistance: 96,
+              });
+              const pp2 = bot.entity.position.floored();
+              if (tr) {
+                await executeAction(
+                  bot,
+                  { type: "goto", x: tr.position.x, y: tr.position.y, z: tr.position.z, range: 6, timeoutMs: 45000 },
+                  mcData
+                ).catch(() => null);
+              } else {
+                const tdir = pickDryDir(bot, [[180, 0], [-180, 0], [0, 180], [0, -180], [128, 128], [-128, -128]]);
+                await executeAction(
+                  bot,
+                  { type: "goto", x: pp2.x + tdir[0], y: pp2.y, z: pp2.z + tdir[1], range: 6, timeoutMs: 45000 },
+                  mcData
+                ).catch(() => null);
+              }
+              return { ok: true, phase: "iron", message: `trek for wood (stock=${woodStock})` };
             }
           }
         }
