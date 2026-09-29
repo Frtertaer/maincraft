@@ -3417,6 +3417,15 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
     const bi = bedItem();
     if (bi && !bedBlock()) {
       const p = bot.entity.position.floored();
+      // a bed placed inside the death camp anchors every future respawn to
+      // the kill ring — the (50,-194) claim put respawns ~50m from two
+      // recorded deaths and the night loop kept landing in the same bowl.
+      // Carrying the bed out of the zone beats claiming it here
+      const bedZones = campZonesFor(bot, state);
+      if (posInCamp(p, bedZones, 100)) {
+        log?.(`[bed] inside a death camp — carrying the bed out instead of claiming`);
+        return { ok: false, message: "bed carried out of camp" };
+      }
       for (const [px, pz] of [
         [1, 0],
         [-1, 0],

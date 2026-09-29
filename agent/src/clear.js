@@ -406,6 +406,21 @@ export class ClearRunner {
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
+            // ...unless the respawn itself sits inside the anchored camp:
+            // then every flee direction crosses another shooter's LOS — two
+            // straight skeleton deaths this run came from sprinting through
+            // the bowl. Seal the ground where we stand instead; the grave
+            // abort check keeps a mob from dropping into the shaft with us
+            const czIn = this.state?.campZone;
+            if (czIn && Math.hypot(pf.x - czIn.x, pf.z - czIn.z) < 120) {
+              this.log(`[clear] respawn inside camp — burrow first`);
+              try {
+                const okIn = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                if (okIn) continue;
+              } catch (errIn) {
+                this.log(`[clear] camp-burrow fail: ${errIn?.message || errIn}`);
+              }
+            }
             // a 70m hop stays inside the same mob field on a dense spawn —
             // each repeat death widens the ring so the escape leaves it
             const ring = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
