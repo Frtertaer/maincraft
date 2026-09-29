@@ -1968,6 +1968,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         break;
       }
     }
+    // the shaft is capped only on top — an open cell beside it at depth is a
+    // sideways doorway: a cave sharing the shaft wall lets mobs melee through
+    // it. The zombie that killed inside a 'sealed' shelter dropped in exactly
+    // this way — every lateral cell down the shaft must stay solid
+    if (solidCol) {
+      const LAT_OPEN = /air|cave_air|void_air|water|bubble|kelp|seagrass|lava/;
+      for (const [qx, qz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        for (const dy of [-1, -2, -3]) {
+          const s = bot.blockAt(p.offset(qx, dy, qz));
+          if (!s || LAT_OPEN.test(s.name)) {
+            solidCol = false;
+            break;
+          }
+        }
+        if (!solidCol) break;
+      }
+    }
     if (solidCol) {
       spot = bot.entity.position.floored();
       break;
@@ -2955,6 +2972,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             const fl = bot.blockAt(feet.offset(px * i, -1, pz * i));
             if (!fl || OPEN.test(fl.name)) leak = true;
           }
+          // ceiling cap at dy+2: never carved either, so hillside terrain
+          // keeps it solid — but where a cave/hollow crosses overhead it is
+          // an open chimney: a zombie fell through exactly this gap into a
+          // sealed depth-4 pocket and killed inside
+          if (!leak && i <= depth) {
+            const cl = bot.blockAt(feet.offset(px * i, 2, pz * i));
+            if (!cl || OPEN.test(cl.name)) leak = true;
+          }
         }
         if (leak) {
           sealMiss("side-leak");
@@ -3155,6 +3180,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           if (!extLeak) {
             const fl = bot.blockAt(feet.offset(px * (ext + 1), -1, pz * (ext + 1)));
             if (!fl || EXT_OPEN.test(fl.name)) extLeak = true;
+          }
+          // same chimney rule as the carve check: the dy+2 cap above the
+          // extension must stay solid, or a cave overhead drops mobs in
+          if (!extLeak) {
+            const cl = bot.blockAt(feet.offset(px * (ext + 1), 2, pz * (ext + 1)));
+            if (!cl || EXT_OPEN.test(cl.name)) extLeak = true;
           }
           if (!extLeak) {
             for (const dy of [0, 1]) {
