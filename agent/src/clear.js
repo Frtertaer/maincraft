@@ -590,10 +590,25 @@ export class ClearRunner {
             // 6-leg run is ~350m, out of any pack field. Rotate only when a
             // leg stalls on terrain (<20m gained) — and only a dead sprint
             // meter (food<=6) makes the dig the better bet
+            const nearestHostile = () => {
+              let d = Infinity;
+              for (const e of Object.values(bot.entities || {})) {
+                if (!e?.position || e === bot.entity) continue;
+                const n = String(e.name || "").toLowerCase();
+                const hostile =
+                  (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+                  /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|witch/.test(n);
+                if (!hostile) continue;
+                const ed = e.position.distanceTo(bot.entity.position);
+                if (ed < d) d = ed;
+              }
+              return d;
+            };
             let legs = 0;
             let stillClose = packClose();
             let lastPos = bot.entity.position;
             let legDir = [fdx, fdz];
+            let gapAtStart = nearestHostile();
             while (stillClose && legs < 6 && bot.food > 6) {
               this.log(`[clear] pack still <40m — flee leg ${legs + 1}`);
               await fleeUntilClear(legDir[0], legDir[1], 6).catch(() => {});
@@ -604,6 +619,10 @@ export class ClearRunner {
               else legDir = [fdx, fdz];
               lastPos = bot.entity.position;
               stillClose = packClose();
+              // two legs bought no separation — the pack outruns the sprint
+              // (spider/baby/water). Every further leg burns dig time; seal in.
+              if (legs === 2 && nearestHostile() <= gapAtStart + 10) break;
+              gapAtStart = nearestHostile();
             }
             if (stillClose) this.log(`[clear] pack won't shake — burrowing anyway`);
             // only chase shelter material when the ground under our feet is
