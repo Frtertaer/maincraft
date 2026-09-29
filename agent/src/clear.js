@@ -410,9 +410,14 @@ export class ClearRunner {
             // then every flee direction crosses another shooter's LOS — two
             // straight skeleton deaths this run came from sprinting through
             // the bowl. Seal the ground where we stand instead; the grave
-            // abort check keeps a mob from dropping into the shaft with us
+            // abort check keeps a mob from dropping into the shaft with us.
+            // Only when blocks are already in hand — a bare-handed log hunt
+            // inside the camp stands still ~20s under pursuit and dies first
             const czIn = this.state?.campZone;
-            if (czIn && Math.hypot(pf.x - czIn.x, pf.z - czIn.z) < 120) {
+            const hasShelterBlocks = bot.inventory
+              .items()
+              .some((i) => /_log|_planks|dirt|sand|gravel|_leaves|_block|cobble|stone$|netherrack|andesite|diorite|granite/.test(i.name));
+            if (czIn && Math.hypot(pf.x - czIn.x, pf.z - czIn.z) < 120 && hasShelterBlocks) {
               this.log(`[clear] respawn inside camp — burrow first`);
               try {
                 const okIn = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);

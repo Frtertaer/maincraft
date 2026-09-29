@@ -2183,7 +2183,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             if (below && below.name !== "air") break;
             await sleep(120);
           }
-          for (let level = 0; level + raised < 5 && refreshSolid(); level++) {
+          for (let level = 0; level + raised < 6 && refreshSolid(); level++) {
             let done = false;
             for (let di = 0; di < 4 && !done; di++) {
               const [dx, dz] = dirs[(di + level) % 4];
@@ -2280,10 +2280,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           }
           log?.(`[burrow] staircase +${climbed}`);
           // a staircase is WALKABLE — zombies climb it (the on-pillar death).
-          // Break the bottom steps: the column top stays unreachable
+          // Break all but the top step: a gap a mob can't jump up through
           const topY = bot.entity.position.floored().y;
           for (const p of stairTrail) {
-            if (p.y > topY - 2) continue;
+            if (p.y > topY - 3) continue;
             const b = bot.blockAt(p);
             if (!b || b.name === "air" || !diggable(b)) continue;
             try {
