@@ -4085,6 +4085,12 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
         const ground = bot.blockAt(p.offset(px, -1, pz));
         const spot = bot.blockAt(p.offset(px, 0, pz));
         const head = bot.blockAt(p.offset(px, 1, pz));
+        // the bed's foot half lands one cell past the head, in the facing
+        // direction — if that cell isn't air the place leaves "only half
+        // bed" and sleep/claim both fail on it
+        const foot = bot.blockAt(p.offset(px + Math.sign(px || 0), 0, pz + Math.sign(pz || 0)));
+        const footUp = bot.blockAt(p.offset(px + Math.sign(px || 0), 1, pz + Math.sign(pz || 0)));
+        if (foot?.name !== "air" || footUp?.name !== "air") continue;
         if (ground && !/air|water|lava/.test(ground.name) && spot?.name === "air" && head?.name === "air") {
           const placed = await executeAction(
             bot,
@@ -4119,6 +4125,18 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
     const t1 = Date.now();
     while ((bot.time?.timeOfDay ?? 0) >= 12541 && Date.now() - t1 < 60000) await sleep(1000);
     return { ok: true, message: "slept through the night" };
+  }
+  // a malformed bed ("only half bed") can never be slept in — break it so the
+  // next ensureBed pass re-places it on a verified two-cell spot instead of
+  // failing on the same broken block every night
+  if (/half bed/i.test(s.message || "")) {
+    try {
+      const bb2 = bedBlock();
+      if (bb2) await bot.dig(bb2);
+      log?.("[bed] broke a malformed half-bed");
+    } catch {
+      /* leave it — next pass retries the place */
+    }
   }
   return { ok: false, message: s.message || "sleep failed" };
 }
