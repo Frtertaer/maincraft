@@ -921,13 +921,23 @@ export class ClearRunner {
             // to take a hit, melee it for rotten_flesh (+4 food → sprint
             // unlocks) instead of sheltering from the very thing we need.
             if (hostileClose()) {
-              const fleshStalker = Object.values(bot.entities || {}).some((e) => {
+              const p0 = bot.entity.position;
+              const mobsNear = Object.values(bot.entities || {}).filter((e) => {
                 if (!e?.position || e === bot.entity) return false;
                 const n = String(e.name || e.displayName || "").toLowerCase();
-                return /^(zombie|husk|drowned)$/.test(n) && e.position.distanceTo(bot.entity.position) < 14;
+                const hostile =
+                  e.kind === "Hostile mobs" && e.name !== "enderman" ||
+                  /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+                return hostile && e.position.distanceTo(p0) < 14;
               });
+              // a fair fight only: one lone flesh-dropper, armed, enough hp to
+              // eat ~4 zombie hits — hunting a pack at 1hp is how the starve
+              // chain keeps dying (iron death @181,71,41)
+              const fleshStalkers = mobsNear.filter((e) =>
+                /^(zombie|husk|drowned)$/.test(String(e.name || e.displayName || "").toLowerCase())
+              );
               const armed = bot.inventory.items().some((i) => /_(sword|axe)$/.test(i.name));
-              if (!(fleshStalker && armed && (bot.health ?? 20) > 6)) {
+              if (!(fleshStalkers.length === 1 && mobsNear.length === 1 && armed && (bot.health ?? 20) > 12)) {
                 this.log(`[clear] starving + hostile near — shelter before food`);
                 break;
               }
