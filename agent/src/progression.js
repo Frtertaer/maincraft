@@ -2924,6 +2924,32 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
       }
       log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
+      // a dark sealed pocket is a legal vanilla spawn cell — anything can
+      // materialize inside during the wait (death #1 on speedrun6 was a
+      // zombie that spawned inside and beat the bot to death mid-wait).
+      // Craft+place a torch inside when materials allow; the wait loop's
+      // spawn-in fight covers the unlit case
+      try {
+        if (
+          !bot.inventory.items().some((i) => i.name === "torch") &&
+          countItem(bot, (i) => i.name === "coal" || i.name === "charcoal") > 0 &&
+          countItem(bot, (i) => i.name === "stick") > 0
+        ) {
+          await ensureCraft(bot, mcData, "torch", 1).catch(() => {});
+        }
+        const torch = bot.inventory.items().find((i) => i.name === "torch");
+        if (torch) {
+          const mid = Math.max(1, Math.floor(carvedDepth / 2));
+          const tp = await executeAction(
+            bot,
+            { type: "place", item: "torch", x: feet.x + px * mid, y: feet.y, z: feet.z + pz * mid, face: "top", timeoutMs: 6000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (tp.ok) log?.("[burrow] pocket lit — spawn-proofed");
+        }
+      } catch {
+        /* lighting best-effort */
+      }
       break;
     }
     if (!sealedCells) {
@@ -2987,12 +3013,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
     }
     // a camper at the open shaft mouth is in melee reach of the bottom —
-    // swing at it every loop instead of turtling forever. Bare fists lose
-    // trades to zombies, so only fight back with a real weapon
+    // swing at it every loop instead of turtling forever. And a sealed dark
+    // pocket is a legal vanilla spawn cell: anything that materializes
+    // inside is within reach, so swing even bare-handed — cornered beats
+    // standing still while it kills us
     const camper = findHostile(bot, 5);
-    const armed = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
-    if (camper && armed) {
+    const wpn = bot.inventory.items().find((i) => /sword|_axe/.test(i.name));
+    if (camper) {
       try {
+        if (wpn && !/sword|_axe/.test(bot.heldItem?.name || "")) {
+          await pt(bot.equip(wpn, "hand"), 4000, "eq");
+        }
         await pt(bot.attack(camper), 6000, "attack");
       } catch {
         /* out of reach — keep waiting */
