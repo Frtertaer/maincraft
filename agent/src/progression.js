@@ -1715,16 +1715,27 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // two diggable cells below too — grass-over-stone tops dig one
           // layer then stall on the same mountain that just failed
           if (!(diggable(bb) && diggable(bot.blockAt(bb.position.offset(0, -1, 0))) && diggable(bot.blockAt(bb.position.offset(0, -2, 0))))) return false;
-          // and at least one side carves a depth-2 pocket — a diggable
-          // column ringed by stone walls is a guaranteed seal(undiggable)
-          // fail that just burns another relocate hop
-          return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) =>
+          // at least one side carves a depth-2 pocket — a diggable column
+          // ringed by stone walls is a guaranteed seal(undiggable) fail —
+          // OR one staircase direction for the pillar fallback: bridge cell
+          // walkable, riser air-or-clearable. Bare-handed on a stone hillside
+          // every riser is stone and the pillar looped "riser-blocked" forever
+          const pocketDir = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) =>
             [1, 2].every((i) =>
               [1, 2].every((dy) =>
                 diggable(bot.blockAt(bb.position.offset(dx * i, dy, dz * i)))
               )
             )
           );
+          if (pocketDir) return true;
+          return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => {
+            const fl = bot.blockAt(bb.position.offset(dx, -1, dz));
+            const br = bot.blockAt(bb.position.offset(dx, 0, dz));
+            const ri = bot.blockAt(bb.position.offset(dx, 1, dz));
+            if (!fl || fl.name === "air" || /water|lava/.test(fl.name)) return false;
+            if (!br || !/air|short_grass|tall_grass|snow_layer/.test(br.name)) return false;
+            return ri && (ri.name === "air" || diggable(ri));
+          });
         },
         maxDistance: 40,
         count: 6,
