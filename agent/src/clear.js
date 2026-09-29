@@ -528,8 +528,10 @@ export class ClearRunner {
               });
               if (!camped) {
                 const n = Math.max(Math.abs(sx), Math.abs(sz)) || 1;
-                fdx = Math.round((sx / n) * 70);
-                fdz = Math.round((sz / n) * 70);
+                // keep the death-scaled ring — capping the site leg at 70m
+                // landed the bot back inside the mob field on deep camps
+                fdx = Math.round((sx / n) * ring);
+                fdz = Math.round((sz / n) * ring);
                 this.log(`[clear] night flee toward logSite ${siteDir.x},${siteDir.z}`);
               } else {
                 this.log(`[clear] logSite is inside the camp — dry pick instead`);
@@ -652,13 +654,29 @@ export class ClearRunner {
             // a melee swarm camps the respawn — you cannot dig/pillar while
             // two+ zombies are already inside reach; only a long sprint opens
             // enough distance to start a build
+            // a bare-handed respawn can't wall or seal — "burrow in place"
+            // means ~20-40s of log punching while the hostile closes. With
+            // anything hostile inside ~48m, sprinting first is the only
+            // survivable answer (pillager respawn-camp deaths #2-4)
+            const bareHands = !bot.inventory
+              .items()
+              .some((i) => /_log|_planks|dirt|sand|gravel|_leaves|_block|cobble|stone$|netherrack|andesite|diorite|granite/.test(i.name));
+            const packNear48 = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return (
+                (e.kind === "Hostile mobs" && e.name !== "enderman" ||
+                  /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
+                e.position.distanceTo(bot.entity.position) < 48
+              );
+            });
             const meleeSwarm =
               respawnHostiles.filter(
                 (e) =>
                   /zombie|spider|husk|vex|slime|drowned/.test(String(e.name || "")) &&
                   dist(e) < 10
               ).length >= 2;
-            if (!respawnHostile || creepNear || meleeSwarm) {
+            if (!respawnHostile || creepNear || meleeSwarm || (bareHands && packNear48)) {
               const ring = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
               const fleeDirs = [
                 [ring, 0],
