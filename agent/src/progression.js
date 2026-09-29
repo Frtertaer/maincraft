@@ -3421,6 +3421,22 @@ export async function ensureFed(bot, mcData, log, state = null) {
     return bot.entity.position.y > 58;
   })();
   if (bot.food <= 4 && state && canSeeSky) {
+    // a stash chest IS food — the restart kit stocks bread/meat. Raid the
+    // nearest recorded chest before wandering blind for a herd (speedrun6
+    // starved in a shelter loop at food=0 for ~40min with a full kit 60m away)
+    if (Date.now() - (state.stashFoodAt || 0) > 300000) {
+      const me = bot.entity.position;
+      const nearStash = stashLoadFile(bot)
+        .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
+        .filter((e) => e.d > 12 && e.d < 160)
+        .sort((a, b) => a.d - b.d)[0];
+      if (nearStash) {
+        state.stashFoodAt = Date.now();
+        log?.(`[food] starving — raiding stash @${nearStash.p.x},${nearStash.p.z} (${Math.round(nearStash.d)}m)`);
+        const rec = await stashRecover(bot, mcData, log, state);
+        if (rec.ok) return { ok: true, ate, message: "stash raid" };
+      }
+    }
     const p = bot.entity.position.floored();
     if (!state.foodWanderDir) {
       state.foodWanderDir = pickDryDir(bot, [
