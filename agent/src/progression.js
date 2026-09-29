@@ -1537,7 +1537,11 @@ export function pickDryDir(bot, dirs) {
     // y≈62 while plateau ground runs y≈70-93, so a fixed -3..0 band sees air
     // on the rim and calls a lake basin dry (every drowned flee-death)
     let runway = leg + 1;
-    for (let step = 6; step <= Math.min(leg, 90); step += 6) {
+    // scan the whole flee leg, not just the first 90m: legs run 210m and a
+    // lake at ~100-150m scored 'dry' until the bot was already descending
+    // into it with the spider behind (spawn-basin kills #3-5)
+    const scanCap = Math.min(leg, 170);
+    for (let step = 6; step <= scanCap; step += 6) {
       let wet = false;
       for (let dy = 0; dy >= -20; dy--) {
         const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
@@ -1574,7 +1578,7 @@ export function pickDryDir(bot, dirs) {
       const rx = e.position.x - bot.entity.position.x;
       const rz = e.position.z - bot.entity.position.z;
       const proj = rx * ux + rz * uz;
-      if (proj < 4 || proj > Math.min(leg, 90)) continue;
+      if (proj < 4 || proj > scanCap) continue;
       const perp = Math.abs(rx * uz - rz * ux);
       if (perp > 7) continue;
       if (proj < runway) runway = Math.max(1, Math.floor(proj));
