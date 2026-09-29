@@ -843,7 +843,8 @@ export class ClearRunner {
               // a sheep hunt under arrows is where the camp deaths happen
               const hasBed2 =
                 bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
-                bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
+                bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 }) ||
+                bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0) >= 3;
               const slept = hasBed2
                 ? await ensureBedAndSleep(bot, this.mcData, this.log, this.state)
                 : { ok: false, message: "no bed in hand" };
@@ -865,6 +866,8 @@ export class ClearRunner {
             /* stash err — continue empty-handed */
           }
           // escape landed — reflexes back on for whatever chased us out here
+          } catch (err) {
+            this.log(`[clear] respawn escape err: ${err?.message || err}`);
           } finally {
             bot._burrowActive = false;
           }
