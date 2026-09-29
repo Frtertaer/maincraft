@@ -3717,10 +3717,13 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     return bot.entity.position.y > 58;
   })();
-  if (bot.food <= 4 && state && canSeeSky) {
+  if (bot.food <= 4 && state && canSeeSky && (bot.time?.timeOfDay ?? 0) < 12541) {
     // a stash chest IS food — the restart kit stocks bread/meat. Raid the
     // nearest recorded chest before wandering blind for a herd (speedrun6
-    // starved in a shelter loop at food=0 for ~40min with a full kit 60m away)
+    // starved in a shelter loop at food=0 for ~40min with a full kit 60m away).
+    // DAY ONLY: the tod<12541 gate keeps the 135m night raid (skeleton death
+    // #4) from walking through dark hostile terrain — at night starving's
+    // answer is a burrow, not a hike
     if (Date.now() - (state.stashFoodAt || 0) > 300000) {
       const me = bot.entity.position;
       const camps = campZonesFor(bot, state);
