@@ -255,12 +255,35 @@ export class ClearRunner {
   async _sprintBurst(fdx, fdz, ms = 1500) {
     const bot = this.bot;
     try {
-      const yaw = Math.atan2(-fdx, -fdz);
+      const yaw0 = Math.atan2(-fdx, -fdz);
+      let yaw = yaw0;
       bot.setControlState("sprint", true);
       bot.setControlState("forward", true);
       const t0 = Date.now();
       let flip = false;
+      // shoreline steer: a sprint leg that wades into a lake trades 5.6m/s
+      // for ~2 and lets the drowned pack close the gap (speedrun6 deaths #4-5
+      // were exactly this). Probe the cell 3m ahead; wet -> bank toward the
+      // drier side instead of diving in.
+      const wetAt = (ox, oz) => {
+        const f = bot.entity.position.floored();
+        const c = bot.blockAt(f.offset(ox, 0, oz)) || bot.blockAt(f.offset(ox, -1, oz));
+        return c && /water|kelp|seagrass|bubble/.test(c.name);
+      };
       while (Date.now() - t0 < ms) {
+        const ax = Math.round(-Math.sin(yaw) * 3);
+        const az = Math.round(-Math.cos(yaw) * 3);
+        if (wetAt(ax, az)) {
+          const lx = Math.round(-Math.sin(yaw - 0.9) * 3);
+          const lz = Math.round(-Math.cos(yaw - 0.9) * 3);
+          const rx = Math.round(-Math.sin(yaw + 0.9) * 3);
+          const rz = Math.round(-Math.cos(yaw + 0.9) * 3);
+          const lWet = wetAt(lx, lz);
+          const rWet = wetAt(rx, rz);
+          if (!lWet && rWet) yaw -= 0.9;
+          else if (!rWet && lWet) yaw += 0.9;
+          else yaw += flip ? 0.9 : -0.9; // shoreline both ways — zigzag along it
+        }
         flip = !flip;
         bot.look(yaw + (flip ? 0.5 : -0.5), 0, true);
         bot.setControlState("jump", Date.now() % 700 < 350);

@@ -1511,16 +1511,21 @@ export function pickDryDir(bot, dirs) {
     // measure the dry runway: how far this leg stays out of water. Legs now
     // scale past 200m and drowned kill in any river the sprint crosses, so
     // score = distance to the first water cell along the whole leg (all-wet
-    // picks the longest dry stretch instead of blindly diving in)
+    // picks the longest dry stretch instead of blindly diving in). The scan
+    // must follow the column DOWN to the real walk surface — lakes sit at
+    // y≈62 while plateau ground runs y≈70-93, so a fixed -3..0 band sees air
+    // on the rim and calls a lake basin dry (every drowned flee-death)
     let runway = leg + 1;
     for (let step = 6; step <= Math.min(leg, 90); step += 6) {
       let wet = false;
-      for (const dy of [-3, -2, -1, 0]) {
+      for (let dy = 0; dy >= -20; dy--) {
         const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
-        if (b && /water|kelp|seagrass|ice|bubble/.test(b.name)) {
+        if (!b) continue;
+        if (/water|kelp|seagrass|ice|bubble/.test(b.name)) {
           wet = true;
           break;
         }
+        if (dy < 0 && b.boundingBox === "block") break; // walk surface — deeper is under it
       }
       if (wet) {
         runway = step;
@@ -1609,6 +1614,25 @@ async function swimToLand(bot, mcData, log) {
   bot.setControlState("jump", false);
   bot.setControlState("sprint", false);
   return false;
+}
+
+// Steer to a point on/under water the way swimToLand steers for shore —
+// item drops float on the surface, so look+jump+forward+sprint closes on
+// them where the pathfinder refuses to enter water at all
+async function steerSwimTo(bot, x, z, ms = 10000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const dx = x + 0.5 - bot.entity.position.x;
+    const dz = z + 0.5 - bot.entity.position.z;
+    if (Math.hypot(dx, dz) < 1.6) break;
+    bot.look(Math.atan2(-dx, -dz), 0, true);
+    bot.setControlState("jump", true);
+    bot.setControlState("forward", true);
+    bot.setControlState("sprint", Math.hypot(dx, dz) > 3);
+    await sleep(220);
+  }
+  bot.setControlState("jump", false);
+  bot.setControlState("sprint", false);
 }
 
 export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
@@ -3917,9 +3941,13 @@ async function phaseWood(bot, mcData, state, log) {
       const drop = Object.values(bot.entities || {}).find((e) => {
         if (!e?.position) return false;
         // a drop far below the bot (its own death pile in a cave) is not
-        // retrievable by walking — chasing it traps progression underground
-        if (e.position.y < bot.entity.position.y - 8) return false;
+        // retrievable by walking — chasing it traps progression underground.
+        // Floating drops get slack: they bob on the surface and are swim-to
+        // retrievable well past the cave cutoff
         try {
+          const wcell = bot.blockAt(e.position.floored());
+          const floating = wcell && /water|kelp|seagrass|bubble/.test(wcell.name);
+          if (e.position.y < bot.entity.position.y - (floating ? 20 : 8)) return false;
           const d = e.getDroppedItem?.();
           if (!d || !/log|planks|stick/.test(String(d.name || ""))) return false;
           return e.position.distanceTo(bot.entity.position) < 20;
@@ -3928,18 +3956,24 @@ async function phaseWood(bot, mcData, state, log) {
         }
       });
       if (drop) {
-        await executeAction(
-          bot,
-          {
-            type: "goto",
-            x: drop.position.x,
-            y: drop.position.y,
-            z: drop.position.z,
-            range: 1.2,
-            timeoutMs: 12000,
-          },
-          mcData
-        ).catch(() => {});
+        const dcell = bot.blockAt(drop.position.floored());
+        if (dcell && /water|kelp|seagrass|bubble/.test(dcell.name)) {
+          // pathfinder won't path into water — swim steer over the drop
+          await steerSwimTo(bot, drop.position.x, drop.position.z, 9000).catch(() => {});
+        } else {
+          await executeAction(
+            bot,
+            {
+              type: "goto",
+              x: drop.position.x,
+              y: drop.position.y,
+              z: drop.position.z,
+              range: 1.2,
+              timeoutMs: 12000,
+            },
+            mcData
+          ).catch(() => {});
+        }
       }
     }
     return {
