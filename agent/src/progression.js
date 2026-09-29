@@ -2396,9 +2396,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
       await sleep(250);
     }
-    if (raised >= 4) {
+    if (raised >= 5) {
       // sheltered on the pillar: the reflex would pathfinder-walk off the
-      // edge to reach a mob it sees below — park it until we climb down
+      // edge to reach a mob it sees below — park it until we climb down.
+      // +4 is NOT safe: a mob on a 1-block mound beside the base still melees
+      // the top (zombie reach ~2.5 — the on-pillar death at y55 ran exactly
+      // this). Require +5; short material -> relocate and gather instead of
+      // waiting inside reach
       bot._inShelter = true;
       try {
         // upgrade the bare pillar into a refuge when materials allow —
@@ -2597,6 +2601,20 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           if (Date.now() - lastBeat > 90000) {
             lastBeat = Date.now();
             log?.(`[burrow] on pillar — ${Math.round((620000 - (Date.now() - t0)) / 60000)}min to dawn`);
+          }
+          // a mob that reaches the top column — climbed a mound/leftover
+          // stair — is inside melee; hit it back before it knocks us off
+          const camper = findHostile(bot, 4.5);
+          if (camper) {
+            try {
+              const wpn = bot.inventory.items().find((i) => /sword|_axe/.test(i.name));
+              if (wpn && !/sword|_axe/.test(bot.heldItem?.name || "")) {
+                await pt(bot.equip(wpn, "hand"), 4000, "eq");
+              }
+              await pt(bot.attack(camper), 6000, "attack");
+            } catch {
+              /* out of reach — keep waiting */
+            }
           }
           await sleep(4000);
         }
