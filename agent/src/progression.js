@@ -3631,17 +3631,38 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // starving underground: nothing edible spawns below the surface — climb
   // back up the stair toward daylight where animals/hunts actually exist,
   // instead of grinding on at 0.5hp until something touches us
-  if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 300000) {
+  if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
     const p0 = bot.entity.position.floored();
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
     const up = await stairwayUp(bot, mcData, 14, log);
     if (up.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "ascend for food" };
     // staircase can't route from a sealed pocket — dig a straight 1x1 shaft:
     // every target is adjacent so pathfinding isn't needed, and the overhead
-    // hazard scan keeps lava/water/gravel off our 1hp head
-    log?.(`[food] staircase stuck — shaft straight up (y=${Math.floor(bot.entity.position.y)})`);
-    const sh = await shaftUp(bot, mcData, 56, log);
-    if (sh.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "shaft for food" };
+    // hazard scan keeps lava/water/gravel off our 1hp head. A shaft fail is
+    // positional (gravel/water/lava overhead) — hop ~7m sideways and retry a
+    // fresh column instead of idling the cooldown exposed at 1hp
+    for (const [rdx, rdz] of [
+      [0, 0],
+      [7, 0],
+      [-7, 0],
+      [0, 7],
+      [0, -7],
+    ]) {
+      if (rdx || rdz) {
+        const q = bot.entity.position.floored();
+        await executeAction(
+          bot,
+          { type: "goto", x: q.x + rdx, y: q.y, z: q.z + rdz, range: 2, timeoutMs: 9000 },
+          mcData
+        ).catch(() => {});
+      }
+      log?.(`[food] staircase stuck — shaft straight up (y=${Math.floor(bot.entity.position.y)})`);
+      const sh = await shaftUp(bot, mcData, 56, log);
+      if (sh.ok || bot.entity.position.y > p0.y + 4)
+        return { ok: true, ate, message: "shaft for food" };
+      // a hostile overhead-adjacent spot isn't worth a second column — keep hopping
+      if (findHostile(bot, 8)) break;
+    }
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
