@@ -1211,6 +1211,12 @@ async function surfaceForAir(bot, mcData, log) {
           await sleep(200);
           continue;
         }
+        // the shore is past this scan's 4m reach — a lake can span 30m+.
+        // Treading + blind direction probes is the drowning-pool death
+        // (three "still submerged" timeouts on speedrun6): steer for the
+        // wide-ring dry-column scan instead, same target swimToLand uses
+        const landed = await swimToLand(bot, mcData, log, 8000).catch(() => false);
+        if (landed) continue;
         const [dx, dz] = dirs[dirIdx % 4];
         dirIdx += 1;
         bot.look(Math.atan2(-dx, -dz), 0, true);
@@ -1571,9 +1577,9 @@ export function pickDryDir(bot, dirs) {
 // a shaft is water, a pocket wall is water. Scan outward rings for the
 // nearest column whose surface is dry solid with air above, then swim at it
 // with the same look+jump+forward steering surfaceForAir uses on lips
-async function swimToLand(bot, mcData, log) {
+async function swimToLand(bot, mcData, log, ms = 40000) {
   const t0 = Date.now();
-  while (Date.now() - t0 < 40000) {
+  while (Date.now() - t0 < ms) {
     const p = bot.entity.position.floored();
     const inCell = bot.blockAt(p);
     if (inCell && inCell.name !== "water" && !/kelp|seagrass|bubble/.test(inCell.name)) return true;
