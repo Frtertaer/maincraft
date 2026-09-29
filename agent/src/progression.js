@@ -3744,7 +3744,8 @@ export async function ensureFed(bot, mcData, log, state = null) {
     for (let i = 0; i < 3 && bot.food < 12; i++) {
       const r = await executeAction(
         bot,
-        { type: "attack", name: prey, maxDurationMs: 14000, maxDistance: 48 },
+        // a hungry bot can't sprint — walking the 40m gap takes ~20s of chase
+        { type: "attack", name: prey, maxDurationMs: 26000, maxDistance: 48, persistent: true },
         mcData
       ).catch(() => ({ ok: false }));
       if (!r.ok) {
