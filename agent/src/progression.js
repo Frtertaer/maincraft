@@ -3815,6 +3815,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
         state.stashFoodAt = Date.now();
         log?.(`[food] starving — raiding stash @${nearStash.p.x},${nearStash.p.z} (${Math.round(nearStash.d)}m)`);
         const rec = await stashRecover(bot, mcData, log, state);
+        log?.(`[food] stash raid: ${rec.message || rec.ok}`);
         if (rec.ok) return { ok: true, ate, message: "stash raid" };
       }
     }
