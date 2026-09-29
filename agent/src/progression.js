@@ -3704,6 +3704,69 @@ export async function ensureFed(bot, mcData, log, state = null) {
         if (rec.ok) return { ok: true, ate, message: "stash raid" };
       }
     }
+    // village raid: a village signature (villager/hay bale/workstation block)
+    // is a guaranteed bread basket — free wheat, no fighting, no sprint
+    // needed. At food=0 the hunt is dead anyway (can't chase without sprint),
+    // so this is the only pipeline that still works at hp=1
+    {
+      let villPos = null;
+      for (const e of Object.values(bot.entities || {})) {
+        if (!e?.position || e === bot.entity) continue;
+        const n = String(e.name || e.displayName || "").toLowerCase();
+        if (/villager|iron_golem|wandering_trader/.test(n) && e.position.distanceTo(bot.entity.position) < 130) {
+          villPos = e.position;
+          break;
+        }
+      }
+      if (!villPos) {
+        try {
+          const vb = bot.findBlocks?.({
+            matching: (b) => b && /hay_block|composter|bell|lectern|fletching_table|cartography_table|smithing_table|brewing_stand/.test(b.name || ""),
+            maxDistance: 96,
+            count: 1,
+          });
+          if (vb?.length) villPos = vb[0];
+        } catch {
+          /* scan failed — no village */
+        }
+      }
+      if (villPos && Date.now() - (state.villageRaidAt || 0) > 300000) {
+        state.villageRaidAt = Date.now();
+        const vd = villPos.distanceTo ? Math.round(villPos.distanceTo(bot.entity.position)) : "?";
+        log?.(`[food] village signature ${vd}m — raiding for bread`);
+        await executeAction(
+          bot,
+          { type: "goto", x: Math.floor(villPos.x), y: Math.floor(villPos.y), z: Math.floor(villPos.z), range: 10, timeoutMs: 30000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        for (let i = 0; i < 6; i++) {
+          let hay = null;
+          try {
+            hay = bot.findBlock?.({ matching: (b) => b && b.name === "hay_block", maxDistance: 56 });
+          } catch {
+            /* none visible */
+          }
+          if (!hay) break;
+          const d = await executeAction(
+            bot,
+            { type: "dig", x: hay.position.x, y: hay.position.y, z: hay.position.z, timeoutMs: 12000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (!d.ok) break;
+        }
+        if (countItem(bot, "wheat") >= 3) {
+          const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
+          if (bc.ok) log?.(`[food] baked bread — village raid paid`);
+        }
+        for (let i = 0; i < 4 && bot.food < 19; i++) {
+          const f = bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name));
+          if (!f) break;
+          const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+          if (r.ok) ate = true;
+        }
+        if (bot.food >= 8) return { ok: true, ate, message: "village raid" };
+      }
+    }
     const p = bot.entity.position.floored();
     if (!state.foodWanderDir) {
       state.foodWanderDir = pickDryDir(bot, [
