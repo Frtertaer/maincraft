@@ -2585,6 +2585,60 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               }
             }
           }
+          // brim verify: a refused cardinal cell usually means a spider is
+          // climbing THAT face (its body occupies the cell). Knock it off,
+          // retry — a gap here is exactly the on-pillar spider death.
+          {
+            const colNow = hasTop();
+            const spiderNear = Object.values(bot.entities || {}).some(
+              (e) =>
+                e?.position &&
+                e !== bot.entity &&
+                /spider/.test(String(e.name || "").toLowerCase()) &&
+                e.position.distanceTo(bot.entity.position) < 40
+            );
+            if (colNow && spiderNear) {
+              for (let pass = 0; pass < 3; pass++) {
+                let open = 0;
+                for (const [bx, bz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+                  const cell = bot.blockAt(colNow.position.offset(bx, 0, bz));
+                  if (cell && cell.name !== "air") continue;
+                  open += 1;
+                  // clear the climber occupying the gap before retrying
+                  const hugger = Object.values(bot.entities || {}).find(
+                    (e) =>
+                      e?.position &&
+                      e !== bot.entity &&
+                      /spider/.test(String(e.name || "").toLowerCase()) &&
+                      e.position.distanceTo(colNow.position.offset(bx, 0, bz)) < 2.2
+                  );
+                  if (hugger) {
+                    try {
+                      await bot.attack(hugger);
+                    } catch {
+                      /* out of reach — place anyway */
+                    }
+                    await sleep(350);
+                  }
+                  const s = refugeSolid();
+                  if (!s) break;
+                  try {
+                    await pt(bot.equip(s, "hand"), 6000, "equip");
+                    await pt(bot.placeBlock(colNow, new Vec3(bx, 0, bz)), 6000, "placeBlock");
+                  } catch {
+                    /* still refused */
+                  }
+                  await sleep(150);
+                }
+                if (!open) break;
+              }
+              const gaps = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([bx, bz]) => {
+                const c = bot.blockAt(colNow.position.offset(bx, 0, bz));
+                return !c || c.name === "air";
+              }).length;
+              log?.(`[burrow] brim ${gaps ? `gap x${gaps}` : "sealed"} vs spider`);
+            }
+          }
           // wall+roof toward the nearest camper — a 3-high stack on one brim
           // cell, then a roof block on the top wall's inward face (lands
           // directly overhead at feet+2). Cover BOTH dominant axes: a mob
