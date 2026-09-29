@@ -1555,9 +1555,65 @@ export function pickDryDir(bot, dirs) {
   return best;
 }
 
+// Out in open water every shelter is impossible — a riser cell is water,
+// a shaft is water, a pocket wall is water. Scan outward rings for the
+// nearest column whose surface is dry solid with air above, then swim at it
+// with the same look+jump+forward steering surfaceForAir uses on lips
+async function swimToLand(bot, mcData, log) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 40000) {
+    const p = bot.entity.position.floored();
+    const inCell = bot.blockAt(p);
+    if (inCell && inCell.name !== "water" && !/kelp|seagrass|bubble/.test(inCell.name)) return true;
+    let best = null;
+    let bestD = 1e9;
+    for (let dx = -8; dx <= 8; dx += 1) {
+      for (let dz = -8; dz <= 8; dz += 1) {
+        if (!dx && !dz) continue;
+        for (let dy = -3; dy <= 4; dy += 1) {
+          const b = bot.blockAt(p.offset(dx * 5, dy, dz * 5));
+          if (!b || b.boundingBox !== "block" || /water|kelp|seagrass|bubble/.test(b.name)) continue;
+          const a1 = bot.blockAt(b.position.offset(0, 1, 0));
+          const a2 = bot.blockAt(b.position.offset(0, 2, 0));
+          if (!a1 || !a2 || !/air|cave_air|void_air|snow|grass|fern|tall_grass|short_grass/.test(a1.name)) continue;
+          const d = Math.hypot(dx * 5, dz * 5);
+          if (d < bestD) {
+            bestD = d;
+            best = b.position;
+          }
+        }
+      }
+    }
+    if (!best) {
+      // nothing dry in scan range — keep swimming in the same heading
+      bot.setControlState("jump", true);
+      bot.setControlState("forward", true);
+      await sleep(400);
+      continue;
+    }
+    const dx = best.x + 0.5 - bot.entity.position.x;
+    const dz = best.z + 0.5 - bot.entity.position.z;
+    bot.look(Math.atan2(-dx, -dz), 0, true);
+    bot.setControlState("jump", true);
+    bot.setControlState("forward", true);
+    bot.setControlState("sprint", Math.hypot(dx, dz) > 3);
+    await sleep(320);
+  }
+  bot.setControlState("jump", false);
+  bot.setControlState("sprint", false);
+  return false;
+}
+
 export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
+  // sheltering is impossible while swimming — every riser cell is water.
+  // Get to shore first; only then does the column/pocket search mean anything
+  const inCell = bot.blockAt(bot.entity.position.floored());
+  if (inCell?.name === "water" || /kelp|seagrass/.test(inCell?.name || "")) {
+    log?.("[burrow] in open water — swimming for land");
+    await swimToLand(bot, mcData, log).catch(() => {});
+  }
   // a failed dig leaves the bot standing exposed — relocate to a different
   // patch of ground and try the whole burrow again instead of giving up
   let triedLogs = false;
