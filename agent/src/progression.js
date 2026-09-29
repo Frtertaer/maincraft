@@ -4377,11 +4377,59 @@ async function phaseIron(bot, mcData, state, log) {
         // reflex clears the doorway before we try to dig through again
         const doorBlock = findHostile(bot, 10);
         if (doorBlock) {
-          state.mobDoorBlocks = (state.mobDoorBlocks || 0) + 1;
-          if (state.mobDoorBlocks < 4) {
-            return { ok: true, phase: "iron", message: `descend door-blocked y=${y}` };
+          // a camper in melee reach — kill it instead of waiting on the
+          // ~6m combat reflex; mobs inside the breached cave never wander
+          // off the dig site on their own
+          const near = findHostile(bot, 4);
+          if (near) {
+            try {
+              const wpn = bot.inventory.items().find((i) => /sword|_axe/.test(i.name));
+              if (wpn && !/sword|_axe/.test(bot.heldItem?.name || "")) {
+                await pt(bot.equip(wpn, "hand"), 4000, "eq");
+              }
+              await pt(bot.attack(near), 6000, "attack");
+            } catch {
+              /* keep digging attempts going */
+            }
           }
-          state.mobDoorBlocks = 0;
+          state.mobDoorBlocks = (state.mobDoorBlocks || 0) + 1;
+          if (state.mobDoorBlocks >= 4) {
+            // every direction blocked for several steps means the stairway
+            // opened into a mobbed cave — hop ~20m away from the hostile
+            // centroid and restart the staircase there. Digging deeper here
+            // (digStaircaseDown) just descends into the cluster.
+            state.mobDoorBlocks = 0;
+            const p = bot.entity.position;
+            const mobList = Object.values(bot.entities || {}).filter(
+              (e) =>
+                e?.position &&
+                e !== bot.entity &&
+                e.position.distanceTo(p) < 14 &&
+                ((e.kind === "Hostile mobs" && e.name !== "enderman") ||
+                  /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(
+                    String(e.name || e.displayName || "").toLowerCase()
+                  ))
+            );
+            if (mobList.length) {
+              const cx = mobList.reduce((s, e) => s + e.position.x, 0) / mobList.length;
+              const cz = mobList.reduce((s, e) => s + e.position.z, 0) / mobList.length;
+              const vx = p.x - cx;
+              const vz = p.z - cz;
+              const [wx, wz] =
+                Math.abs(vx) >= Math.abs(vz) ? [Math.sign(vx) || 1, 0] : [0, Math.sign(vz) || 1];
+              await executeAction(
+                bot,
+                { type: "goto", x: p.x + wx * 20, y: p.y, z: p.z + wz * 20, range: 3, timeoutMs: 15000 },
+                mcData
+              ).catch(() => {});
+              return {
+                ok: true,
+                phase: "iron",
+                message: `descend mobbed — relocating ${wx * 20},${wz * 20} @y=${Math.floor(p.y)}`,
+              };
+            }
+          }
+          return { ok: true, phase: "iron", message: `descend door-blocked y=${y}` };
         }
         // cave floor — nothing to staircase into; drop straight down instead
         const s = await digStaircaseDown(bot, mcData, 14, 8);
