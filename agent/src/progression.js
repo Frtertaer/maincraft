@@ -2496,6 +2496,39 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // the top (zombie reach ~2.5 — the on-pillar death at y55 ran exactly
       // this). Require +5; short material -> relocate and gather instead of
       // waiting inside reach
+      // launchpad clear: a solid lateral cell at top level (or one below) is
+      // a step a mob jumps from onto the refuge — the y69 on-pillar zombie
+      // death came off a same-height hillside/wall. Dig each bridge-in cell;
+      // capped so a cliff face doesn't turn this into a mining session
+      {
+        const tf = bot.entity.position.floored();
+        let cut = 0;
+        for (let lo = 1; lo <= 2 && cut < 10; lo += 1) {
+          for (const [lx, lz] of [
+            [lo, 0],
+            [-lo, 0],
+            [0, lo],
+            [0, -lo],
+            [lo, lo],
+            [lo, -lo],
+            [-lo, lo],
+            [-lo, -lo],
+          ]) {
+            for (const dy of [-1, -2]) {
+              const lb = bot.blockAt(tf.offset(lx, dy, lz));
+              if (!lb || lb.name === "air" || !diggable(lb)) continue;
+              try {
+                await pt(bot.dig(lb), 8000, "launchpad-cut", () => bot.stopDigging());
+                cut += 1;
+              } catch {
+                /* out of reach — leave it */
+              }
+              await sleep(120);
+            }
+          }
+        }
+        if (cut) log?.(`[burrow] cleared ${cut} launchpad cells beside the top`);
+      }
       bot._inShelter = true;
       try {
         // upgrade the bare pillar into a refuge when materials allow —
