@@ -1712,10 +1712,24 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // nearest diggable surface block instead of wandering blindly
     let target = null;
     try {
+      const campsHere = state ? campZonesFor(bot, state) : [];
+      const hostilesNear = Object.values(bot.entities || {}).filter((e) => {
+        if (!e?.position || e === bot.entity) return false;
+        const n = String(e.name || "").toLowerCase();
+        return (
+          (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+          /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|witch/.test(n)
+        );
+      });
       const soft = bot.findBlocks({
         matching: (b) => {
           const bb = b?.position ? b : bot.blockAt(b);
           if (!bb || bb.name === "air" || /leaves|_log|water|lava/.test(bb.name)) return false;
+          // a diggable site inside a kill ring or within trident/bow range of a
+          // camper is the relocate-death: the build spends ~15-30s in the open
+          // where it landed. Only seal where the ground is diggable AND quiet
+          if (campsHere.length && posInCamp(bb.position, campsHere)) return false;
+          if (hostilesNear.some((h) => h.position.distanceTo(bb.position) < 26)) return false;
           const a1 = bot.blockAt(bb.position.offset(0, 1, 0));
           const a2 = bot.blockAt(bb.position.offset(0, 2, 0));
           if (a1?.name !== "air" || a2?.name !== "air") return false;
