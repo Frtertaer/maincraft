@@ -366,6 +366,22 @@ export class ClearRunner {
                   this.log(`[clear] ${slept.message}`);
                   continue;
                 }
+                // a bed inside an active death camp is the kill anchor — every
+                // respawn lands back in the witch's/mob's ring (speedrun6: 5
+                // straight respawns into the same camping witch). Break it:
+                // the next death then respawns at world spawn, far away
+                const czBed = this.state?.campZone;
+                const recentCampDeaths = (this.state?._deathPts || []).filter(
+                  (d) => czBed && Math.hypot(d.x - czBed.x, d.z - czBed.z) < 120 && Date.now() - d.t < 240000
+                ).length;
+                if (czBed && Math.hypot(bedHere.position.x - czBed.x, bedHere.position.z - czBed.z) < 120 && recentCampDeaths >= 2) {
+                  try {
+                    await executeAction(bot, { type: "dig", x: bedHere.position.x, y: bedHere.position.y, z: bedHere.position.z, timeoutMs: 6000 }, this.mcData);
+                    this.log(`[clear] broke camped bed — next respawn goes to world spawn`);
+                  } catch {
+                    /* couldn't reach it — flee anyway */
+                  }
+                }
               }
             } catch {
               /* fall through to the flee */
