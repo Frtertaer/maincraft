@@ -2979,6 +2979,43 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           log?.(`[burrow] pocket deepened ${carvedDepth}→${ext}`);
         }
       }
+      // a depth-2 pocket leaves the far end ~2m off the single plug — inside
+      // a zombie's swing (speedrun6 death #2: zombie@2m killed it mid-wait).
+      // When the far wall couldn't be deepened, lay a SECOND wall on the
+      // threshold cell — two full blocks between the mob and the bot's last
+      // cell is geometrically out of melee reach
+      const deepY = pocketDeep ? Math.hypot(pocketDeep.x - (feet.x + 0.5), pocketDeep.z - (feet.z + 0.5)) : carvedDepth;
+      if (carvedDepth <= 2 && deepY <= 2.5 && solid?.name) {
+        try {
+          const mouth = feet.offset(0, 0, 0);
+          const m1 = bot.blockAt(mouth);
+          const m2 = bot.blockAt(mouth.offset(0, 1, 0));
+          if (
+            m1 && /air|cave_air|void_air/.test(m1.name) &&
+            m2 && /air|cave_air|void_air/.test(m2.name)
+          ) {
+            const w1 = await executeAction(
+              bot,
+              { type: "place", item: solid.name, x: mouth.x, y: mouth.y, z: mouth.z, face: "top", timeoutMs: 6000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            await sleep(180);
+            const w2 = w1.ok
+              ? await executeAction(
+                  bot,
+                  { type: "place", item: solid.name, x: mouth.x, y: mouth.y + 1, z: mouth.z, face: "top", timeoutMs: 6000 },
+                  mcData
+                ).catch(() => ({ ok: false }))
+              : { ok: false };
+            if (w2.ok) {
+              sealedCells.push({ x: mouth.x, y: mouth.y, z: mouth.z }, { x: mouth.x, y: mouth.y + 1, z: mouth.z });
+              log?.("[burrow] second wall on threshold — shallow pocket hardened");
+            }
+          }
+        } catch {
+          /* best-effort — shallow pocket still better than open ground */
+        }
+      }
       log?.(`[burrow] sealed pocket ${px},${pz} depth=${carvedDepth}`);
       // a dark sealed pocket is a legal vanilla spawn cell — anything can
       // materialize inside during the wait (death #1 on speedrun6 was a
