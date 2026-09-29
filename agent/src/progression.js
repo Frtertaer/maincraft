@@ -3738,8 +3738,23 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     if (bot.food >= 10) return { ok: true, ate };
   }
+  // surface check first: every hunt target is a surface animal — chasing one
+  // from y=35 means pathing through 40m of rock until the 26s timeout (the
+  // underground "combat timeout 0 hits" loop). Underground hunts always miss.
+  const canSeeSky = (() => {
+    try {
+      const feet = bot.entity.position.floored();
+      for (let dy = 0; dy < 3; dy++) {
+        const b = bot.blockAt(feet.offset(0, dy, 0));
+        if (b && (b.skyLight ?? 0) > 4) return true;
+      }
+    } catch {
+      /* unknown — assume indoor */
+    }
+    return bot.entity.position.y > 58;
+  })();
   const preyList = starving && !fragile ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"] : ["cow", "pig", "sheep", "rabbit", "chicken"];
-  for (const prey of preyList) {
+  for (const prey of canSeeSky ? preyList : []) {
     if (bot.food >= 12) break;
     for (let i = 0; i < 3 && bot.food < 12; i++) {
       const r = await executeAction(
@@ -3784,18 +3799,6 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // chunks, so keep moving along one heading until something spawns.
   // Underground it can only time out — no animals spawn below ground, and a
   // wander goto just crashes into rock; keep working hungry instead.
-  const canSeeSky = (() => {
-    try {
-      const feet = bot.entity.position.floored();
-      for (let dy = 0; dy < 3; dy++) {
-        const b = bot.blockAt(feet.offset(0, dy, 0));
-        if (b && (b.skyLight ?? 0) > 4) return true;
-      }
-    } catch {
-      /* unknown — assume indoor */
-    }
-    return bot.entity.position.y > 58;
-  })();
   if (bot.food <= 4 && state && canSeeSky && (bot.time?.timeOfDay ?? 0) < 12541) {
     // a stash chest IS food — the restart kit stocks bread/meat. Raid the
     // nearest recorded chest before wandering blind for a herd (speedrun6
