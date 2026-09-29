@@ -1004,7 +1004,20 @@ async function boundedCombat(bot, action) {
         return { ok: false, message: `target ${label} escaped (${round1(distance)}m)` };
       }
       if (distance > 3.1) {
-        bot.pathfinder.setGoal(new goals.GoalFollow(target, 2.4), true);
+        if (isPrey && target.velocity) {
+          // intercept: a fleeing animal always wins a tail-chase — its flee
+          // speed ~2.5-3m/s vs our walk 4.3 barely closes. Aiming at where it
+          // WILL BE (pos + velocity×lead) cuts the corner on every panic zig
+          const lead = Math.min(distance / 5.6, 1.2);
+          const ip = target.position.offset(
+            target.velocity.x * lead,
+            0,
+            target.velocity.z * lead
+          );
+          bot.pathfinder.setGoal(new goals.GoalNear(ip.x, ip.y, ip.z, 1.5), true);
+        } else {
+          bot.pathfinder.setGoal(new goals.GoalFollow(target, 2.4), true);
+        }
         await sleep(150);
         continue;
       }
