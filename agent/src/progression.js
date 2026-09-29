@@ -291,12 +291,19 @@ async function ensurePickaxe(bot, mcData) {
 
 // mineflayer calls that wait on server acks (equip/placeBlock) can hang
 // forever when the ack packet is lost — race every such call against a timer
-function pt(promise, timeoutMs, what) {
+function pt(promise, timeoutMs, what, onTimeout = null) {
   let timer;
   return Promise.race([
     promise,
     new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${what} timeout`)), timeoutMs);
+      timer = setTimeout(() => {
+        try {
+          onTimeout?.();
+        } catch {
+          /* cleanup best-effort */
+        }
+        reject(new Error(`${what} timeout`));
+      }, timeoutMs);
     }),
   ]).finally(() => clearTimeout(timer));
 }
@@ -2063,7 +2070,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       for (const b of cands.slice(0, 14)) {
         if (solidsCount() >= 14) break;
         try {
-          await pt(bot.dig(b), 8000, "dig-soft");
+          await pt(bot.dig(b), 8000, "dig-soft", () => bot.stopDigging());
         } catch {
           /* keep grabbing the rest */
         }
@@ -2117,10 +2124,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           let foundSky = false;
           if (diggable(headroom)) {
             try {
-              await pt(bot.dig(headroom), 9000, "dig-lid");
+              await pt(bot.dig(headroom), 9000, "dig-lid", () => bot.stopDigging());
               const h3 = bot.blockAt(bot.entity.position.floored().offset(0, 3, 0));
               if (h3 && !PASSABLE.test(h3.name) && diggable(h3)) {
-                await pt(bot.dig(h3), 9000, "dig-lid2");
+                await pt(bot.dig(h3), 9000, "dig-lid2", () => bot.stopDigging());
               }
               const h2 = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
               foundSky = PASSABLE.test(h2?.name || "");
@@ -2260,7 +2267,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               // instead of skipping the direction outright
               if (riserCell && riserCell.name !== "air" && diggable(riserCell)) {
                 try {
-                  await pt(bot.dig(riserCell), 8000, "stair-clear");
+                  await pt(bot.dig(riserCell), 8000, "stair-clear", () => bot.stopDigging());
                   await sleep(150);
                   riserCell = bot.blockAt(bridgePos.offset(0, 1, 0));
                 } catch {
@@ -2343,7 +2350,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             const b = bot.blockAt(p);
             if (!b || b.name === "air" || !diggable(b)) continue;
             try {
-              await pt(bot.dig(b), 8000, "stair-cut");
+              await pt(bot.dig(b), 8000, "stair-cut", () => bot.stopDigging());
             } catch {
               /* unreachable from here — leave it */
             }

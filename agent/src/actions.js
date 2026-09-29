@@ -420,6 +420,13 @@ export async function executeAction(bot, action, mcData) {
         try {
           await withTimeout(bot.dig(block), timeoutMs, `dig ${block.name} timeout`);
         } catch (err) {
+          // a timed-out dig leaves mineflayer's blockUpdate listener hanging —
+          // stopDigging cancels the abandoned dig and removes it
+          try {
+            bot.stopDigging();
+          } catch {
+            /* no dig in flight */
+          }
           try {
             bot.pathfinder.setGoal(null);
             bot.clearControlStates();
