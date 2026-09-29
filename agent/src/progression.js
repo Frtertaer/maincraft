@@ -3662,6 +3662,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
     "rotten_flesh", "beef", "porkchop", "mutton", "chicken", "rabbit",
     "bread", "potato", "carrot", "apple", "cooked_beef", "cooked_porkchop",
     "cooked_mutton", "cooked_chicken", "baked_potato",
+    // wool is bed material — a scavenge walk that also banks wool turns the
+    // next dusk burrow into a bed-claim instead of a 9.5min pocket sit-out
+    ...Object.keys(mcData.itemsByName || {}).filter((n) => /_wool$/.test(n)),
   ]);
   if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
     await executeAction(
@@ -3690,6 +3693,22 @@ export async function ensureFed(bot, mcData, log, state = null) {
       ).catch(() => ({ ok: false }));
       if (!r.ok) break;
       await sleep(400);
+      // a sheep kill drops wool beside the mutton — walk over it so the next
+      // burrow call has the 3 wool for a bed (skips the whole night)
+      if (prey === "sheep") {
+        const wd = droppedItemEntity(
+          bot,
+          mcData,
+          Object.keys(mcData.itemsByName || {}).filter((n) => /_wool$/.test(n))
+        );
+        if (wd && wd.position.distanceTo(bot.entity.position) < 16) {
+          await executeAction(
+            bot,
+            { type: "goto", x: Math.floor(wd.position.x), y: Math.floor(wd.position.y), z: Math.floor(wd.position.z), range: 1, timeoutMs: 6000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+        }
+      }
       const got = bot.inventory
         .items()
         .find((i) => SAFE_RAW.test(i.name) || EDIBLE_FOOD.test(i.name) || (starving && i.name === "rotten_flesh"));
