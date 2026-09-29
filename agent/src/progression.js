@@ -2823,6 +2823,51 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
       }
     }
+    // ranged cover for the carve: a skeleton with line of sight shoots
+    // through the whole ~20-30s pocket dig — the repeated mid-carve kills at
+    // one site. Same answer as the pillar path: a 3-high wall on the
+    // shooter's bearing, then carve behind it.
+    if (!sealedCells) {
+      const carveShooter = Object.values(bot.entities || {})
+        .filter(
+          (e) =>
+            e?.position &&
+            /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(String(e.name || "")) &&
+            e.position.distanceTo(bot.entity.position) < 32
+        )
+        .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+      if (carveShooter) {
+        const feet0 = bot.entity.position.floored();
+        const vx = carveShooter.position.x - bot.entity.position.x;
+        const vz = carveShooter.position.z - bot.entity.position.z;
+        const [bx, bz] = Math.abs(vx) >= Math.abs(vz) ? [Math.sign(vx) || 1, 0] : [0, Math.sign(vz) || 1];
+        const solid0 = refreshSolid();
+        if (solid0) {
+          try {
+            await pt(bot.equip(solid0, "hand"), 6000, "equip-wall");
+            for (let t = 0; t < 10 && !bot.heldItem; t += 1) await sleep(80);
+            if (bot.heldItem) {
+              let up = false;
+              for (let dy = 0; dy < 3; dy += 1) {
+                const ref = bot.blockAt(feet0.offset(bx * 2, dy - 1, bz * 2));
+                const dst = bot.blockAt(feet0.offset(bx * 2, dy, bz * 2));
+                if (!ref || ref.name === "air" || !dst || dst.name !== "air") continue;
+                const okPlace = await executeAction(
+                  bot,
+                  { type: "place", item: solid0.name, x: dst.position.x, y: dst.position.y, z: dst.position.z, timeoutMs: 3000 },
+                  mcData
+                ).catch(() => ({ ok: false }));
+                if (!okPlace.ok) break;
+                up = true;
+              }
+              if (up) log?.("[burrow] LOS wall vs ranged camper — carving behind it");
+            }
+          } catch {
+            /* wall best-effort */
+          }
+        }
+      }
+    }
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
@@ -2838,6 +2883,38 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // cave pocket, and a cave means mobs
         if (cells.some((c) => !diggable(c))) {
           sealMiss("undiggable");
+          continue;
+        }
+        // side-leak: the corridor's LATERAL walls and the cell behind the
+        // far end must be solid too. A pocket carved through a thin ridge
+        // (tunnel wall) exits into a cave/open air at its back or sides —
+        // an unplugged doorway the front seal never covers. The skeleton
+        // that killed inside a "sealed" depth-4 pocket shot through exactly
+        // this gap. Null blocks (unloaded) count as leaks — conservative.
+        const perp = px !== 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+        const OPEN = /air|cave_air|void_air|water|bubble|kelp|seagrass|lava/;
+        let leak = false;
+        for (let i = 2; i <= depth + 1 && !leak; i += 1) {
+          const ends = i === depth + 1 ? [[0, 0]] : perp;
+          for (const [qx, qz] of ends) {
+            for (const dy of [0, 1]) {
+              const s = bot.blockAt(feet.offset(px * i + qx, dy, pz * i + qz));
+              if (!s || OPEN.test(s.name)) {
+                leak = true;
+                break;
+              }
+            }
+            if (leak) break;
+          }
+          // corridor floor under interior cells: never carved, assumed solid
+          // — a hidden cave below opens a trapdoor in the middle of the pocket
+          if (!leak && i <= depth) {
+            const fl = bot.blockAt(feet.offset(px * i, -1, pz * i));
+            if (!fl || OPEN.test(fl.name)) leak = true;
+          }
+        }
+        if (leak) {
+          sealMiss("side-leak");
           continue;
         }
         const doorwayFloor = bot.blockAt(feet.offset(px, -1, pz));
