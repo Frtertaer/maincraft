@@ -921,6 +921,7 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
   const dangerous = (b) => b && /lava|water|magma_block|bedrock/.test(b.name);
   let dug = 0;
   let supersededRetries = 0;
+  let fluidStuck = false;
   for (let k = 0; k < levels; k++) {
     const p = bot.entity.position.floored();
     let stepped = false;
@@ -1093,11 +1094,15 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
       } else {
         why.push(`vert:${under?.name ?? "air"}`);
       }
+      // water/lava named in any direction's failure means the staircase sits
+      // in a flooded region — the caller escalates relocation distance for
+      // this, digs>0 or not (digging 'progress' in a swamp still drowns)
+      fluidStuck = why.some((w) => /water|lava/.test(w));
       log?.(`[stairDown] stuck at ${p.x},${p.y},${p.z} k=${k} dug=${dug} :: ${why.join(" | ")}`);
       break;
     }
   }
-  return dug;
+  return { digs: dug, fluid: fluidStuck };
 }
 
 // Place a shore step into the water beside a wall face so a treading bot
@@ -4512,7 +4517,24 @@ async function phaseIron(bot, mcData, state, log) {
         if (got.ok) return { ok: true, phase: "iron", message: `surface iron @y=${y}` };
       }
       const d = await stairDown(bot, mcData, 8, log);
-      if (d === 0) {
+      if (d.fluid) {
+        // staircase drowned in a water/lava region even with digs>0 — count it
+        // as a fluid strike so relocation escalates 14m → 48m. The iron death
+        // at (-205,60,-147) was digs>0 'progress' through a swamp until a
+        // drowned arrived
+        state.fluidStrikes = (state.fluidStrikes || 0) + 1;
+        const hop = state.fluidStrikes >= 3 ? 48 : 14;
+        const p = bot.entity.position.floored();
+        const dirs = [[hop, 0], [-hop, 0], [0, hop], [0, -hop]];
+        const [wx, wz] = dirs[Math.floor(Math.random() * dirs.length)];
+        await executeAction(
+          bot,
+          { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 3, timeoutMs: 12000 },
+          mcData
+        ).catch(() => {});
+        return { ok: true, phase: "iron", message: `descend fluid — relocating ${wx},${wz} @y=${Math.floor(p.y)}` };
+      }
+      if (d.digs === 0) {
         // every direction may be mob-blocked — end the step so the combat
         // reflex clears the doorway before we try to dig through again
         const doorBlock = findHostile(bot, 10);
