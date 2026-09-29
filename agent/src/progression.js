@@ -142,6 +142,16 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
       if (!bot.entity.vehicle && (wetCell(headW) || wetCell(underW))) {
         const wasDeep = bot.entity.position.y < 48;
         const sw = await surfaceForAir(bot, mcData, log);
+        // head above water but still treading an open lake = the next wander
+        // step just steers around the water until a drowned arrives. Route to
+        // a dry shore cell while the air is full — the drowned@(-18,62,31)
+        // kill came from exactly this resurface-then-wander cycle
+        if (sw.ok) {
+          const f2 = bot.entity.position.floored();
+          if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
+            await swimToLand(bot, mcData, log, 10000).catch(() => {});
+          }
+        }
         if (sw.ok && wasDeep) {
           // a flooded aquifer just refills the same column — hop laterally so
           // the next descend digs dry ground
