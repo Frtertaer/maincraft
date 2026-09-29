@@ -3767,7 +3767,14 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     return bot.entity.position.y > 58;
   })();
-  const preyList = starving && !fragile ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"] : ["cow", "pig", "sheep", "rabbit", "chicken"];
+  // zombie meat only pays off when a real weapon ends the fight in a few
+  // swings — bare fists need 20 hits while it deals ~3/hit back (the
+  // starving-bare-handed "hunt zombie, lose to 6hp, skeleton finishes" loop)
+  const armedForZombie = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+  const preyList =
+    starving && !fragile && armedForZombie
+      ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"]
+      : ["cow", "pig", "sheep", "rabbit", "chicken"];
   for (const prey of canSeeSky ? preyList : []) {
     if (bot.food >= 12) break;
     for (let i = 0; i < 3 && bot.food < 12; i++) {
