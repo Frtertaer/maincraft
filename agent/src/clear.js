@@ -632,9 +632,11 @@ export class ClearRunner {
             }
             // bed attempt only when one is already in hand or placed —
             // hunting sheep under an approaching pack is a death loop
+            const woolHere = bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0);
             const bedNear =
               bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
-              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
+              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 }) ||
+              woolHere >= 3;
             try {
               if (bedNear && !stillClose) {
                 const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
@@ -1096,9 +1098,11 @@ export class ClearRunner {
             // bed attempt only when one is already in hand or placed: hunting
             // sheep is a ~60s loop and under a camp it gets the bot killed
             // long before the bed exists
+            const woolHeld2 = bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0);
             const hasBedReady =
               bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
-              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 });
+              bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 }) ||
+              (woolHeld2 >= 3 && meleeDist > 20);
             const slept = hasBedReady
               ? await ensureBedAndSleep(bot, this.mcData, this.log, this.state)
               : { ok: false, message: "no bed in hand" };
@@ -1182,9 +1186,9 @@ export class ClearRunner {
             matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
             maxDistance: 12,
           });
-          if (woolHeld < 3 && sheepNear && !underground) {
+          if ((woolHeld >= 3 && !underground) || (woolHeld < 3 && sheepNear && !underground)) {
             this._lastSheep = Date.now();
-            this._note("Овца! Кровать скоро будет — ночи проживу спокойно.");
+            this._note(woolHeld >= 3 ? "Шерсть есть — крафчу кровать." : "Овца! Кровать скоро будет — ночи проживу спокойно.");
             try {
               const res = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
               if (res?.ok || /bed|spawn/.test(res?.message || "")) this.log(`[clear] sheep run: ${res.message}`);
