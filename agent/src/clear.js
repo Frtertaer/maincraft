@@ -1154,6 +1154,41 @@ export class ClearRunner {
             /* stash err — continue */
           }
         }
+        // opportunistic daytime spider pickup: 4 string crafts a wool — in a
+        // basin with zero sheep, lone spiders are the only wool source. Only
+        // take a lone one while armed and healthy enough to eat a pounce
+        if (
+          surfacePhase &&
+          !nightSoon &&
+          !hostileNear &&
+          Date.now() - (this._lastSpider || 0) > 90000 &&
+          !bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))
+        ) {
+          const woolish =
+            bot.inventory.items().reduce((n, i) => n + (/(?:^|_)wool$/.test(i.name) ? i.count : 0), 0) +
+            Math.floor(countItem(bot, (i) => i.name === "string") / 4);
+          const mobsHere = Object.values(bot.entities || {}).filter((e) => {
+            if (!e?.position || e === bot.entity) return false;
+            const n = String(e.name || "").toLowerCase();
+            return (
+              (e.kind === "Hostile mobs" && e.name !== "enderman" ||
+                /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|witch/.test(n)) &&
+              e.position.distanceTo(bot.entity.position) < 25
+            );
+          });
+          const loneSpider =
+            mobsHere.length === 1 && /spider/.test(String(mobsHere[0].name || "")) ? mobsHere[0] : null;
+          const armed = bot.inventory.items().some((i) => /_(sword|axe)$/.test(i.name));
+          if (woolish < 3 && loneSpider && armed && (bot.health ?? 20) > 12) {
+            this._lastSpider = Date.now();
+            this.log(`[clear] spider hunt — string is wool (${woolish}/3)`);
+            await executeAction(
+              bot,
+              { type: "attack", name: "spider", maxDurationMs: 15000, maxDistance: 30, persistent: true },
+              this.mcData
+            ).catch(() => ({ ok: false }));
+          }
+        }
         // opportunistic daytime sheep pickup: a bed crafted+claimed while the
         // sun is up means the dusk hunt never has to fight a monster camp for
         // wool — run only when a sheep (or an unclaimed placed bed) is already

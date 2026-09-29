@@ -3663,7 +3663,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
     "bread", "potato", "carrot", "apple", "cooked_beef", "cooked_porkchop",
     "cooked_mutton", "cooked_chicken", "baked_potato",
     // wool is bed material — a scavenge walk that also banks wool turns the
-    // next dusk burrow into a bed-claim instead of a 9.5min pocket sit-out
+    // next dusk burrow into a bed-claim instead of a 9.5min pocket sit-out.
+    // string converts 4:1 into wool — spiders are everywhere a sheep isn't
+    "string",
     ...Object.keys(mcData.itemsByName || {}).filter((n) => /_wool$/.test(n)),
   ]);
   if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
@@ -3917,6 +3919,16 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
 
   if (!bedBlock()) {
     if (!bedItem()) {
+      // string is wool too: 4 string crafts 1 wool on the 2x2 grid, no table
+      // needed — spiders are everywhere a sheep isn't (this basin had 18
+      // zombies and zero sheep inside 140m)
+      for (let s = 0; s < 6 && woolCount() < 3; s++) {
+        const stringCt = countItem(bot, (i) => i.name === "string");
+        if (stringCt < 4) break;
+        const c = await ensureCraft(bot, mcData, "white_wool", 1).catch(() => ({ ok: false }));
+        if (!c?.ok || countItem(bot, (i) => i.name === "string") >= stringCt) break;
+        log?.(`[bed] string→wool (${woolCount()}/3)`);
+      }
       // hunt sheep until 3 wool — fists work, a few hits each. persistent:
       // a sheep sprints when hit and the default 36m leash ends every chase
       // with zero wool — hold the same target until it's dead or truly gone
