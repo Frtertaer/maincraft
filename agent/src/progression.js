@@ -3626,9 +3626,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // starved in a shelter loop at food=0 for ~40min with a full kit 60m away)
     if (Date.now() - (state.stashFoodAt || 0) > 300000) {
       const me = bot.entity.position;
+      const camps = campZonesFor(bot, state);
       const nearStash = stashLoadFile(bot)
         .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
-        .filter((e) => e.d > 12 && e.d < 160)
+        // a chest inside a kill ring is bait, not food — walking the raid
+        // path through the camp is how the starving run met its drowned
+        .filter((e) => e.d > 12 && e.d < 160 && !posInCamp(e.p, camps))
         .sort((a, b) => a.d - b.d)[0];
       if (nearStash) {
         state.stashFoodAt = Date.now();
