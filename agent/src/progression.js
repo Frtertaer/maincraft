@@ -3747,7 +3747,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
         { type: "attack", name: prey, maxDurationMs: 14000, maxDistance: 48 },
         mcData
       ).catch(() => ({ ok: false }));
-      if (!r.ok) break;
+      if (!r.ok) {
+        log?.(`[food] hunt ${prey} failed: ${r?.message || "no target"}`);
+        break;
+      }
       await sleep(400);
       // a sheep kill drops wool beside the mutton — walk over it so the next
       // burrow call has the 3 wool for a bed (skips the whole night)
