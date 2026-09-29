@@ -604,8 +604,7 @@ export async function stashDeposit(bot, mcData, log, state) {
       !state.stashKitDone &&
       countOf(/_planks$/) + countOf(/_log$|_stem$/) * 4 >= 16 &&
       countOf(/^stick$/) >= 4 &&
-      items.some((i) => i.name === "crafting_table") &&
-      countOf(STASH_FOOD) >= 6;
+      items.some((i) => i.name === "crafting_table");
     if (!surplus.length && !kitDue) return { ok: true, message: "nothing to stash" };
     const chestBlock = await stashFindOrPlaceChest(bot, mcData, state);
     if (!chestBlock) return { ok: false, message: "no chest" };
@@ -623,11 +622,15 @@ export async function stashDeposit(bot, mcData, log, state) {
         // the kit needs real planks — convert logs first if the stack is thin
         if (countOf(/_planks$/) < 8) await ensurePlanks(bot, mcData, 16).catch(() => {});
         let kitMoved = 0;
+        // food is the point of the starvation raid — bank up to 4 portions
+        // whenever ≥2 are held (keep the rest to eat). Requiring ≥6 before
+        // depositing meant most chests held tools but zero food
+        const foodWant = Math.min(4, Math.max(0, countOf(STASH_FOOD) - 2));
         for (const [re, want] of [
           [/_planks$/, 8],
           [/^stick$/, 4],
           [/^crafting_table$/, 1],
-          [STASH_FOOD, 4],
+          [STASH_FOOD, foodWant],
         ]) {
           let left = want;
           for (const it of bot.inventory.items().filter((i) => re.test(i.name))) {
