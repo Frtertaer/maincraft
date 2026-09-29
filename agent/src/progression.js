@@ -2295,7 +2295,31 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             if (below && below.name !== "air") break;
             await sleep(120);
           }
-          for (let level = 0; level + raised < 6 && refreshSolid(); level++) {
+          for (let level = 0; level + raised < 6; level++) {
+            if (!refreshSolid()) {
+              // out of blocks mid-climb: the staircase's own lower steps are
+              // slated for cutting anyway — dig one back and re-place it one
+              // level up. Free height; stops the "ran dry at +4" abort that
+              // leaves the bot in melee reach. Never touch steps within 2
+              // of the feet: the block under us must not drop out
+              let got = false;
+              const fy = bot.entity.position.floored().y;
+              for (const tp of stairTrail) {
+                if (tp.y > fy - 2) continue;
+                const tb = bot.blockAt(tp);
+                if (!tb || tb.name === "air" || !diggable(tb)) continue;
+                try {
+                  await pt(bot.dig(tb), 7000, "trail-harvest", () => bot.stopDigging());
+                  got = true;
+                } catch {
+                  /* unreachable from up here — try the next step */
+                }
+                if (got) break;
+              }
+              if (!got) break;
+              await sleep(250); // let the drop land in the pickup radius
+              if (!refreshSolid()) break;
+            }
             let done = false;
             for (let di = 0; di < 4 && !done; di++) {
               const [dx, dz] = dirs[(di + level) % 4];
