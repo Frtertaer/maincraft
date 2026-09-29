@@ -1582,7 +1582,18 @@ async function swimToLand(bot, mcData, log, ms = 40000) {
   while (Date.now() - t0 < ms) {
     const p = bot.entity.position.floored();
     const inCell = bot.blockAt(p);
-    if (inCell && inCell.name !== "water" && !/kelp|seagrass|bubble/.test(inCell.name)) return true;
+    const underCell = bot.blockAt(p.offset(0, -1, 0));
+    // bobbing at the surface reads feet=air while still swimming — "landed"
+    // only when the cell below the feet is dry solid too
+    if (
+      inCell &&
+      inCell.name !== "water" &&
+      !/kelp|seagrass|bubble/.test(inCell.name) &&
+      underCell &&
+      underCell.name !== "water" &&
+      !/kelp|seagrass|bubble/.test(underCell.name)
+    )
+      return true;
     let best = null;
     let bestD = 1e9;
     for (let dx = -8; dx <= 8; dx += 1) {
@@ -2121,6 +2132,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
       if (!ref || ref.name === "air") {
         log?.(`[burrow] pillar err: no ground under feet (inWater=${Boolean(bot.entity.isInWater)})`);
+        break;
+      }
+      if (ref.name === "water" || /bubble_column|kelp|seagrass/.test(ref.name)) {
+        // treading water: nothing stacks on a water surface — swim for a dry
+        // column first, then the retry pillars on real ground. Bare-handed on
+        // a lake under a camper this was burning 20s+ per refused attempt
+        log?.("[burrow] feet in water — swimming for land before pillar");
+        await swimToLand(bot, mcData, log, 20000).catch(() => {});
         break;
       }
       try {
