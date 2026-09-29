@@ -346,7 +346,39 @@ export class ClearRunner {
               return hostile && e.position.distanceTo(bot.entity.position) < 52;
             });
             if (!still) return;
-            await sprintBurst(dirX, dirZ, 3500).catch(() => {});
+            // hop-level water guard: the pick's dry-runway scan reaches ~90m
+            // but legs run 140m+, and the ±30° drift can still steer into a
+            // lake — a drowned in water ends every flee. If the next ~18m is
+            // wet, re-pick THIS hop's heading with the runway scorer
+            let hopX = dirX;
+            let hopZ = dirZ;
+            {
+              const f = bot.entity.position.floored();
+              const ul = Math.hypot(dirX, dirZ) || 1;
+              const ux = dirX / ul;
+              const uz = dirZ / ul;
+              let wet = false;
+              outer: for (const t of [6, 12, 18, 24]) {
+                for (let dy = 0; dy >= -18; dy--) {
+                  const b = bot.blockAt(f.offset(ux * t, dy, uz * t));
+                  if (!b) continue;
+                  if (/water|kelp|seagrass|ice|bubble/.test(b.name)) {
+                    wet = true;
+                    break outer;
+                  }
+                  if (dy < 0 && b.boundingBox === "block") break;
+                }
+              }
+              if (wet) {
+                [hopX, hopZ] = pickDryDir(bot, [
+                  [dirX * 24, dirZ * 24],
+                  [dirZ * 24, -dirX * 24],
+                  [-dirZ * 24, dirX * 24],
+                  [-dirX * 24, -dirZ * 24],
+                ]);
+              }
+            }
+            await sprintBurst(hopX, hopZ, 3500).catch(() => {});
             // drift the heading ~30° each hop: keeps distance from the swarm
             // arc and bounces us around cliffs/water instead of dead-stalling
             const rot = (h % 2 === 0 ? 1 : -1) * 0.55;
