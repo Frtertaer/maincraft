@@ -966,7 +966,12 @@ async function boundedCombat(bot, action) {
   };
   let target = selectNearestCombatTarget(bot.entities, bot.entity.position, options);
   if (!target) return { ok: false, message: `no safe target nearby: ${options.name || "mob"}` };
-  if (Number(bot.health) <= fleeAtHealth) {
+  // the flee gate exists for hostiles — passive prey can't hurt us, and a
+  // starving 1hp bot that refuses to swing at a chicken starves standing on
+  // a field of food (the food=0 stall: every hunt silently "combat refused")
+  const PREY = /cow|pig|sheep|rabbit|chicken|horse|donkey|mule|llama|goat|squid|cod|salmon|mooshroom|villager|golem|frog|turtle|bee/;
+  const isPrey = PREY.test(String(target.name || target.username || "").toLowerCase());
+  if (!isPrey && Number(bot.health) <= fleeAtHealth) {
     return { ok: false, message: `combat refused at low health (${bot.health})` };
   }
 
@@ -978,7 +983,7 @@ async function boundedCombat(bot, action) {
 
   try {
     while (Date.now() < deadline) {
-      if (Number(bot.health) <= fleeAtHealth) {
+      if (!isPrey && Number(bot.health) <= fleeAtHealth) {
         return { ok: false, message: `retreated from ${label}: health=${bot.health}, hits=${hits}` };
       }
       target = bot.entities[targetId];
