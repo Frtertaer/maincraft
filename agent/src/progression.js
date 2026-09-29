@@ -3085,12 +3085,44 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // undiggable and the pocket stays shallow.
       if (carvedDepth < 4) {
         let ext = carvedDepth;
+        const extPerp = px !== 0 ? [[0, 1], [0, -1]] : [[1, 0], [-1, 0]];
+        const EXT_OPEN = /air|cave_air|void_air|water|bubble|kelp|seagrass|lava/;
         while (ext < 5) {
           const nxt = [
             bot.blockAt(feet.offset(px * (ext + 1), 0, pz * (ext + 1))),
             bot.blockAt(feet.offset(px * (ext + 1), 1, pz * (ext + 1))),
           ];
           if (nxt.some((c) => !diggable(c))) break;
+          // deepening digs past the corridor the carve-time leak check
+          // verified — an unchecked side/back hole is how a skeleton shot
+          // into a 'sealed' pocket. Each extension cell must keep solid
+          // lateral walls, a solid floor, and a solid-or-diggable cell
+          // beyond it (the future far-end wall)
+          let extLeak = false;
+          for (const [qx, qz] of extPerp) {
+            for (const dy of [0, 1]) {
+              const s = bot.blockAt(feet.offset(px * (ext + 1) + qx, dy, pz * (ext + 1) + qz));
+              if (!s || EXT_OPEN.test(s.name)) {
+                extLeak = true;
+                break;
+              }
+            }
+            if (extLeak) break;
+          }
+          if (!extLeak) {
+            const fl = bot.blockAt(feet.offset(px * (ext + 1), -1, pz * (ext + 1)));
+            if (!fl || EXT_OPEN.test(fl.name)) extLeak = true;
+          }
+          if (!extLeak) {
+            for (const dy of [0, 1]) {
+              const s = bot.blockAt(feet.offset(px * (ext + 2), dy, pz * (ext + 2)));
+              if (!s || EXT_OPEN.test(s.name)) {
+                extLeak = true;
+                break;
+              }
+            }
+          }
+          if (extLeak) break;
           let okAll = true;
           for (const c of nxt) {
             const d = await executeAction(
