@@ -1294,12 +1294,18 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         // drop lands one step from magma and the first walk in is the kill
         // (iron death @13,60,-52 after a clean vertical dig into a lava ring)
         if (landY != null && !landDangerous) {
+          // feet AND head level: a lava face seeping at landY+2 never shows
+          // up in the feet scan — the drop lands the bot's head inside it
+          // (the unmarked death at (101,61,159) 4s after a clean dig)
           for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-            const nb = bot.blockAt(new Vec3(p.x + nx, landY + 1, p.z + nz));
-            if (nb && dangerous(nb)) {
-              landDangerous = true;
-              break;
+            for (const hy of [1, 2]) {
+              const nb = bot.blockAt(new Vec3(p.x + nx, landY + hy, p.z + nz));
+              if (nb && dangerous(nb)) {
+                landDangerous = true;
+                break;
+              }
             }
+            if (landDangerous) break;
           }
         }
         if (landY != null && !landDangerous && !findHostile(bot, 8)) {
