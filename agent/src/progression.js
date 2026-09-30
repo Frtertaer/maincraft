@@ -4238,6 +4238,24 @@ export async function ensureFed(bot, mcData, log, state = null) {
   if (bot.food <= 4 && !canSeeSky && state && (bot.time?.timeOfDay ?? 0) < 12541 && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
     const p0 = bot.entity.position.floored();
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
+    // breadcrumbs first: the corridor the bot came down through is already
+    // open, so the newest sky-lit waypoint on the trail is walkable without
+    // a single pickaxe swing — re-digging a staircase burned whole days
+    {
+      const skyWp = (state.trail || [])
+        .slice()
+        .reverse()
+        .find((w) => w.sky);
+      if (skyWp) {
+        const w2 = await executeAction(
+          bot,
+          { type: "goto", x: skyWp.x, y: skyWp.y, z: skyWp.z, range: 4, timeoutMs: 16000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        if (w2.ok || bot.entity.position.y > p0.y + 6)
+          return { ok: true, ate, message: "climbed out along the trail" };
+      }
+    }
     // walking beats digging: the descent left a staircase behind it, and a
     // goto toward open air lets pathfinder reuse it — under a water cap the
     // diggers below can never finish, while the walked path is already

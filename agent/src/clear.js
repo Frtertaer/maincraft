@@ -942,6 +942,25 @@ export class ClearRunner {
           return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n) ? d < 26 : d < 14;
         });
         const hostileNear = hostileClose();
+        // breadcrumbs: a proven-walkable trail — the underground climb replays
+        // the newest sky-lit point instead of re-digging a staircase through
+        // the same rock (the pocket↔climb loop ate whole days)
+        try {
+          const bp = bot.entity.position.floored();
+          const tr = (state.trail ||= []);
+          const last = tr[tr.length - 1];
+          if (!last || Math.hypot(bp.x - last.x, bp.y - last.y, bp.z - last.z) > 7) {
+            let sky = false;
+            for (let dy = 0; dy < 3 && !sky; dy++) {
+              const b = bot.blockAt(bp.offset(0, dy, 0));
+              if (b && (b.skyLight ?? 0) > 4) sky = true;
+            }
+            tr.push({ x: bp.x, y: bp.y, z: bp.z, sky });
+            if (tr.length > 140) tr.shift();
+          }
+        } catch {
+          /* trail best-effort */
+        }
         // Food: foodLevel 0 means no sprint and ~0.5hp — starvation is the
         // quiet killer of the marathon. Eat carried food or hunt animals.
         // At food<=4 it's a CRISIS — the bot can't sprint and dies to one
