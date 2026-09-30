@@ -2563,6 +2563,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             e.position.distanceTo(bot.entity.position) < 5
         );
         for (let attempt = 0; attempt < (mobAdjacent ? 0 : 3) && !placed; attempt++) {
+          if (creeperClose()) {
+            // a bomb walked up mid-build — bail so the reflex can kite it;
+            // resuming here is just placing into the blast
+            log?.("[burrow] creeper closing — abandoning the pillar");
+            return false;
+          }
           // keep hopping and offer the place on EVERY tick the body is legal:
           // the clear window (feet ≥ ref.y+2) is ~0.15s per jump and offer
           // latency lands most single-shot attempts below it — polling each
@@ -2623,6 +2629,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             await sleep(120);
           }
           for (let level = 0; level + raised < 6; level++) {
+            if (creeperClose()) {
+              log?.("[burrow] creeper closing — abandoning the staircase");
+              return false;
+            }
             if (!refreshSolid()) {
               // out of blocks mid-climb: the staircase's own lower steps are
               // slated for cutting anyway — dig one back and re-place it one
@@ -3401,11 +3411,18 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
         let carved = true;
         for (const c of cells) {
-        const d = await executeAction(
-          bot,
-          { type: "dig", x: c.position.x, y: c.position.y, z: c.position.z, timeoutMs: 10000 },
-          mcData
-        );
+          if (creeperClose()) {
+            // a bomb walked up mid-carve — bail before the next dig so the
+            // reflex can kite it; carving into the blast is the spawn-camp
+            // death loop
+            log?.("[burrow] creeper closing — abandoning the carve");
+            return false;
+          }
+          const d = await executeAction(
+            bot,
+            { type: "dig", x: c.position.x, y: c.position.y, z: c.position.z, timeoutMs: 10000 },
+            mcData
+          );
           if (!d.ok) {
             carved = false;
             break;
