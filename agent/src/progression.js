@@ -1968,6 +1968,41 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
       }
     }
+    // bare-handed underground in an all-stone cave nothing can ever seal:
+    // every wall is undiggable and no soft site scans. After repeated
+    // failures climb to a skylit block — surface dirt is the only ground
+    // a bare hand can still burrow into
+    const bareHands = !bot.inventory.items().some((i) => /pickaxe/.test(i.name));
+    const headSky =
+      bot.blockAt(bot.entity.position.floored().offset(0, 1, 0))?.skyLight ?? 0;
+    if (
+      _depth >= 2 &&
+      bareHands &&
+      headSky < 4 &&
+      Date.now() - (state?._burrowSurfacedAt || 0) > 600000
+    ) {
+      if (state) state._burrowSurfacedAt = Date.now();
+      const sky = bot.findBlocks({
+        matching: (b) => {
+          const bb = b?.position ? b : bot.blockAt(b);
+          return bb && (bb.skyLight ?? 0) >= 8;
+        },
+        maxDistance: 56,
+        count: 1,
+      });
+      if (sky.length) {
+        log?.("[burrow] bare-handed underground — climbing to daylight");
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: sky[0].x + 0.5, y: sky[0].y + 1, z: sky[0].z + 0.5, range: 2, timeoutMs: 20000 },
+            mcData
+          );
+        } catch {
+          /* no route up — fall through to the normal relocate */
+        }
+      }
+    }
     // a bare-handed bot can only shelter in soft ground — head for the
     // nearest diggable surface block instead of wandering blindly
     let target = null;
