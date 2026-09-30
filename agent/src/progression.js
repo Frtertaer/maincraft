@@ -1139,6 +1139,18 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
             break;
           }
         }
+        // a safe column over a lava-FLUSH floor is still a death pit — the
+        // drop lands one step from magma and the first walk in is the kill
+        // (iron death @13,60,-52 after a clean vertical dig into a lava ring)
+        if (landY != null && !landDangerous) {
+          for (const [nx, nz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nb = bot.blockAt(new Vec3(p.x + nx, landY + 1, p.z + nz));
+            if (nb && dangerous(nb)) {
+              landDangerous = true;
+              break;
+            }
+          }
+        }
         if (landY != null && !landDangerous && !findHostile(bot, 8)) {
           // gravel/sand above or below invalidates the target mid-swing —
           // retry "Digging aborted" like the burrow shaft dig does
