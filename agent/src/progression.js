@@ -2415,7 +2415,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const vx = shooter.position.x - bot.entity.position.x;
         const vz = shooter.position.z - bot.entity.position.z;
         const [bx, bz] = Math.abs(vx) >= Math.abs(vz) ? [Math.sign(vx) || 1, 0] : [0, Math.sign(vz) || 1];
-        const solid0 = refreshSolid();
+        let solid0 = refreshSolid();
+        if (!solid0) {
+          // empty hands can't wall — but a bare hand still breaks dirt in
+          // ~1s, so harvest a few cells at our feet for wall material first
+          // (the skeleton-shot pillar deaths all had solid0=null here)
+          for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]]) {
+            if (refreshSolid()) break;
+            const c = bot.blockAt(feet0.offset(ox, -1, oz));
+            if (!c || !HAND_DIGGABLE.test(c.name)) continue;
+            await executeAction(
+              bot,
+              { type: "dig", x: c.position.x, y: c.position.y, z: c.position.z, timeoutMs: 4000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+          }
+          solid0 = refreshSolid();
+        }
         if (solid0) {
           try {
             await pt(bot.equip(solid0, "hand"), 6000, "equip-wall");
