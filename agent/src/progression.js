@@ -1927,8 +1927,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // Get to shore first; only then does the column/pocket search mean anything
   const inCell = bot.blockAt(bot.entity.position.floored());
   if (inCell?.name === "water" || /kelp|seagrass/.test(inCell?.name || "")) {
-    log?.("[burrow] in open water — swimming for land");
-    await swimToLand(bot, mcData, log).catch(() => {});
+    // surfaceForAir, not swimToLand: underground a flooded cave has no
+    // shore within reach — the land swim drowned the bot at y=13. Climb a
+    // ceiling/air pocket first; the land scan stays as its fallback
+    log?.("[burrow] in open water — surfacing for air");
+    await surfaceForAir(bot, mcData, log).catch(() => {});
   }
   // a creeper inside ~16m outranges the whole prep window: the separation
   // sprint buys ~4s, then the bot stands still punching logs for 60s while
