@@ -336,6 +336,20 @@ export class ClearRunner {
           // while the ~12s pocket seals.
           let dirX = fdx;
           let dirZ = fdz;
+          // kill sites are campers' homes: a landing that merely has no live
+          // hostile in 52m but sits inside a recorded death ring is exactly
+          // where the swarm wanders back to — the "flee 70m, camp again, die"
+          // loop. Keep hopping until clear of BOTH live hostiles and every
+          // remembered kill site
+          const killPts = [
+            ...(this.state?._deathPts || []),
+            ...((deathZonesLoadFile(bot) || {}).pts || []),
+          ].filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+          const insideKillRing = () =>
+            killPts.some(
+              (c) =>
+                Math.hypot(bot.entity.position.x - c.x, bot.entity.position.z - c.z) < 80
+            );
           for (let h = 0; h < hops; h++) {
             const still = Object.values(bot.entities || {}).some((e) => {
               if (!e?.position || e === bot.entity) return false;
@@ -345,7 +359,7 @@ export class ClearRunner {
                 /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
               return hostile && e.position.distanceTo(bot.entity.position) < 52;
             });
-            if (!still) return;
+            if (!still && !insideKillRing()) return;
             // hop-level water guard: the pick's dry-runway scan reaches ~90m
             // but legs run 140m+, and the ±30° drift can still steer into a
             // lake — a drowned in water ends every flee. If the next ~18m is
