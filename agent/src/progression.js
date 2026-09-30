@@ -3791,8 +3791,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
     for (let i = 0; i < 3 && bot.food < 12; i++) {
       const r = await executeAction(
         bot,
-        // a hungry bot can't sprint — walking the 40m gap takes ~20s of chase
-        { type: "attack", name: prey, maxDurationMs: 26000, maxDistance: 48, persistent: true },
+        // a hungry bot can't sprint — walking the 40m gap takes ~20s of
+        // chase. maxDistance=60: entity render range is ~64m, so animals at
+        // 48-60m are the ONLY prey a starving basin bot ever sees — the
+        // food=0 pocket loop logged "no safe target nearby: chicken" while
+        // four chickens sat at ~55m.
+        { type: "attack", name: prey, maxDurationMs: 26000, maxDistance: 60, persistent: true },
         mcData
       ).catch(() => ({ ok: false }));
       if (!r.ok) {
