@@ -488,7 +488,19 @@ export class ClearRunner {
             const hasShelterBlocks = bot.inventory
               .items()
               .some((i) => /_log|_planks|dirt|sand|gravel|_leaves|_block|cobble|stone$|netherrack|andesite|diorite|granite/.test(i.name));
-            if (czIn && Math.hypot(pf.x - czIn.x, pf.z - czIn.z) < 120 && hasShelterBlocks) {
+            // "burrow first" is only safe when nothing is already in kill
+            // range — the ~20s carve can't outrun a camper that's adjacent.
+            // With a shooter/melee on the doorstep the sprint comes first
+            // and the burrow happens at the landing, not in the kill window
+            const campHostileNear = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return (
+                (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+                /zombie|skeleton|creeper|spider|husk|drowned|stray|slime|phantom|pillager|vex|witch/.test(n)
+              ) && e.position.distanceTo(bot.entity.position) < 24;
+            });
+            if (czIn && Math.hypot(pf.x - czIn.x, pf.z - czIn.z) < 120 && hasShelterBlocks && !campHostileNear) {
               this.log(`[clear] respawn inside camp — burrow first`);
               try {
                 const okIn = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
