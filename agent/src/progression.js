@@ -3911,6 +3911,38 @@ export async function ensureFed(bot, mcData, log, state = null) {
           { type: "goto", x: Math.floor(villPos.x), y: Math.floor(villPos.y), z: Math.floor(villPos.z), range: 10, timeoutMs: 30000 },
           mcData
         ).catch(() => ({ ok: false }));
+        // villages have beds in houses — steal one here even when the hay
+        // hunt finds nothing: a claimed bed moves respawn out of the death
+        // camp for good, which is worth more than the bread at food=0
+        if (!bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))) {
+          try {
+            const vb2 = bot.findBlock?.({
+              matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+              maxDistance: 48,
+            });
+            if (vb2) {
+              await executeAction(
+                bot,
+                { type: "goto", x: vb2.position.x, y: vb2.position.y, z: vb2.position.z, range: 3, timeoutMs: 15000 },
+                mcData
+              ).catch(() => {});
+              const vb3 = bot.blockAt(vb2.position);
+              if (vb3 && vb3.name.endsWith("_bed")) {
+                await bot.dig(vb3).catch(() => {});
+                await executeAction(
+                  bot,
+                  { type: "goto", x: vb2.position.x, y: vb2.position.y, z: vb2.position.z, range: 1, timeoutMs: 5000 },
+                  mcData
+                ).catch(() => {});
+                if (bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))) {
+                  log?.("[food] village raid: stole a bed");
+                }
+              }
+            }
+          } catch {
+            /* bed theft is best-effort */
+          }
+        }
         for (let i = 0; i < 6; i++) {
           let hay = null;
           try {
