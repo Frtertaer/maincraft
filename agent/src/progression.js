@@ -4029,7 +4029,18 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // rabbit loop, then the identical pig loop). Chickens wander randomly
   // and zombies come to us, so those stay catchable at walk speed
   const canSprint = bot.food > 6;
-  const sitters = ["chicken", "cod", "salmon"]; // fish can't fight back — punching one in a pool drops raw fish
+  // cod/salmon are shore-only prey: the attack can't path to a fish below
+  // the waterline from land, so from a dry spawn they are guaranteed 0-hit
+  // timeouts (two 26s burns per food window on speedrun6). Keep them only
+  // when the bot is already in/near water depth.
+  const feetWet = (() => {
+    try {
+      return bot.blockAt(bot.entity.position.floored())?.name === "water";
+    } catch {
+      return false;
+    }
+  })();
+  const sitters = feetWet ? ["chicken", "cod", "salmon"] : ["chicken"];
   const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : [];
   const preyList = [...sitters, ...fleet].concat(
     starving && !fragile && armedForZombie ? ["zombie"] : []
@@ -4043,7 +4054,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // hungry walk catches, so one shorter chase is the whole attempt
     // (speedrun6 burned ~2.5min on five straight 26s rabbit timeouts, 0 hits)
     const tries = prey === "rabbit" ? 1 : 3;
-    const chaseMs = prey === "rabbit" ? 12000 : 26000;
+    // a starving walk catches sitters only when they stop — the chase is
+    // marginal, so cap it short and let the loop try the next food source
+    const chaseMs = prey === "rabbit" ? 12000 : starving ? 14000 : 26000;
     for (let i = 0; i < tries && bot.food < 12; i++) {
       const r = await executeAction(
         bot,
