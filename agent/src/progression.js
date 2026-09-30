@@ -4112,11 +4112,25 @@ export async function ensureFed(bot, mcData, log, state = null) {
       const hd = Math.hypot(state.villageHint.x - p.x, state.villageHint.z - p.z);
       if (hd < 60) state.villageHint = null; // signature itself re-fires inside raid range
       else {
-        await executeAction(
+        // pathfinder can't route a 90m target through unloaded chunks — walk
+        // the direction in 40m legs, and give up on a hint that never yields
+        const leg = Math.min(hd, 40);
+        const r = await executeAction(
           bot,
-          { type: "goto", x: Math.floor(state.villageHint.x), y: p.y, z: Math.floor(state.villageHint.z), range: 10, timeoutMs: 25000 },
+          {
+            type: "goto",
+            x: Math.floor(p.x + ((state.villageHint.x - p.x) / hd) * leg),
+            y: p.y,
+            z: Math.floor(p.z + ((state.villageHint.z - p.z) / hd) * leg),
+            range: 6,
+            timeoutMs: 20000,
+          },
           mcData
         ).catch(() => ({ ok: false }));
+        if (!r.ok && (state.villageHintFails = (state.villageHintFails || 0) + 1) >= 3) {
+          state.villageHint = null;
+          state.villageHintFails = 0;
+        }
         return { ok: true, ate, message: `starve-walk to village (${Math.round(hd)}m)` };
       }
     }
