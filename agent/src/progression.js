@@ -756,22 +756,27 @@ async function farmTend(bot, mcData, log, state) {
   if (seeds && Date.now() - (state.farmPlantAt || 0) > 120000) {
     try {
       const water = bot.findBlocks({ matching: (b) => b && b.name === "water", maxDistance: 40, count: 1 })?.[0];
-      if (water) {
-        const soils = (bot.findBlocks({
-          matching: (b) => b && /^(dirt|grass_block|coarse_dirt|rooted_dirt|farmland)$/.test(b.name),
-          maxDistance: 40,
-          count: 60,
-        }) || []).map((p) => bot.blockAt(p)).filter(Boolean);
-        const site = soils.find(
-          (b) =>
-            b.name !== "farmland" &&
-            Math.abs(b.position.x - water.x) <= 4 &&
-            Math.abs(b.position.z - water.z) <= 4 &&
-            b.position.y >= water.y - 1 &&
-            b.position.y <= water.y + 1 &&
-            /air|short_grass|tall_grass|fern/.test(bot.blockAt(b.position.offset(0, 1, 0))?.name || "") &&
-            (bot.blockAt(b.position.offset(0, 1, 0))?.skyLight ?? 15) > 8 // crops need light
-        );
+      const soils = (bot.findBlocks({
+        matching: (b) => b && /^(dirt|grass_block|coarse_dirt|rooted_dirt|farmland)$/.test(b.name),
+        maxDistance: 40,
+        count: 60,
+      }) || []).map((p) => bot.blockAt(p)).filter(Boolean);
+      const plantable = (b) =>
+        b.name !== "farmland" &&
+        /air|short_grass|tall_grass|fern/.test(bot.blockAt(b.position.offset(0, 1, 0))?.name || "") &&
+        (bot.blockAt(b.position.offset(0, 1, 0))?.skyLight ?? 15) > 8; // crops need light
+      const site =
+        (water
+          ? soils.find(
+              (b) =>
+                plantable(b) &&
+                Math.abs(b.position.x - water.x) <= 4 &&
+                Math.abs(b.position.z - water.z) <= 4 &&
+                b.position.y >= water.y - 1 &&
+                b.position.y <= water.y + 1
+            )
+          : null) || soils.find(plantable); // dry farmland grows too — slower, but a starving bot takes it
+      {
         if (site) {
           state.farmPlantAt = Date.now();
           const g = await executeAction(
