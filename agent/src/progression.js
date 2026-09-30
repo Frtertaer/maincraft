@@ -4047,6 +4047,47 @@ export async function ensureFed(bot, mcData, log, state = null) {
           if (!d.ok) break;
           await sleep(150);
         }
+        // village house chests carry bread/potatoes/apples — farmers keep
+        // fields immature by replanting, so crops alone can leave a raid
+        // empty; the chests are the guaranteed stock
+        if (!state.villageLooted) state.villageLooted = new Set();
+        const lootKey = (pos) => `${pos.x},${pos.y},${pos.z}`;
+        for (let c = 0; c < 3; c++) {
+          let chs = [];
+          try {
+            chs =
+              bot.findBlocks?.({
+                matching: (b) => b && b.name === "chest" && !state.villageLooted.has(lootKey(b.position)),
+                maxDistance: 28,
+                count: 1,
+              }) || [];
+          } catch {
+            /* scan failed */
+          }
+          if (!chs.length) break;
+          const chPos = chs[0];
+          state.villageLooted.add(lootKey(chPos));
+          await executeAction(
+            bot,
+            { type: "goto", x: chPos.x, y: chPos.y, z: chPos.z, range: 3, timeoutMs: 10000 },
+            mcData
+          ).catch(() => {});
+          const cb = bot.blockAt?.(chPos);
+          if (!cb || cb.name !== "chest") continue;
+          try {
+            const cw = await pt(bot.openChest(cb), 8000, "village chest");
+            let took = 0;
+            for (const it of cw.containerItems()) {
+              if (!EDIBLE_FOOD.test(it.name) && it.name !== "rotten_flesh") continue;
+              await pt(cw.withdraw(it.type, it.metadata, it.count), 8000, "loot").catch(() => {});
+              took += it.count;
+            }
+            cw.close();
+            if (took) log?.(`[food] village raid: looted ${took} food from a house chest`);
+          } catch {
+            /* unopenable — skip */
+          }
+        }
         if (countItem(bot, "wheat") >= 3) {
           const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
           if (bc.ok) log?.(`[food] baked bread — village raid paid`);
