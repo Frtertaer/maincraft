@@ -4061,7 +4061,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
             chs =
               bot.findBlocks?.({
                 matching: (b) => b && b.name === "chest" && !state.villageLooted.has(lootKey(b.position)),
-                maxDistance: 28,
+                maxDistance: 48,
                 count: 1,
               }) || [];
           } catch {
