@@ -529,6 +529,20 @@ export function deathZonesSaveFile(bot, pts, camp) {
   }
 }
 
+// a stash that opened empty is dead weight: starving raids re-walked the
+// same chest 50m+ twice in 6min because nothing retires the point
+function stashRemove(pos, bot) {
+  try {
+    const list = stashLoadFile(bot).filter(
+      (p) => !(Math.abs(p.x - pos.x) < 2 && Math.abs(p.z - pos.z) < 2)
+    );
+    fs.mkdirSync(path.dirname(STASH_FILE), { recursive: true });
+    fs.writeFileSync(STASH_FILE, JSON.stringify(list.slice(-40)));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 function stashRecord(pos, bot) {
   try {
     const list = stashLoadFile(bot);
@@ -893,10 +907,15 @@ export async function stashRecover(bot, mcData, log, state) {
         // each 90s+ at food=0)
         const chest = await pt(bot.openChest(b), 8000, "open chest");
         try {
-          for (const item of chest.containerItems()) {
+          const items = chest.containerItems();
+          for (const item of items) {
             await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
             took += item.count;
           }
+          // empty or drained — retire the point. Without this the next
+          // starvation raid re-walks 50m+ to the same proven-empty chest
+          // (the @-54,-94 stash was raided twice in 6min, both empty)
+          stashRemove(p, bot);
         } finally {
           chest.close();
         }
