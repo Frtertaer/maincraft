@@ -3819,10 +3819,15 @@ export async function ensureFed(bot, mcData, log, state = null) {
   });
   const armedForZombie =
     zombieReachable && bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+  // rabbits only count when the bot can sprint (food>6) — their jukes beat
+  // a walking chase every time, and this basin has nothing else, so they
+  // became the permanent pick of every starving ensureFed cycle
+  const canSprint = bot.food > 6;
   const preyList =
-    starving && !fragile && armedForZombie
-      ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"]
-      : ["cow", "pig", "sheep", "rabbit", "chicken"];
+    (starving && !fragile && armedForZombie
+      ? ["cow", "pig", "sheep", "chicken", "zombie"]
+      : ["cow", "pig", "sheep", "chicken"])
+      .concat(canSprint ? ["rabbit"] : []);
   for (const prey of canSeeSky ? preyList : []) {
     if (bot.food >= 12) break;
     // rabbits are a lottery ticket, not a strategy — they juke faster than a
