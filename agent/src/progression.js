@@ -3961,8 +3961,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
           /* scan failed — no village */
         }
       }
+      // remember the last signature — the starve-walk steers toward it so
+      // wandering isn't blind (a raid needs the signature back in range)
+      if (villPos) state.villageHint = { x: villPos.x, z: villPos.z, at: Date.now() };
       if (villPos && Date.now() - (state.villageRaidAt || 0) > 300000) {
         state.villageRaidAt = Date.now();
+        state.villageHint = null; // raid settles it — don't magnet the wander back
         const vd = villPos.distanceTo ? Math.round(villPos.distanceTo(bot.entity.position)) : "?";
         log?.(`[food] village signature ${vd}m — raiding for bread`);
         await executeAction(
@@ -4057,6 +4061,21 @@ export async function ensureFed(bot, mcData, log, state = null) {
       }
     }
     const p = bot.entity.position.floored();
+    // steer toward a remembered village signature: a blind spiral walks AWAY
+    // from the one guaranteed food source half the time, while the walk to
+    // the hint is what puts the signature back into raid range
+    if (state.villageHint && Date.now() - state.villageHint.at < 1800000) {
+      const hd = Math.hypot(state.villageHint.x - p.x, state.villageHint.z - p.z);
+      if (hd < 60) state.villageHint = null; // signature itself re-fires inside raid range
+      else {
+        await executeAction(
+          bot,
+          { type: "goto", x: Math.floor(state.villageHint.x), y: p.y, z: Math.floor(state.villageHint.z), range: 10, timeoutMs: 25000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        return { ok: true, ate, message: `starve-walk to village (${Math.round(hd)}m)` };
+      }
+    }
     if (!state.foodWanderDir) {
       state.foodWanderDir = pickDryDir(bot, [
         [60, 0],
