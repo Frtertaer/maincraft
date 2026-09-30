@@ -3665,7 +3665,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
     const f =
       bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name)) ||
       bot.inventory.items().find((i) => SAFE_RAW.test(i.name)) ||
-      (bot.food <= 8 ? bot.inventory.items().find((i) => /chicken/.test(i.name)) : null);
+      (bot.food <= 8 ? bot.inventory.items().find((i) => /chicken/.test(i.name)) : null) ||
+      // last resort: rotten flesh restores 4 — the 80% hunger effect still nets
+      // positive when the alternative is food=0 at 1hp (it was counted edible
+      // for stock/scavenge but the eat loop never touched the carried stack)
+      (bot.food <= 8 ? bot.inventory.items().find((i) => i.name === "rotten_flesh") : null);
     if (!f) break;
     const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch((e) => ({
       ok: false,
