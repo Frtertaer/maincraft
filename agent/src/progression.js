@@ -4787,6 +4787,59 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           state.noLogStreak = 1;
           return { ok: true, message: "back to log site" };
         }
+        // committed trek: after enough fruitless spiral hops a rotating
+        // 60m wander just ping-pongs inside the same treeless basin — run
+        // ONE bearing ~300m instead. Direction = the bearing that lands
+        // farthest from every dead log cell and death camp.
+        state.exploreHops = state.exploreHops || 0;
+        if (state.exploreHops >= 5 && !state.trekDir) {
+          const camps = campZonesFor(bot, state);
+          const deadCells = Object.keys(state.deadLogCells || {})
+            .map((k) => k.split(",").map(Number))
+            .filter((a) => a.length === 2);
+          const bearings = [
+            [1, 0], [-1, 0], [0, 1], [0, -1],
+            [1, 1], [-1, 1], [1, -1], [-1, -1],
+          ];
+          let bestScore = -1e9;
+          for (const [bx, bz] of bearings) {
+            const tx = p.x + bx * 300;
+            const tz = p.z + bz * 300;
+            let score = 0;
+            for (const c of camps) {
+              const d = Math.hypot(tx - c.x, tz - c.z);
+              if (d < 150) score -= 10000;
+            }
+            for (const [dx, dz] of deadCells) {
+              score += Math.min(Math.hypot(tx - dx * 32, tz - dz * 32), 400) / 400;
+            }
+            if (score > bestScore) {
+              bestScore = score;
+              state.trekDir = [bx, bz];
+            }
+          }
+          if (!state.trekDir) state.trekDir = [1, 0];
+          state.trekLegs = 5;
+          state.wanderDir = null;
+        }
+        if (state.trekLegs > 0) {
+          const [bx, bz] = state.trekDir;
+          state.trekLegs -= 1;
+          if (!state.trekLegs) state.trekDir = null;
+          try {
+            await executeAction(
+              bot,
+              { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
+              mcData
+            );
+          } catch {
+            state.trekLegs = 0;
+            state.trekDir = null;
+          }
+          state.exploreHops += 1;
+          state.noLogStreak = 1;
+          return { ok: true, message: `trek for forest (leg ${state.trekLegs})` };
+        }
         if (!state.wanderDir) {
           const dirs = [
             [60, 0],
@@ -4819,12 +4872,18 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           state.wanderDir = null;
         }
         state.noLogStreak = 1;
+        state.exploreHops = (state.exploreHops || 0) + 1;
         return { ok: true, message: `exploring for trees (${hop}m)` };
       }
     }
     return { ok: false, message: "no log block nearby" };
   }
-  if (state) state.noLogStreak = 0;
+  if (state) {
+    state.noLogStreak = 0;
+    state.exploreHops = 0;
+    state.trekDir = null;
+    state.trekLegs = 0;
+  }
   const dig = await executeAction(
     bot,
     { type: "dig", x: block.position.x, y: block.position.y, z: block.position.z },
