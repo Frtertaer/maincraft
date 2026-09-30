@@ -3819,15 +3819,16 @@ export async function ensureFed(bot, mcData, log, state = null) {
   });
   const armedForZombie =
     zombieReachable && bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
-  // rabbits only count when the bot can sprint (food>6) — their jukes beat
-  // a walking chase every time, and this basin has nothing else, so they
-  // became the permanent pick of every starving ensureFed cycle
+  // fleeing prey needs sprint (food>6): walk 4.3m/s vs their flee ~4.2m/s
+  // means a chase closes ~0.1m/s — every attempt is a 0-hit timeout (the
+  // rabbit loop, then the identical pig loop). Chickens wander randomly
+  // and zombies come to us, so those stay catchable at walk speed
   const canSprint = bot.food > 6;
-  const preyList =
-    (starving && !fragile && armedForZombie
-      ? ["cow", "pig", "sheep", "chicken", "zombie"]
-      : ["cow", "pig", "sheep", "chicken"])
-      .concat(canSprint ? ["rabbit"] : []);
+  const sitters = ["chicken"];
+  const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : [];
+  const preyList = [...sitters, ...fleet].concat(
+    starving && !fragile && armedForZombie ? ["zombie"] : []
+  );
   for (const prey of canSeeSky ? preyList : []) {
     if (bot.food >= 12) break;
     // rabbits are a lottery ticket, not a strategy — they juke faster than a
