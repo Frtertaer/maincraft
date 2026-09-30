@@ -690,7 +690,47 @@ export async function stashRecover(bot, mcData, log, state) {
           mcData
         );
       } catch {
-        continue; // unreachable — try the next chest
+        // sealed inside a burrow plug: the chest is OURS, buried in soft
+        // ground — tunnel toward it cell by cell instead of calling the
+        // stash empty (the @0,-219 kit 10m away that read "stashes empty")
+        if (Math.hypot(p.x - me.x, p.z - me.z) < 24) {
+          for (let i = 0; i < 14; i++) {
+            const mm = bot.entity.position.floored();
+            const tx = Math.abs(p.x - mm.x) >= Math.abs(p.z - mm.z) ? Math.sign(p.x - mm.x) : 0;
+            const tz = tx ? 0 : Math.sign(p.z - mm.z);
+            if (!tx && !tz) break;
+            let dug = true;
+            for (const c of [mm.offset(tx, 1, tz), mm.offset(tx, 0, tz), mm.offset(tx, 2, tz)]) {
+              const b = bot.blockAt(c);
+              if (!b || /air|cave_air|void_air/.test(b.name)) continue;
+              if (!diggableBlock(bot, b)) {
+                dug = false;
+                break;
+              }
+              const d = await executeAction(bot, { type: "dig", x: c.x, y: c.y, z: c.z, timeoutMs: 6000 }, mcData).catch(() => ({ ok: false }));
+              if (!d.ok) {
+                dug = false;
+                break;
+              }
+            }
+            if (!dug) break;
+            const g = await executeAction(
+              bot,
+              { type: "goto", x: mm.x + tx, y: mm.y, z: mm.z + tz, range: 0, timeoutMs: 4000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            if (!g.ok) break;
+          }
+        }
+        try {
+          await executeAction(
+            bot,
+            { type: "goto", x: p.x + 0.5, y: p.y, z: p.z + 0.5, range: 2, timeoutMs: 12000 },
+            mcData
+          );
+        } catch {
+          continue; // unreachable — try the next chest
+        }
       }
       try {
         const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
