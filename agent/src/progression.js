@@ -4149,8 +4149,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // (speedrun6 burned ~2.5min on five straight 26s rabbit timeouts, 0 hits)
     const tries = prey === "rabbit" ? 1 : 3;
     // a starving walk catches sitters only when they stop — the chase is
-    // marginal, so cap it short and let the loop try the next food source
-    const chaseMs = prey === "rabbit" ? 12000 : starving ? 14000 : 26000;
+    // marginal, so cap it short and let the loop try the next food source.
+    // Except a chicken 50m out takes ~12s of walk just to reach — 14s
+    // budgets timed out at 0 hits twice on speedrun6
+    const chaseMs =
+      prey === "rabbit" ? 12000 : starving ? (prey === "chicken" ? 26000 : 14000) : 26000;
     for (let i = 0; i < tries && bot.food < 12; i++) {
       const r = await executeAction(
         bot,

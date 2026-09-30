@@ -982,6 +982,7 @@ async function boundedCombat(bot, action) {
   const label = target.username || target.name || String(target.displayName || "mob");
   const deadline = Date.now() + maxDurationMs;
   let hits = 0;
+  let lastIntercept = null;
 
   try {
     while (Date.now() < deadline) {
@@ -1014,7 +1015,14 @@ async function boundedCombat(bot, action) {
             0,
             target.velocity.z * lead
           );
-          bot.pathfinder.setGoal(new goals.GoalNear(ip.x, ip.y, ip.z, 1.5), true);
+          // re-issuing the goal every tick forces a fresh A* replan — a
+          // wandering chicken shifts the intercept constantly, so the bot
+          // stutter-steps and never closes (the starving "0 hits" chicken
+          // timeouts). Only replan when the intercept actually moved
+          if (!lastIntercept || lastIntercept.distanceTo(ip) > 2.5) {
+            lastIntercept = ip;
+            bot.pathfinder.setGoal(new goals.GoalNear(ip.x, ip.y, ip.z, 1.5), true);
+          }
         } else {
           bot.pathfinder.setGoal(new goals.GoalFollow(target, 2.4), true);
         }
