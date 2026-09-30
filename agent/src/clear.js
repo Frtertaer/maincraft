@@ -941,6 +941,30 @@ export class ClearRunner {
           // bound still snipes us mid-work, so it counts as "close" further out
           return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast|shulker/.test(n) ? d < 26 : d < 14;
         });
+        // A threat that can actually catch or hit a walking bot: ranged mobs
+        // (arrows ignore kiting), creepers near fuse range, phantoms, or an
+        // already-surrounding pack. Slow melee (zombies 2.3 m/s, creepers
+        // 3.3, spiders neutral by day) only counts at night — by day the bot
+        // outwalks them and burrowing just wastes the food window.
+        const hardThreat = () => {
+          const dayNow = (bot.time?.timeOfDay ?? 0) < 12541;
+          let meleePack = 0;
+          return Object.values(bot.entities || {}).some((e) => {
+            if (!e?.position || e === bot.entity) return false;
+            const n = String(e.name || e.displayName || "").toLowerCase();
+            const hostile =
+              e.kind === "Hostile mobs" && e.name !== "enderman" ||
+              /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+            if (!hostile) return false;
+            const d = e.position.distanceTo(bot.entity.position);
+            if (/skeleton|stray|witch|pillager|blaze|ghast|shulker|evoker|illusioner/.test(n)) return d < 30;
+            if (/creeper/.test(n)) return d < (dayNow ? 9 : 12);
+            if (/phantom/.test(n)) return d < 24;
+            if (/spider|cave_spider/.test(n)) return !dayNow && d < 10;
+            if (d < 6) meleePack++;
+            return !dayNow && d < 14;
+          }) || meleePack >= 3;
+        };
         const hostileNear = hostileClose();
         // breadcrumbs: a proven-walkable trail — the underground climb replays
         // the newest sky-lit point instead of re-digging a staircase through
@@ -987,8 +1011,14 @@ export class ClearRunner {
             // Exception: a flesh-dropper stalker IS the food — armed and able
             // to take a hit, melee it for rotten_flesh (+4 food → sprint
             // unlocks) instead of sheltering from the very thing we need.
-            if (hostileClose()) {
-              const p0 = bot.entity.position;
+            // Only a threat that can actually CATCH or hit a walking bot
+            // cancels the food walk. A walk (4.3m/s) outruns zombies (2.3),
+            // creepers (3.3), spiders-by-day (neutral), slimes, drowned —
+            // burrowing from them just burns the 90s food window while the
+            // basin stays food-less. Ranged mobs (arrows ignore kiting) and
+            // night (spawn density) still force shelter.
+            const p0 = bot.entity.position;
+            if (hardThreat()) {
               const mobsNear = Object.values(bot.entities || {}).filter((e) => {
                 if (!e?.position || e === bot.entity) return false;
                 const n = String(e.name || e.displayName || "").toLowerCase();
@@ -1027,9 +1057,16 @@ export class ClearRunner {
           this._starveBail = foundFood || bot.food > 8 ? 0 : (this._starveBail || 0) + 1;
         }
         const hostileNow = hostileNear || hostileClose();
+        // In daylight a slow-melee mob can't catch a walking bot — only
+        // ranged fire, a creeper near fuse range, or an actual surround
+        // warrants stopping work to hide. Night keeps the unconditional
+        // seal (spawn density beats walking).
+        const daylight = !nightSoon && (bot.time?.timeOfDay ?? 0) < 12541;
+        const needsShelter =
+          nightSoon || (this.deaths > 0 && (daylight ? hardThreat() : hostileNow));
         if (
           surfacePhase &&
-          (nightSoon || (hostileNow && this.deaths > 0)) &&
+          needsShelter &&
           Date.now() - (this._lastBurrow || 0) > 120000
         ) {
           this.log(`[clear] burrow: night=${isNight} hostileNear=${hostileNow}`);
