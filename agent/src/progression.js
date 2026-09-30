@@ -4049,6 +4049,18 @@ export async function ensureFed(bot, mcData, log, state = null) {
   if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
     const p0 = bot.entity.position.floored();
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
+    // walking beats digging: the descent left a staircase behind it, and a
+    // goto toward open air lets pathfinder reuse it — under a water cap the
+    // diggers below can never finish, while the walked path is already
+    // proven. Only a real climb counts; a 12s no-path timeout falls through
+    // to the diggers
+    const w = await executeAction(
+      bot,
+      { type: "goto", x: p0.x, y: p0.y + 18, z: p0.z, range: 4, timeoutMs: 12000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (w.ok || bot.entity.position.y > p0.y + 6)
+      return { ok: true, ate, message: "walked back up for food" };
     const up = await stairwayUp(bot, mcData, 14, log);
     if (up.ok || bot.entity.position.y > p0.y + 4) return { ok: true, ate, message: "ascend for food" };
     // staircase can't route from a sealed pocket — dig a straight 1x1 shaft:
