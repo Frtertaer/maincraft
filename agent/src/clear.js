@@ -754,10 +754,22 @@ export class ClearRunner {
               const dzFile = deathZonesLoadFile(bot) || { pts: [], camp: null };
               const killSites = [...(this.state._deathPts || []), ...(dzFile.pts || [])]
                 .filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
-              const siteOk = (d) =>
-                killSites.every((c) => Math.hypot(pf.x + d[0] - c.x, pf.z + d[1] - c.z) > 60);
+              const siteDist = (d) =>
+                killSites.length
+                  ? Math.min(...killSites.map((c) => Math.hypot(pf.x + d[0] - c.x, pf.z + d[1] - c.z)))
+                  : Infinity;
+              const siteOk = (r) => (d) => siteDist(d) > r;
               const dirsAll = fleeDirs.filter(campOk);
-              const dirsOk = dirsAll.filter(siteOk).length ? dirsAll.filter(siteOk) : dirsAll;
+              // strict >60m first; when every bearing lands inside the death
+              // cluster (the drowned-pool basin) relax to >30m, and past that
+              // rank by the farthest-landing instead of picking blindly back
+              // into the kill ring — a compromised landing still beats the
+              // nearest kill site
+              const strict = dirsAll.filter(siteOk(60));
+              const relaxed = strict.length ? strict : dirsAll.filter(siteOk(30));
+              const dirsOk = relaxed.length
+                ? relaxed
+                : [...dirsAll].sort((a, b) => siteDist(b) - siteDist(a)).slice(0, 1);
               // the driest direction is not always the emptiest: a 140m leg
               // through a zombie cluster re-aggros mid-flee — that's death
               // #6's chain. Score each bearing by hostiles in its quadrant
