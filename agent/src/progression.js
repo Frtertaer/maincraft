@@ -4034,6 +4034,36 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
 
   if (!bedBlock()) {
     if (!bedItem()) {
+      // steal one first: a placed bed (village house) digs up as the item in
+      // ~2s — the whole wool→planks→table→craft chain is ~90s and dies under
+      // camper fire (three skeleton deaths mid-chain in the spawn basin).
+      // Range mirrors the hunt reach — a bed 40m away beats crafting one.
+      try {
+        const steal = bot.findBlock({
+          matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+          maxDistance: 48,
+        });
+        if (steal) {
+          await executeAction(
+            bot,
+            { type: "goto", x: steal.position.x, y: steal.position.y, z: steal.position.z, range: 3, timeoutMs: 20000 },
+            mcData
+          ).catch(() => {});
+          const b2 = bot.blockAt(steal.position);
+          if (b2 && b2.name.endsWith("_bed")) {
+            await bot.dig(b2).catch(() => {});
+            // walk over the bed drop so it lands in inventory
+            await executeAction(
+              bot,
+              { type: "goto", x: steal.position.x, y: steal.position.y, z: steal.position.z, range: 1, timeoutMs: 6000 },
+              mcData
+            ).catch(() => {});
+            if (bedItem()) log?.("[bed] stole a placed bed");
+          }
+        }
+      } catch {
+        /* theft is best-effort — fall through to the wool chain */
+      }
       // string is wool too: 4 string crafts 1 wool on the 2x2 grid, no table
       // needed — spiders are everywhere a sheep isn't (this basin had 18
       // zombies and zero sheep inside 140m)
