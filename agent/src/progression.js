@@ -3864,7 +3864,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
       for (const e of Object.values(bot.entities || {})) {
         if (!e?.position || e === bot.entity) continue;
         const n = String(e.name || e.displayName || "").toLowerCase();
-        if (/villager|iron_golem|wandering_trader/.test(n) && e.position.distanceTo(bot.entity.position) < 130) {
+        // wandering_trader doesn't count — a trader caravan is not a bread
+        // basket (no hay bales/composter), and it drags the raid onto open
+        // hostile ground for nothing (the "village signature 6m" that was
+        // actually a trader in the spawn basin).
+        if (/villager|iron_golem/.test(n) && e.position.distanceTo(bot.entity.position) < 130) {
           villPos = e.position;
           break;
         }
