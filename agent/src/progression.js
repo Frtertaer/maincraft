@@ -4017,6 +4017,32 @@ export async function ensureFed(bot, mcData, log, state = null) {
           ).catch(() => ({ ok: false }));
           if (!d.ok) break;
         }
+        // village farms: mature crops drop the food items directly, so a
+        // farm-only village still feeds a raid that found no hay at all
+        const matureCrop = (b) => {
+          if (!b) return false;
+          const age = b._properties?.age;
+          if (age == null) return false;
+          if (b.name === "wheat" || b.name === "carrots" || b.name === "potatoes") return age >= 7;
+          if (b.name === "beetroots" || b.name === "sweet_berry_bush") return age >= 3;
+          return false;
+        };
+        for (let i = 0; i < 10; i++) {
+          let crop = null;
+          try {
+            crop = bot.findBlock?.({ matching: matureCrop, maxDistance: 56 });
+          } catch {
+            /* none visible */
+          }
+          if (!crop) break;
+          const d = await executeAction(
+            bot,
+            { type: "dig", x: crop.position.x, y: crop.position.y, z: crop.position.z, timeoutMs: 12000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (!d.ok) break;
+          await sleep(150);
+        }
         if (countItem(bot, "wheat") >= 3) {
           const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
           if (bc.ok) log?.(`[food] baked bread — village raid paid`);
