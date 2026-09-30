@@ -3769,8 +3769,19 @@ export async function ensureFed(bot, mcData, log, state = null) {
   })();
   // zombie meat only pays off when a real weapon ends the fight in a few
   // swings — bare fists need 20 hits while it deals ~3/hit back (the
-  // starving-bare-handed "hunt zombie, lose to 6hp, skeleton finishes" loop)
-  const armedForZombie = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+  // starving-bare-handed "hunt zombie, lose to 6hp, skeleton finishes" loop).
+  // And only when a zombie is actually close and near our level: tracking
+  // range means a stalker walks to us anyway, while a zombie 30m below in a
+  // cave just burns the 26s timeout at 0 hits (the starving-in-pocket loop —
+  // four straight zombie timeouts while the stash sat 57m away).
+  const meForZombie = bot.entity.position;
+  const zombieReachable = Object.values(bot.entities || {}).some((e) => {
+    if (!e?.position || e === bot.entity || e.name !== "zombie") return false;
+    const d = e.position.distanceTo(meForZombie);
+    return d < 28 && Math.abs(e.position.y - meForZombie.y) < 10;
+  });
+  const armedForZombie =
+    zombieReachable && bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
   const preyList =
     starving && !fragile && armedForZombie
       ? ["cow", "pig", "sheep", "rabbit", "chicken", "zombie"]
