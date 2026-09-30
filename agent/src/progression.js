@@ -682,16 +682,25 @@ export async function stashRecover(bot, mcData, log, state) {
       } catch {
         continue; // unreachable — try the next chest
       }
-      const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
-      if (!b || b.name !== "chest") continue;
-      const chest = await pt(bot.openChest(b), 8000, "open chest");
       try {
-        for (const item of chest.containerItems()) {
-          await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
-          took += item.count;
+        const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
+        if (!b || b.name !== "chest") continue;
+        // a chest sealed behind rock reads via blockAt but the server
+        // refuses the open (no LOS/reach) — pt() times it out, and without
+        // this inner catch ONE bad chest aborted the whole raid (the
+        // "open chest timeout" that killed two starvation raids in a row,
+        // each 90s+ at food=0)
+        const chest = await pt(bot.openChest(b), 8000, "open chest");
+        try {
+          for (const item of chest.containerItems()) {
+            await pt(chest.withdraw(item.type, item.metadata, item.count), 8000, "withdraw");
+            took += item.count;
+          }
+        } finally {
+          chest.close();
         }
-      } finally {
-        chest.close();
+      } catch {
+        continue; // unreadable chest — next candidate
       }
     }
     if (state?.stash) {
@@ -3736,7 +3745,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
     "string",
     ...Object.keys(mcData.itemsByName || {}).filter((n) => /_wool$/.test(n)),
   ]);
-  if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
+  // starving widens the scavenge net: dawn-burned zombies drop rotten_flesh
+  // within ~30m of a night spot, and 12m misses all of it — free calories
+  // rotting on the ground while the bot starved at food=0.
+  const dropReach = starving ? 30 : 12;
+  if (drop && drop.position.distanceTo(bot.entity.position) <= dropReach) {
     await executeAction(
       bot,
       { type: "goto", x: Math.floor(drop.position.x), y: Math.floor(drop.position.y), z: Math.floor(drop.position.z), range: 1, timeoutMs: 10000 },
