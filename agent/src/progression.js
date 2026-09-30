@@ -1924,6 +1924,20 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     log?.("[burrow] in open water — swimming for land");
     await swimToLand(bot, mcData, log).catch(() => {});
   }
+  // a creeper inside ~16m outranges the whole prep window: the separation
+  // sprint buys ~4s, then the bot stands still punching logs for 60s while
+  // it re-approaches. Abort prep so the loop sprints again instead of
+  // building into the blast — two spawn-camp deaths came from exactly this.
+  const creeperClose = () =>
+    Object.values(bot.entities || {}).some((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      return /creeper/.test(String(e.name || "").toLowerCase()) &&
+        e.position.distanceTo(bot.entity.position) < 16;
+    });
+  if (creeperClose()) {
+    log?.("[burrow] creeper closing — aborting prep");
+    return false;
+  }
   // a failed dig leaves the bot standing exposed — relocate to a different
   // patch of ground and try the whole burrow again instead of giving up
   let triedLogs = false;
@@ -2210,12 +2224,20 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       maxDistance: 40,
     });
     if (trunk) {
+      if (creeperClose()) {
+        log?.("[burrow] creeper closing — aborting prep");
+        return false;
+      }
       log?.("[burrow] bare-handed — punching a log for shelter material");
       await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
     }
   }
   // a broken pickaxe makes every stone column undiggable underground —
   // recraft before scanning so y<0 depth isn't mistaken for unworkable ground
+  if (creeperClose()) {
+    log?.("[burrow] creeper closing — aborting prep");
+    return false;
+  }
   if (!hasPickaxe(bot)) {
     const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
