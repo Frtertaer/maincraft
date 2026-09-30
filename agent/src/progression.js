@@ -1472,8 +1472,17 @@ async function surfaceForAir(bot, mcData, log) {
       }
       const above = bot.blockAt(feet.offset(0, 2, 0));
       if (above && !/water|bubble_column|air|cave_air|kelp|seagrass/.test(above.name)) {
-        // ceiling overhead — drift toward the next side hoping the water
-        // column continues past this lip
+        // ceiling overhead — a flooded cavity roofs onto dry rock more often
+        // than it opens to a shore, so dig straight through when the block
+        // gives; only drift sideways for bedrock/lava
+        if (diggableBlock(bot, above)) {
+          const dg = await executeAction(
+            bot,
+            { type: "dig", x: above.position.x, y: above.position.y, z: above.position.z, timeoutMs: 8000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (dg.ok) continue;
+        }
         const [dx, dz] = dirs[dirIdx % 4];
         dirIdx += 1;
         bot.look(Math.atan2(-dx, -dz), -1.2, true);
