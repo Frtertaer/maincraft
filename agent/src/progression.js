@@ -3857,6 +3857,30 @@ export async function ensureFed(bot, mcData, log, state = null) {
       }
     }
   }
+  // underground starving: same zombie hunt without the sky gate — in a
+  // mob-dense cave the mob IS the pantry (zombies drop rotten_flesh, +4
+  // food each). Walled-off zombies fail the pathing fast; still needs a
+  // real weapon and hp, same gates as the surface hunt
+  if (starving && !fragile && armedForZombie && !canSeeSky && bot.food < 12) {
+    const r = await executeAction(
+      bot,
+      { type: "attack", name: "zombie", maxDurationMs: 26000, maxDistance: 60, persistent: true },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (r.ok) {
+      await sleep(400);
+      const fl = droppedItemEntity(bot, mcData, ["rotten_flesh"]);
+      if (fl && fl.position.distanceTo(bot.entity.position) < 16) {
+        await executeAction(
+          bot,
+          { type: "goto", x: Math.floor(fl.position.x), y: Math.floor(fl.position.y), z: Math.floor(fl.position.z), range: 1, timeoutMs: 6000 },
+          mcData
+        ).catch(() => {});
+      }
+      return { ok: true, ate, message: "underground zombie hunt" };
+    }
+    log?.(`[food] underground zombie hunt failed: ${r?.message || "no target"}`);
+  }
   // nothing edible in range — starve-walk: animals render within a few
   // chunks, so keep moving along one heading until something spawns.
   // Underground it can only time out — no animals spawn below ground, and a
