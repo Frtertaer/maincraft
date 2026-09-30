@@ -3829,7 +3829,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
   const preyList = [...sitters, ...fleet].concat(
     starving && !fragile && armedForZombie ? ["zombie"] : []
   );
-  for (const prey of canSeeSky ? preyList : []) {
+  // day only: night hunting is walking through the spawn field at the one
+  // hour it's full — a chicken at 55m is not worth the zombie at 14m
+  const surfaceDaylight = (bot.time?.timeOfDay ?? 0) < 12541;
+  for (const prey of canSeeSky && surfaceDaylight ? preyList : []) {
     if (bot.food >= 12) break;
     // rabbits are a lottery ticket, not a strategy — they juke faster than a
     // hungry walk catches, so one shorter chase is the whole attempt
@@ -4153,7 +4156,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // starving underground: nothing edible spawns below the surface — climb
   // back up the stair toward daylight where animals/hunts actually exist,
   // instead of grinding on at 0.5hp until something touches us
-  if (bot.food <= 4 && !canSeeSky && state && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
+  // day only: climbing out of a sealed pocket into the night mob field is
+  // worse than starving below — the pocket holds until dawn, the field
+  // doesn't (speedrun6 surfaced at tod=20727 into it)
+  if (bot.food <= 4 && !canSeeSky && state && (bot.time?.timeOfDay ?? 0) < 12541 && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
     const p0 = bot.entity.position.floored();
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
     // walking beats digging: the descent left a staircase behind it, and a
