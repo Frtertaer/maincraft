@@ -953,17 +953,26 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
         why.push(`${tag}:drop`);
         continue;
       }
-      // don't dig into a mob's lap: hostile entities load through walls, so
-      // anything within 12 of the door cell is a real ambush risk
+      // don't dig into a mob's lap. Entities load through walls, so a naive
+      // radius counts every pack sealed behind stone — in a dense cave all
+      // four dirs stay "mob"-flagged forever while the bot is actually safe.
+      // Only block on mobs THROUGH the doorway (forward-projected) or close
+      // enough to be standing inside the door cell itself.
       const door = p.offset(dx, 0, dz);
       const ambush = Object.values(bot.entities || {}).some((e) => {
         if (!e?.position || e === bot.entity) return false;
         const n = String(e.name || e.displayName || "").toLowerCase();
-        return (
-          (e.kind === "Hostile mobs" && e.name !== "enderman" ||
-            /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)) &&
-          e.position.distanceTo(door) < 12
-        );
+        const hostile =
+          (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+          /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+        if (!hostile) return false;
+        const dist = e.position.distanceTo(door);
+        if (dist < 4) return true; // inside/near the door cell itself
+        if (dist > 10) return false;
+        // forward-projected: the mob is on the far side of the doorway wall —
+        // opening this dir connects our corridor to its airspace
+        const fwd = (e.position.x - door.x) * dx + (e.position.z - door.z) * dz;
+        return fwd > 0.5;
       });
       if (ambush) {
         why.push(`${tag}:mob`);
