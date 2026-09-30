@@ -4009,6 +4009,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
             /* bed theft is best-effort */
           }
         }
+        let hayDug = 0;
         for (let i = 0; i < 6; i++) {
           let hay = null;
           try {
@@ -4023,6 +4024,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
             mcData
           ).catch(() => ({ ok: false }));
           if (!d.ok) break;
+          hayDug++;
         }
         // village farms: mature crops drop the food items directly, so a
         // farm-only village still feeds a raid that found no hay at all
@@ -4034,6 +4036,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
           if (b.name === "beetroots" || b.name === "sweet_berry_bush") return age >= 3;
           return false;
         };
+        let cropsDug = 0;
         for (let i = 0; i < 10; i++) {
           let crop = null;
           try {
@@ -4048,12 +4051,14 @@ export async function ensureFed(bot, mcData, log, state = null) {
             mcData
           ).catch(() => ({ ok: false }));
           if (!d.ok) break;
+          cropsDug++;
           await sleep(150);
         }
         // village house chests carry bread/potatoes/apples — farmers keep
         // fields immature by replanting, so crops alone can leave a raid
         // empty; the chests are the guaranteed stock
         if (!state.villageLooted) state.villageLooted = new Set();
+        let chestFood = 0;
         const lootKey = (pos) => `${pos.x},${pos.y},${pos.z}`;
         for (let c = 0; c < 3; c++) {
           let chs = [];
@@ -4086,7 +4091,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
               took += it.count;
             }
             cw.close();
-            if (took) log?.(`[food] village raid: looted ${took} food from a house chest`);
+            if (took) {
+              chestFood += took;
+              log?.(`[food] village raid: looted ${took} food from a house chest`);
+            }
           } catch {
             /* unopenable — skip */
           }
@@ -4095,13 +4103,24 @@ export async function ensureFed(bot, mcData, log, state = null) {
           const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
           if (bc.ok) log?.(`[food] baked bread — village raid paid`);
         }
+        let raidFood = 0;
         for (let i = 0; i < 4 && bot.food < 19; i++) {
           const f = bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name));
           if (!f) break;
           const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
-          if (r.ok) ate = true;
+          if (r.ok) {
+            ate = true;
+            raidFood++;
+          }
         }
         if (bot.food >= 8) return { ok: true, ate, message: "village raid" };
+        // silent aborts hide the why — report what the raid actually found
+        const inv = bot.inventory
+          .items()
+          .filter((i) => /wheat|hay|carrot|potato|bread|beetroot|apple|melon|cookie|berries/.test(i.name))
+          .map((i) => `${i.name}x${i.count}`)
+          .join(",");
+        log?.(`[food] village raid empty — hay=${hayDug} crops=${cropsDug} chestFood=${chestFood} ate=${raidFood} inv=[${inv || "none"}]`);
       }
     }
     const p = bot.entity.position.floored();
