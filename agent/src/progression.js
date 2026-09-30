@@ -1409,9 +1409,9 @@ async function stripMine(bot, mcData, steps = 20, log = null) {
     // on the spot (log+sticks or cobble+sticks are usually in the bag);
     // bail only when even that fails
     if (!hasPickaxe(bot)) {
-      const pk = await ensurePickaxe(bot, mcData).catch(() => null);
+      const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
       if (!pk?.ok) {
-        log?.("[stripMine] pickaxe gone and not recraftable — bailing");
+        log?.(`[stripMine] pickaxe gone and not recraftable (${pk?.message || "?"}) — bailing`);
         break;
       }
     }
@@ -1995,8 +1995,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // a broken pickaxe makes every stone column undiggable underground —
   // recraft before scanning so y<0 depth isn't mistaken for unworkable ground
   if (!hasPickaxe(bot)) {
-    const pk = await ensurePickaxe(bot, mcData).catch(() => null);
+    const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
+    else log?.(`[burrow] pickaxe recraft failed: ${pk?.message || "?"}`);
   }
   // Try up to 9 candidate spots for a dig-down column: here, then east, west,
   // south, north at 3 and 6 blocks — the ground must be solid to -6.
