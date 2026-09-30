@@ -3824,7 +3824,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // rabbit loop, then the identical pig loop). Chickens wander randomly
   // and zombies come to us, so those stay catchable at walk speed
   const canSprint = bot.food > 6;
-  const sitters = ["chicken"];
+  const sitters = ["chicken", "cod", "salmon"]; // fish can't fight back — punching one in a pool drops raw fish
   const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : [];
   const preyList = [...sitters, ...fleet].concat(
     starving && !fragile && armedForZombie ? ["zombie"] : []
