@@ -4873,6 +4873,7 @@ async function phaseIron(bot, mcData, state, log) {
         if (got.ok) return { ok: true, phase: "iron", message: `surface iron @y=${y}` };
       }
       const d = await stairDown(bot, mcData, 8, log);
+      if (d.digs > 0) state.mobRelocates = 0;
       if (d.fluid) {
         // staircase drowned in a water/lava region even with digs>0 — count it
         // as a fluid strike so relocation escalates 14m → 48m. The iron death
@@ -4918,6 +4919,22 @@ async function phaseIron(bot, mcData, state, log) {
             // (digStaircaseDown) just descends into the cluster.
             state.mobDoorBlocks = 0;
             const p = bot.entity.position;
+            state.mobRelocates = (state.mobRelocates || 0) + 1;
+            if (state.mobRelocates >= 3) {
+              // every 20m hop lands back inside the same mob field — the whole
+              // cave system is a spawn factory. Bail straight up to daylight
+              // and let a fresh descent site start somewhere disconnected;
+              // shaftUp now tunnels out from under water/gravel caps.
+              state.mobRelocates = 0;
+              const sh = await shaftUp(bot, mcData, 64, log);
+              if (sh.ok || bot.entity.position.y > p.y + 20) {
+                return {
+                  ok: true,
+                  phase: "iron",
+                  message: `descend mob-field — bailed to surface @y=${Math.floor(bot.entity.position.y)}`,
+                };
+              }
+            }
             const mobList = Object.values(bot.entities || {}).filter(
               (e) =>
                 e?.position &&
