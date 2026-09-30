@@ -4190,8 +4190,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // marginal, so cap it short and let the loop try the next food source.
     // Except a chicken 50m out takes ~12s of walk just to reach — 14s
     // budgets timed out at 0 hits twice on speedrun6
-    const chaseMs =
-      prey === "rabbit" ? 12000 : starving ? (prey === "chicken" ? 26000 : 14000) : 26000;
+    // bare-handed kills take ~10 swings — a cow/pig lands 8 hits inside
+    // 14s then times out mid-kill (speedrun6 pig hunt). Starving chases
+    // get the full 26s; rabbits keep the short lottery ticket.
+    const chaseMs = prey === "rabbit" ? 12000 : 26000;
     for (let i = 0; i < tries && bot.food < 12; i++) {
       const r = await executeAction(
         bot,
