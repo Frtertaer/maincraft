@@ -4005,9 +4005,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
       const camps = campZonesFor(bot, state);
       const nearStash = stashLoadFile(bot)
         .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
-        // a chest inside a kill ring is bait, not food — walking the raid
-        // path through the camp is how the starving run met its drowned
-        .filter((e) => e.d > 12 && e.d < 160 && !posInCamp(e.p, camps))
+        // a chest inside a kill ring is bait only when the WALK crosses the
+        // camp — a near stash (<45m) is at the pocket's own door where the
+        // run already lives; at hp=1 that hop is nearly free (death-zones
+        // sit exactly where burrows get sealed, so the camp filter was
+        // blacklisting every stash the starving run could actually reach)
+        .filter((e) => e.d > 12 && e.d < 160 && (e.d < 45 || !posInCamp(e.p, camps)))
         .sort((a, b) => a.d - b.d)[0];
       if (nearStash) {
         state.stashFoodAt = Date.now();
