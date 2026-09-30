@@ -665,6 +665,152 @@ export async function stashDeposit(bot, mcData, log, state) {
   }
 }
 
+// The only food source that is self-sufficient on ANY seed: a wheat row
+// tilled beside water. Every other pipeline needs mobs, a village, or a
+// stocked chest — a barren basin fails all three at once (speedrun6 sat
+// at food=0 for hours with seeds and dirt in reach). Tending is cheap:
+// harvest mature → replant → bread → eat; lay out a plot only when seeds
+// and water are already close.
+async function farmTend(bot, mcData, log, state) {
+  let ate = false;
+  // 1) harvest mature crops in reach (wheat/carrots/potatoes age 7,
+  //    beetroots 3 — same maturity rule as the village raid)
+  try {
+    const mature = (bot.findBlocks({
+      matching: (b) => {
+        if (!b) return false;
+        const age = b._properties?.age;
+        if (b.name === "wheat" || b.name === "carrots" || b.name === "potatoes") return age >= 7;
+        if (b.name === "beetroots") return age >= 3;
+        return false;
+      },
+      maxDistance: 45,
+      count: 10,
+    }) || []).map((p) => bot.blockAt(p)).filter(Boolean);
+    const seedFor = { wheat: "wheat_seeds", carrots: "carrot", potatoes: "potato", beetroots: "beetroot_seeds" };
+    for (const cb of mature) {
+      const g = await executeAction(
+        bot,
+        { type: "goto", x: cb.position.x, y: cb.position.y, z: cb.position.z, range: 2, timeoutMs: 12000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!g.ok) continue;
+      const seedName = seedFor[cb.name];
+      await executeAction(
+        bot,
+        { type: "dig", x: cb.position.x, y: cb.position.y, z: cb.position.z, timeoutMs: 6000 },
+        mcData
+      ).catch(() => null);
+      await sleep(350);
+      // replant on the same spot — a farm only pays once it stays planted
+      const seed = bot.inventory.items().find((i) => i.name === seedName);
+      const soil = bot.blockAt(cb.position.offset(0, -1, 0));
+      if (seed && soil && soil.name === "farmland") {
+        try {
+          await bot.equip(seed, "hand");
+          await pt(bot.activateBlock(soil), 4000);
+        } catch { /* replant best-effort */ }
+      }
+    }
+    if (mature.length) log?.(`[food] farm harvest x${mature.length}`);
+  } catch { /* scan best-effort */ }
+  // 2) wheat → bread → eat (a table is needed — ensureCraft places one)
+  try {
+    const wheat = countItem(bot, (i) => i.name === "wheat");
+    if (wheat >= 3 && bot.food < 18) {
+      const bc = await ensureCraft(bot, mcData, "bread", Math.floor(wheat / 3)).catch(() => ({ ok: false }));
+      if (bc.ok) {
+        const f = bot.inventory.items().find((i) => i.name === "bread");
+        if (f) {
+          const e = await executeAction(bot, { type: "eat", item: "bread", timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+          if (e.ok) {
+            ate = true;
+            log?.(`[food] farm bread (food=${bot.food})`);
+          }
+        }
+      }
+    }
+  } catch { /* bread best-effort */ }
+  // 3) seed collection: grass in reach drops wheat_seeds ~1/8 of the time —
+  //    cheap to strip while starving near the plot (60s cooldown)
+  if (!bot.inventory.items().some((i) => /_seeds$/.test(i.name)) && Date.now() - (state.farmSeedAt || 0) > 60000) {
+    try {
+      const grass = bot.findBlocks({
+        matching: (b) => b && /^(short_grass|tall_grass|grass)$/.test(b.name),
+        maxDistance: 24,
+        count: 10,
+      }) || [];
+      if (grass.length) {
+        state.farmSeedAt = Date.now();
+        for (const gp of grass.slice(0, 8)) {
+          await executeAction(bot, { type: "goto", x: gp.x, y: gp.y, z: gp.z, range: 2, timeoutMs: 8000 }, mcData).catch(() => ({ ok: false }));
+          await executeAction(bot, { type: "dig", x: gp.x, y: gp.y, z: gp.z, timeoutMs: 4000 }, mcData).catch(() => null);
+        }
+        if (bot.inventory.items().some((i) => /_seeds$/.test(i.name))) log?.(`[food] farm: seeds gathered`);
+      }
+    } catch { /* grass best-effort */ }
+  }
+  // 4) plant: seeds in hand + a tillable block within 4 of water. Hoeing
+  //    and planting both go through activateBlock with the item held.
+  const seeds = bot.inventory.items().find((i) => /_seeds$/.test(i.name));
+  if (seeds && Date.now() - (state.farmPlantAt || 0) > 120000) {
+    try {
+      const water = bot.findBlocks({ matching: (b) => b && b.name === "water", maxDistance: 40, count: 1 })?.[0];
+      if (water) {
+        const soils = (bot.findBlocks({
+          matching: (b) => b && /^(dirt|grass_block|coarse_dirt|rooted_dirt|farmland)$/.test(b.name),
+          maxDistance: 40,
+          count: 60,
+        }) || []).map((p) => bot.blockAt(p)).filter(Boolean);
+        const site = soils.find(
+          (b) =>
+            b.name !== "farmland" &&
+            Math.abs(b.position.x - water.x) <= 4 &&
+            Math.abs(b.position.z - water.z) <= 4 &&
+            b.position.y >= water.y - 1 &&
+            b.position.y <= water.y + 1 &&
+            /air|short_grass|tall_grass|fern/.test(bot.blockAt(b.position.offset(0, 1, 0))?.name || "") &&
+            (bot.blockAt(b.position.offset(0, 1, 0))?.skyLight ?? 15) > 8 // crops need light
+        );
+        if (site) {
+          state.farmPlantAt = Date.now();
+          const g = await executeAction(
+            bot,
+            { type: "goto", x: site.position.x, y: site.position.y, z: site.position.z, range: 3, timeoutMs: 12000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (g.ok) {
+            if (!bot.inventory.items().some((i) => /_hoe$/.test(i.name))) {
+              await ensurePlanks(bot, mcData, 2).catch(() => null);
+              await ensureCraft(bot, mcData, "wooden_hoe", 1).catch(() => ({ ok: false }));
+            }
+            const hoe = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+            if (hoe) {
+              try {
+                await bot.equip(hoe, "hand");
+                await pt(bot.activateBlock(site), 5000);
+              } catch { /* till best-effort */ }
+            }
+            const tilled = bot.blockAt(site.position);
+            if (tilled && tilled.name === "farmland") {
+              try {
+                const s = bot.inventory.items().find((i) => /_seeds$/.test(i.name));
+                if (s) {
+                  await bot.equip(s, "hand");
+                  await pt(bot.activateBlock(tilled), 5000);
+                  state.farm = { x: site.position.x, y: site.position.y, z: site.position.z };
+                  log?.(`[food] farm plot tilled @${site.position.x},${site.position.z}`);
+                }
+              } catch { /* plant best-effort */ }
+            }
+          }
+        }
+      }
+    } catch { /* site scan best-effort */ }
+  }
+  return { ate };
+}
+
 export async function stashRecover(bot, mcData, log, state) {
   try {
     // candidates: the live state's stash, plus every disk-recorded chest —
@@ -3840,6 +3986,13 @@ export async function ensureFed(bot, mcData, log, state = null) {
       }
     }
     if (bot.food >= 10) return { ok: true, ate };
+  }
+  // farm: the only food source that is self-sufficient on ANY seed — a
+  // wheat row beside water. Harvest/bread are cheap when the plot exists;
+  // laying it out costs a hoe when seeds+water are already close.
+  if (state) {
+    const farm = await farmTend(bot, mcData, log, state).catch(() => null);
+    if (farm?.ate) return { ok: true, ate: true, message: "farm" };
   }
   // surface check first: every hunt target is a surface animal — chasing one
   // from y=35 means pathing through 40m of rock until the 26s timeout (the
