@@ -342,7 +342,17 @@ function diggableBlock(bot, b) {
 }
 
 async function ensureCraft(bot, mcData, item, count = 1) {
-  return executeAction(bot, { type: "craft", item, count }, mcData);
+  const r = await executeAction(bot, { type: "craft", item, count }, mcData);
+  // a 3x3 craft only fails on "no table in world" — the caller usually
+  // carries a crafting_table in the bag. Place one through ensureTable
+  // (walks to an existing table or hangs one on any solid face, sealed
+  // pockets included) and retry the craft once
+  if (!r.ok && /need crafting_table in world/i.test(String(r.message || "")) && item !== "crafting_table") {
+    const t = await ensureTable(bot, mcData).catch(() => ({ ok: false }));
+    if (t.ok) return executeAction(bot, { type: "craft", item, count }, mcData);
+    return { ok: false, message: `${r.message} (place table: ${t.message || "failed"})` };
+  }
+  return r;
 }
 
 async function ensureSticks(bot, mcData, min = 4) {
