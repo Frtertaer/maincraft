@@ -796,31 +796,22 @@ export class ClearRunner {
               const dirsOk = relaxed.length
                 ? relaxed
                 : [...dirsAll].sort((a, b) => siteDist(b) - siteDist(a)).slice(0, 1);
-              // the driest direction is not always the emptiest: a 140m leg
-              // through a zombie cluster re-aggros mid-flee — that's death
-              // #6's chain. Score each bearing by hostiles in its quadrant
-              // (weighted by closeness); ties fall back to the dry pick
-              const mobScore = (d) =>
-                Object.values(bot.entities || {}).reduce((acc, e) => {
-                  if (!e?.position || e === bot.entity) return acc;
-                  const n = String(e.name || "").toLowerCase();
-                  if (!/zombie|skeleton|creeper|spider|husk|drowned|stray|pillager|vex|slime|witch/.test(n)) return acc;
-                  const rel = e.position.minus(bot.entity.position);
-                  if (d[0] !== 0 && Math.sign(rel.x) !== Math.sign(d[0])) return acc;
-                  if (d[1] !== 0 && Math.sign(rel.z) !== Math.sign(d[1])) return acc;
-                  const dist = e.position.distanceTo(bot.entity.position);
-                  return dist < 60 ? acc + (60 - dist) : acc;
-                }, 0);
-              const ranked = [...dirsOk].sort((a, b) => mobScore(a) - mobScore(b));
-              const [fdx, fdz] =
-                ranked.length > 0
-                  ? ranked[0]
+              // rank by dry runway, not just live mobs: pickDryDir measures
+              // how far each leg stays out of water AND caps the runway at
+              // the first hostile standing in the corridor — a quadrant
+              // mobScore only sees entities within 60m, so a 210m leg into
+              // the drowned ring scored 'clean' until the bot was already
+              // swimming into tridents (drowned kills #9-12)
+              const dryPick =
+                dirsOk.length > 0
+                  ? pickDryDir(bot, dirsOk)
                   : (() => {
                       const ax = pf.x - czD.x;
                       const az = pf.z - czD.z;
                       const n = Math.max(Math.abs(ax), Math.abs(az)) || 1;
                       return [Math.round((ax / n) * 200), Math.round((az / n) * 200)];
                     })();
+              const [fdx, fdz] = dryPick;
               this.log(`[clear] day flee ${fdx},${fdz} after death #${this.deaths}`);
               await fleeUntilClear(fdx, fdz).catch(() => {});
             } else {
