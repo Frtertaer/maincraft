@@ -3906,6 +3906,49 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     log?.(`[food] underground zombie hunt failed: ${r?.message || "no target"}`);
   }
+  // mushroom stew: red+brown mushrooms grow in the dark — the caves this
+  // bot keeps descending through are full of them, and a stew is +6 food
+  // with no chase and no daylight needed. Two digs + table + 3 planks is
+  // the whole pipeline; it works starving on the surface too
+  if (bot.food < 12) {
+    const want = ["red_mushroom", "brown_mushroom"];
+    const found = {};
+    try {
+      const mbs =
+        bot.findBlocks?.({
+          matching: (b) => b && /^(red|brown)_mushroom$/.test(b.name || ""),
+          maxDistance: 40,
+          count: 20,
+        }) || [];
+      for (const v of mbs) {
+        const nm = bot.blockAt?.(v)?.name;
+        if (nm && !found[nm]) found[nm] = v;
+      }
+    } catch {
+      /* scan failed */
+    }
+    if (found.red_mushroom && found.brown_mushroom) {
+      log?.("[food] mushroom pair — brewing stew");
+      for (const nm of want) {
+        const v = found[nm];
+        await executeAction(bot, { type: "dig", x: v.x, y: v.y, z: v.z, timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+      }
+      if (countItem(bot, "red_mushroom") >= 1 && countItem(bot, "brown_mushroom") >= 1) {
+        await ensurePlanks(bot, mcData, 3).catch(() => {});
+        if (countItem(bot, "bowl") < 1) await ensureCraft(bot, mcData, "bowl", 4).catch(() => ({ ok: false }));
+        if (countItem(bot, "bowl") >= 1) {
+          const stew = await ensureCraft(bot, mcData, "mushroom_stew", 1).catch(() => ({ ok: false }));
+          if (stew.ok) {
+            const e = await executeAction(bot, { type: "eat", item: "mushroom_stew", timeoutMs: 12000 }, mcData).catch(() => ({ ok: false }));
+            if (e.ok) {
+              ate = true;
+              return { ok: true, ate, message: "mushroom stew" };
+            }
+          }
+        }
+      }
+    }
+  }
   // nothing edible in range — starve-walk: animals render within a few
   // chunks, so keep moving along one heading until something spawns.
   // Underground it can only time out — no animals spawn below ground, and a
@@ -3943,11 +3986,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
       for (const e of Object.values(bot.entities || {})) {
         if (!e?.position || e === bot.entity) continue;
         const n = String(e.name || e.displayName || "").toLowerCase();
-        // wandering_trader doesn't count — a trader caravan is not a bread
-        // basket (no hay bales/composter), and it drags the raid onto open
-        // hostile ground for nothing (the "village signature 6m" that was
-        // actually a trader in the spawn basin).
-        if (/villager|iron_golem/.test(n) && e.position.distanceTo(bot.entity.position) < 130) {
+        // exact names only: "zombie_villager" contains "villager" and a
+        // wandering_trader isn't a bread basket either — both dragged raids
+        // onto hostile ground (the deep-cave zombie_villager at 93m that
+        // read as "village signature 100m" for hours)
+        if ((n === "villager" || n === "iron_golem") && e.position.distanceTo(bot.entity.position) < 130) {
           villPos = e.position;
           break;
         }
