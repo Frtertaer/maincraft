@@ -5343,6 +5343,49 @@ async function shaftUp(bot, mcData, maxRise = 56, log = null) {
           break;
         }
       }
+      if (!shifted) {
+        // every adjacent column is capped too — the bot is under a water ring
+        // or gravel bed; the only way up is sideways under land first. Dig a
+        // 1x2 horizontal tunnel, re-scanning overhead after each cell; stop the
+        // moment a clean column appears and let the main loop take the shaft.
+        tunnel: for (const [dx, dz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          for (let t = 0; t < 10; t++) {
+            const f = bot.entity.position.floored();
+            for (const dy of [0, 1]) {
+              const c = bot.blockAt(f.offset(dx, dy, dz));
+              if (!c || isAir(c)) continue;
+              // a hazard-faced wall (water/gravel) in this direction floods or
+              // buries the tunnel — try the next direction
+              if (hazard(c)) continue tunnel;
+              if (!(await digCell(c))) continue tunnel;
+              await sleep(150);
+            }
+            const st = await executeAction(
+              bot,
+              { type: "goto", x: f.x + dx, y: f.y, z: f.z + dz, range: 0, timeoutMs: 6000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            if (!st.ok) continue tunnel;
+            const f2 = bot.entity.position.floored();
+            let clean = true;
+            for (const dy of [1, 2, 3, 4, 5]) {
+              if (hazard(bot.blockAt(f2.offset(0, dy, 0)))) {
+                clean = false;
+                break;
+              }
+            }
+            if (clean) {
+              shifted = true;
+              break tunnel;
+            }
+          }
+        }
+      }
       if (!shifted) return { ok: false, rise, message: "column blocked overhead" };
       continue;
     }
