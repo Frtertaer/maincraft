@@ -247,6 +247,7 @@ export function selectNearestCombatTarget(entities, origin, options = {}) {
 
     const labels = [entity.username, entity.name, entity.displayName].map(normalizeEntityName).filter(Boolean);
     if (wanted && !labels.includes(wanted)) continue;
+    if (entity.id != null && options.skipIds?.has(entity.id)) continue;
     const distance = distanceBetween(origin, entity.position);
     if (!Number.isFinite(distance) || distance > maxDistance || distance >= bestDistance) continue;
     best = entity;
@@ -966,7 +967,12 @@ async function boundedCombat(bot, action) {
     allowPlayers: action.allowPlayers === true,
     selfUsername: bot.username,
   };
-  let target = selectNearestCombatTarget(bot.entities, bot.entity.position, options);
+  // prey that burned a whole chase with 0 hits is unreachable — ban that
+  // entity for 3min so the next hunt tries a different animal instead of
+  // re-timing-out on the same one (the 6x 0-hit chicken loop)
+  bot._attackBan = bot._attackBan || new Map();
+  for (const [id, until] of bot._attackBan) if (until < Date.now()) bot._attackBan.delete(id);
+  let target = selectNearestCombatTarget(bot.entities, bot.entity.position, { ...options, skipIds: bot._attackBan });
   if (!target) return { ok: false, message: `no safe target nearby: ${options.name || "mob"}` };
   // the flee gate exists for hostiles — passive prey can't hurt us, and a
   // starving 1hp bot that refuses to swing at a chicken starves standing on
@@ -1002,6 +1008,7 @@ async function boundedCombat(bot, action) {
       // only give up when the target is truly gone (despawned / 60m out)
       const leash = action.persistent ? 60 : maxDistance + 4;
       if (!Number.isFinite(distance) || distance > leash) {
+        if (isPrey && hits === 0) bot._attackBan.set(targetId, Date.now() + 180000);
         return { ok: false, message: `target ${label} escaped (${round1(distance)}m)` };
       }
       if (distance > 3.1) {
@@ -1037,6 +1044,7 @@ async function boundedCombat(bot, action) {
       hits += 1;
       await sleep(cooldownMs);
     }
+    if (isPrey && hits === 0) bot._attackBan.set(targetId, Date.now() + 180000);
     return { ok: false, message: `combat timeout against ${label} after ${hits} hit(s)` };
   } finally {
     bot.pathfinder.setGoal(null);
