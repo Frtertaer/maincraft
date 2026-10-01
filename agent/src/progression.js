@@ -3800,12 +3800,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // safe reads (each loop is ~4-16s) means the day is real.
     // A day-hide (or proactive dusk burrow) whose cap lands inside dusk or
     // night must NOT release at the cap — the exit would drop the bot into
-    // the mob wave it dug in to avoid. Keep waiting to the night-length
-    // ceiling; the safe() check above only releases on real daylight
+    // the mob wave it dug in to avoid. The night-hold ceiling has to exceed
+    // a full night measured from any seal phase: a day-hide that caps at
+    // tod~23000 still needs ~10min to reach dawn, so share a generous
+    // absolute ceiling (~one day-night cycle). safe() only releases on
+    // real daylight — at night it can never fire, so the loop holds until
+    // dawn unless the ceiling is hit (an escape valve for a broken safe()).
     let safeStreak = 0;
     while (
       Date.now() - t0 < waitCap ||
-      (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 570000)
+      (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 1200000)
     ) {
       if (safe()) {
         safeStreak += 1;
