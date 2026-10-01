@@ -2661,6 +2661,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         break;
       }
       try {
+        // fences/walls/panes seal a doorway fine, but their collision tops sit
+        // ~1.5 blocks up — the jump-place window (feet ≥ ref+2) can't clear it
+        // and every riser comes back "still air". Swap to a real cube first;
+        // if nothing stackable remains the pillar would only burn the hop cap
+        const NO_PILLAR = /_fence$|_fence_gate$|_wall$|_pane$|_bars$|_door$/;
+        if (solid && NO_PILLAR.test(solid.name)) {
+          const alt = bot.inventory
+            .items()
+            .find((i) => isCube(i) && !SEAL_BAD.test(i.name) && !NO_PILLAR.test(i.name));
+          if (alt) solid = alt;
+          else {
+            log?.(`[burrow] pillar err: only ${solid.name} left — not stackable`);
+            break;
+          }
+        }
         await pt(bot.equip(solid, "hand"), 8000, "equip");
         // equip resolves on the client switch — the held slot can still read
         // null server-side for a beat (or the chosen stack ran dry). Verify
