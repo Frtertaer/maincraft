@@ -6485,6 +6485,68 @@ async function shaftUp(bot, mcData, maxRise = 56, log = null) {
   return { ok: true, rise, message: "max rise" };
 }
 
+function hostileNear(bot, maxD) {
+  let best = null;
+  let bd = maxD;
+  for (const e of Object.values(bot.entities || {})) {
+    if (!e?.position || e === bot.entity) continue;
+    const n = String(e.name || e.displayName || "").toLowerCase();
+    if (
+      !(e.kind === "Hostile mobs" && e.name !== "enderman" ||
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n))
+    )
+      continue;
+    const d = e.position.distanceTo(bot.entity.position);
+    if (d < bd) {
+      bd = d;
+      best = e;
+    }
+  }
+  return best;
+}
+
+// two stacked solids in the adjacent open cell on the mob's side — same shape
+// as stripMine's sealToward, hoisted so the stair climber can wall the shaft
+async function sealCellToward(bot, mcData, mobPos) {
+  const f = bot.entity.position.floored();
+  const vx = mobPos.x - (f.x + 0.5);
+  const vz = mobPos.z - (f.z + 0.5);
+  const order = [
+    [Math.sign(vx), 0],
+    [0, Math.sign(vz)],
+    [Math.sign(vx), Math.sign(vz)],
+    [-Math.sign(vx), 0],
+    [0, -Math.sign(vz)],
+  ];
+  const isSolidItem = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+  for (const [sx, sz] of order) {
+    if (!sx && !sz) continue;
+    const cell = bot.blockAt(f.offset(sx, 0, sz));
+    const below = bot.blockAt(f.offset(sx, -1, sz));
+    if (!cell || !below || below.name === "air") continue;
+    if (cell.name !== "air") continue;
+    const solid = bot.inventory.items().find(isSolidItem);
+    if (!solid) return false;
+    try {
+      await pt(bot.equip(solid, "hand"), 6000, "equip-seal");
+      await pt(bot.placeBlock(below, new Vec3(0, 1, 0)), 8000, "seal");
+      const above = bot.blockAt(f.offset(sx, 1, sz));
+      const base = bot.blockAt(f.offset(sx, 0, sz));
+      if (above?.name === "air" && base && base.name !== "air") {
+        const solid2 = bot.inventory.items().find(isSolidItem);
+        if (solid2) {
+          await pt(bot.equip(solid2, "hand"), 6000, "equip-seal2").catch(() => {});
+          await pt(bot.placeBlock(base, new Vec3(0, 1, 0)), 8000, "seal2").catch(() => {});
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 async function stairwayUp(bot, mcData, maxSteps = 14, log) {
   const dirs = [
     [1, 0],
@@ -6510,6 +6572,14 @@ async function stairwayUp(bot, mcData, maxSteps = 14, log) {
     }
     const [dx, dz] = dirs[di % 4];
     let rotated = false;
+    // a cave shooter tracks the climb and picks the bot off mid-step (the
+    // starving-staircase death): wall the shaft-side cell toward it first.
+    // Sealing the stair's own cell forces a rotate — that IS the point, the
+    // staircase turns away from the shooter behind the fresh wall
+    const stalker = hostileNear(bot, 10);
+    if (stalker && stalker.position.distanceTo(bot.entity.position) > 2.6) {
+      await sealCellToward(bot, mcData, stalker.position);
+    }
     // clear body + headroom cells of the next stair position
     for (const dy of [1, 2, 3]) {
       const cell = bot.blockAt(feet.offset(dx, dy, dz));
