@@ -2368,20 +2368,43 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   const solidsHere = () =>
     bot.inventory.items().reduce((n, i) => n + (mcData.blocksByName[i.name] ? i.count : 0), 0);
   if (solidsHere() < 8) {
-    const trunk = bot.findBlock({
-      matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
-      // one log is the whole recovery ladder (table→planks→sticks→pick), so
-      // scan far — a 90m walk beats sealing forever naked when the basin
-      // around spawn has been logged out
-      maxDistance: 90,
-    });
-    if (trunk) {
-      if (creeperClose()) {
-        log?.("[burrow] creeper closing — aborting prep");
+    // soft ground is its own shelter material: the grave digs 3 dirt out of
+    // the column it stands on and caps with one of them — zero inventory.
+    // A stone-surfaced respawn can't do that, so only there does the bare
+    // fist go punch a log while the camper closes (the spawn-camp deaths
+    // all died standing in the punch, not the dig)
+    const SOFTGROUND =
+      /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|sand|red_sand|gravel|farmland|dirt_path|mycelium|snow_block|soul_sand|soul_soil|mangrove_roots|moss_block)$|leaves$/;
+    const fp = bot.entity.position.floored();
+    const softNear = [
+      [0, 0],
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ].some(([dx, dz]) => {
+      try {
+        return SOFTGROUND.test(bot.blockAt(fp.offset(dx, -1, dz))?.name || "");
+      } catch {
         return false;
       }
-      log?.("[burrow] bare-handed — punching a log for shelter material");
-      await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
+    });
+    if (!softNear) {
+      const trunk = bot.findBlock({
+        matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
+        // one log is the whole recovery ladder (table→planks→sticks→pick), so
+        // scan far — a 90m walk beats sealing forever naked when the basin
+        // around spawn has been logged out
+        maxDistance: 90,
+      });
+      if (trunk) {
+        if (creeperClose()) {
+          log?.("[burrow] creeper closing — aborting prep");
+          return false;
+        }
+        log?.("[burrow] bare-handed — punching a log for shelter material");
+        await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
+      }
     }
   }
   // a broken pickaxe makes every stone column undiggable underground —
