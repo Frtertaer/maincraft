@@ -2287,7 +2287,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   if (solidsHere() < 8) {
     const trunk = bot.findBlock({
       matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
-      maxDistance: 40,
+      // one log is the whole recovery ladder (table→planks→sticks→pick), so
+      // scan far — a 90m walk beats sealing forever naked when the basin
+      // around spawn has been logged out
+      maxDistance: 90,
     });
     if (trunk) {
       if (creeperClose()) {
