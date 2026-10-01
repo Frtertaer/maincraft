@@ -1169,7 +1169,10 @@ export class ClearRunner {
             }
             this.log(`[clear] escape failed — still camped, burrowing`);
           }
-          this._lastBurrow = Date.now();
+          // _lastBurrow stamps only on a real seal below — an abort mid-prep
+          // (creeper closing) must not lock the retry out for 120s: the gate
+          // skips, the starving step hot-spins "hunger" ~1/s until STUCK→/kill
+          // (death #1 on speedrun6 was that cooldown, not a mob)
           // park the reflex for the whole attempt: a hostile in range makes
           // its engage-goto supersede every burrow hop — the bot cycles in
           // place next to the mob instead of sealing or relocating
@@ -1222,6 +1225,7 @@ export class ClearRunner {
             // force=true for the daytime variant — a hostile is camped on us
             // and the wait-until-safe logic is exactly what we need anyway
             if (!burrowed) burrowed = await burrowForNight(bot, this.mcData, this.log, !isNight, 0, this.state);
+            if (burrowed) this._lastBurrow = Date.now();
             // day-hide ends at ~90s whether or not the camper left (creepers
             // don't burn) — if it's still camped on us, sprint out of its
             // 14m reach instead of looping straight back into a burrow
