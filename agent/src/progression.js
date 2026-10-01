@@ -4618,6 +4618,57 @@ export async function ensureFed(bot, mcData, log, state = null) {
         return { ok: true, ate, message: `starve-walk to village (${Math.round(hd)}m)` };
       }
     }
+    // committed trek: after ~5 fruitless spiral legs the basin is proven
+    // stripped — stop circling and run ONE bearing ~300m, same escape rule
+    // the log wander uses. Bearings landing inside a death camp or a
+    // proven-empty village are dropped, then the driest survivor wins.
+    if ((state.foodWanderLeg || 0) >= 5 && !state.foodTrekDir) {
+      const camps = campZonesFor(bot, state);
+      const deadVills = state.villageDead || [];
+      const bearings = [
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+        [1, 1], [-1, 1], [1, -1], [-1, -1],
+      ];
+      const safe = bearings.filter(([bx, bz]) => {
+        const tx = p.x + bx * 300;
+        const tz = p.z + bz * 300;
+        if (camps.some((c) => Math.hypot(tx - c.x, tz - c.z) < 150)) return false;
+        if (deadVills.some((v) => Date.now() - v.at < 1800000 && Math.hypot(tx - v.x, tz - v.z) < 120)) return false;
+        return true;
+      });
+      const pick = pickDryDir(
+        bot,
+        (safe.length ? safe : bearings).map(([bx, bz]) => [bx * 300, bz * 300])
+      );
+      state.foodTrekDir = [Math.sign(pick[0]), Math.sign(pick[1])];
+      state.foodTrekLegs = 5;
+      state.foodWanderDir = null;
+      log?.(`[food] basin stripped — trekking ${state.foodTrekDir} for ~300m`);
+    }
+    if (state.foodTrekLegs > 0) {
+      const [bx, bz] = state.foodTrekDir;
+      state.foodTrekLegs -= 1;
+      if (!state.foodTrekLegs) {
+        state.foodTrekDir = null;
+        // arrived: spiral the NEW area first — another immediate trek would
+        // ballistic-hop past whatever herd lives right here
+        state.foodWanderLeg = 0;
+        state.foodWanderDir = null;
+      }
+      const r = await executeAction(
+        bot,
+        { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 6, timeoutMs: 30000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!r?.ok) {
+        const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+        if (moved < 24) {
+          state.foodTrekLegs = 0;
+          state.foodTrekDir = null;
+        }
+      }
+      return { ok: true, ate, message: `food trek (leg ${state.foodTrekLegs})` };
+    }
     if (!state.foodWanderDir) {
       state.foodWanderDir = pickDryDir(bot, [
         [60, 0],
@@ -4634,8 +4685,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
       state.foodWanderDir = [Math.round(Math.cos(a)) * 60, Math.round(Math.sin(a)) * 60];
     }
     state.foodWanderLeg = (state.foodWanderLeg || 0) + 1;
-    const hop = Math.min(60 + Math.floor((state.foodWanderLeg - 1) / 4) * 40, 200);
-    await executeAction(
+    // legs must COMPLETE inside the timeout: a 200m hop in 20s covers ~86m,
+    // times out, and the catch below wipes the direction — the "spiral"
+    // degenerated into direction-reset ping-pong inside the stripped basin.
+    // 75m legs finish at walk speed and still expand the ring every 4 calls.
+    const hop = Math.min(60 + Math.floor((state.foodWanderLeg - 1) / 4) * 20, 75);
+    const r = await executeAction(
       bot,
       {
         type: "goto",
@@ -4643,12 +4698,17 @@ export async function ensureFed(bot, mcData, log, state = null) {
         y: p.y,
         z: p.z + Math.sign(state.foodWanderDir[1]) * hop,
         range: 8,
-        timeoutMs: 20000,
+        timeoutMs: 30000,
       },
       mcData
-    ).catch(() => {
-      state.foodWanderDir = null;
-    });
+    ).catch(() => ({ ok: false }));
+    // a leg that covered most of its ground is progress even when the goto
+    // itself timed out — keep the spiral heading. Only a real stall (<40%
+    // traveled: wall, water, unreachable) re-picks the direction.
+    if (!r?.ok) {
+      const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+      if (moved < hop * 0.4) state.foodWanderDir = null;
+    }
     return { ok: true, ate, message: "starve-walk" };
   }
   // starving underground: nothing edible spawns below the surface — climb
@@ -5045,18 +5105,22 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           state.wanderDir = [Math.round(Math.cos(a)) * 60, Math.round(Math.sin(a)) * 60];
         }
         state.wanderLeg = (state.wanderLeg || 0) + 1;
-        const hop = Math.min(60 + Math.floor((state.wanderLeg - 1) / 4) * 40, 200);
+        // legs must fit the timeout: 200m in 25s covers ~107m then throws,
+        // and the old catch wiped the heading — every late spiral leg ended
+        // in a direction reset, so the "spiral" ping-ponged in place.
+        const hop = Math.min(60 + Math.floor((state.wanderLeg - 1) / 4) * 20, 75);
         const wx = Math.sign(state.wanderDir[0]) * hop;
         const wz = Math.sign(state.wanderDir[1]) * hop;
         try {
           await executeAction(
             bot,
-            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 5, timeoutMs: 25000 },
+            { type: "goto", x: p.x + wx, y: p.y, z: p.z + wz, range: 5, timeoutMs: 30000 },
             mcData
           );
         } catch {
-          /* wander blocked — try the next heading */
-          state.wanderDir = null;
+          /* blocked — re-pick only on a real stall, keep the heading if most of the leg still traveled */
+          const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+          if (moved < hop * 0.4) state.wanderDir = null;
         }
         state.noLogStreak = 1;
         state.exploreHops = (state.exploreHops || 0) + 1;
