@@ -3180,6 +3180,29 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         } catch {
           /* ring build best-effort — walls raised so far still cover */
         }
+        // phantom cap: a block directly overhead at feet+2 breaks canSeeSky —
+        // phantoms neither spawn against a covered player nor dive through it.
+        // Any cardinal raiseWall already drops a roof inward, so only build
+        // when the cell above is still open sky
+        try {
+          const over = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0));
+          if (!over || over.name === "air") {
+            for (const [wx, wz] of [
+              [1, 0],
+              [-1, 0],
+              [0, 1],
+              [0, -1],
+            ]) {
+              if (await raiseWall(wx, wz)) {
+                walled.add(`${wx},${wz}`);
+                log?.("[burrow] refuge roof up — phantom cap");
+                break;
+              }
+            }
+          }
+        } catch {
+          /* cap best-effort — the pillar itself still stands */
+        }
         const t0 = Date.now();
         let lastBeat = 0;
         const refugeTop = bot.entity.position.clone();
