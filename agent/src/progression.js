@@ -5073,16 +5073,19 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           break; // no sheep in range — give up early
         }
         log?.(`[bed] sheep down — wool=${woolCount()}`);
-        // the kill lands but the wool item just sits there — a dropped item
-        // is an entity, not a block, so collect() can't see it. Walk over it
-        const drop = Object.values(bot.entities || {}).find(
+        // the drops spawn a tick or two AFTER the kill lands — an instant
+        // scan sees an empty field and the wool sits there forever. Wait for
+        // the drops, then walk over every item near the corpse (the mutton
+        // beside the wool is free food anyway)
+        await sleep(700);
+        const drops = Object.values(bot.entities || {}).filter(
           (e) =>
             e?.position &&
             e !== bot.entity &&
-            (e.item ? /wool/.test(String(e.item.name || "")) : /wool|item/.test(String(e.name || ""))) &&
+            (e.item || /wool|item|mutton/.test(String(e.name || ""))) &&
             e.position.distanceTo(bot.entity.position) < 14
         );
-        if (drop) {
+        for (const drop of drops.slice(0, 4)) {
           await executeAction(
             bot,
             { type: "goto", x: drop.position.x, y: drop.position.y, z: drop.position.z, range: 1, timeoutMs: 6000 },
