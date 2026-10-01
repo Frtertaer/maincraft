@@ -343,6 +343,34 @@ function findHostile(bot, range) {
   });
 }
 
+// Potential-field escape heading: every hostile within 40m pushes an
+// away-vector weighted by closeness, so the sprint curves around the whole
+// pack — sprinting directly away from the NEAREST hostile aims you into
+// the second-nearest (the skeleton that killed on a pillar exit while the
+// flee bore off the zombie)
+function fleeYaw(bot) {
+  const p = bot.entity.position;
+  let ax = 0;
+  let az = 0;
+  for (const e of Object.values(bot.entities || {})) {
+    if (!e?.position || e === bot.entity) continue;
+    const n = String(e.name || e.displayName || "").toLowerCase();
+    const hostile =
+      (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+      /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+    if (!hostile) continue;
+    const dx = p.x - e.position.x;
+    const dz = p.z - e.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 40 || d < 0.001) continue;
+    const w = (40 - d) / d;
+    ax += (dx / d) * w;
+    az += (dz / d) * w;
+  }
+  if (!ax && !az) return bot.entity.yaw;
+  return Math.atan2(-ax, -az);
+}
+
 const HAND_DIGGABLE =
   /^(dirt|coarse_dirt|rooted_dirt|dirt_path|grass_block|farmland|podzol|mycelium|sand|red_sand|gravel|clay|mud|muddy_mangrove_roots|snow|snow_block|soul_soil|soul_sand|moss_block|pale_moss_block|.*_log|.*_planks|.*_leaves)$/;
 
@@ -3241,15 +3269,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           })
           .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
         if (waiter && waiter.position.distanceTo(bot.entity.position) < 26) {
-          const away = bot.entity.position.minus(waiter.position);
-          const yaw = Math.atan2(-away.x, -away.z);
           log?.(`[burrow] exit sprint away from ${waiter.name}`);
           bot.setControlState("sprint", true);
           bot.setControlState("forward", true);
           bot.setControlState("jump", false);
           const t0 = Date.now();
           while (Date.now() - t0 < 2000) {
-            bot.look(yaw, 0, true);
+            bot.look(fleeYaw(bot), 0, true);
             await sleep(140);
           }
           bot.setControlState("forward", false);
@@ -4037,11 +4063,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const t0 = Date.now();
     while (Date.now() - t0 < 9000) {
       const w = nearest();
-      let yaw = bot.entity.yaw;
-      if (w) {
-        const away = bot.entity.position.minus(w.position);
-        yaw = Math.atan2(-away.x, -away.z);
-      }
+      const yaw = w ? fleeYaw(bot) : bot.entity.yaw;
       bot.look(yaw, 0, true);
       await sleep(140);
       if (Date.now() - t0 > 2500 && !hostileNear()) break;
