@@ -419,7 +419,13 @@ export async function executeAction(bot, action, mcData) {
         }
         const beforeType = block.type;
         try {
-          await withTimeout(bot.dig(block), timeoutMs, `dig ${block.name} timeout`);
+          // submerged digging is ~5x slower — a caller budget sized for a dry
+          // dig aborts an in-progress underwater one (the flooded-basin dig
+          // timeouts all came from this)
+          const digBudget = bot.entity.isInWater
+            ? Math.min(timeoutMs * 5, 120000)
+            : timeoutMs;
+          await withTimeout(bot.dig(block), digBudget, `dig ${block.name} timeout`);
         } catch (err) {
           // a timed-out dig leaves mineflayer's blockUpdate listener hanging —
           // stopDigging cancels the abandoned dig and removes it
