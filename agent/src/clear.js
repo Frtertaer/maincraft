@@ -762,6 +762,29 @@ export class ClearRunner {
                   dist(e) < 10
               ).length >= 2;
             if (!respawnHostile || creepNear || meleeSwarm || (bareHands && packNear48)) {
+              // a bed-side respawn under repeat kills is the bed camping us:
+              // every death lands at the same anchor in the same mob pocket.
+              // Dig it up — the item can be re-placed on safe ground later,
+              // and the next death falls back to world spawn instead of the
+              // kill ring (daytime twin of the night-branch camped-bed break)
+              try {
+                const bedNear2 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 45 });
+                if (bedNear2) {
+                  const nearDeaths = (this.state._deathPts || []).filter(
+                    (d) => Math.hypot(d.x - bedNear2.position.x, d.z - bedNear2.position.z) < 60 && Date.now() - d.t < 240000
+                  ).length;
+                  if (nearDeaths >= 2) {
+                    await executeAction(
+                      bot,
+                      { type: "dig", x: bedNear2.position.x, y: bedNear2.position.y, z: bedNear2.position.z, timeoutMs: 6000 },
+                      this.mcData
+                    ).catch(() => ({ ok: false }));
+                    this.log(`[clear] broke camped bed @${bedNear2.position.x},${bedNear2.position.z} — ${nearDeaths} deaths nearby`);
+                  }
+                }
+              } catch {
+                /* bed check is best-effort — flee regardless */
+              }
               const ring = 70 * Math.min(3, Math.max(1, (this.state._deathPts || []).length));
               const fleeDirs = [
                 [ring, 0],
