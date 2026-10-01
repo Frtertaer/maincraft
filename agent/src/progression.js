@@ -772,6 +772,10 @@ async function farmTend(bot, mcData, log, state) {
   } catch { /* scan best-effort */ }
   // 2) wheat → bread → eat (a table is needed — ensureCraft places one)
   try {
+    const hayHeld = countItem(bot, (i) => i.name === "hay_block");
+    if (hayHeld > 0) {
+      await ensureCraft(bot, mcData, "wheat", hayHeld).catch(() => ({ ok: false }));
+    }
     const wheat = countItem(bot, (i) => i.name === "wheat");
     if (wheat >= 3 && bot.food < 18) {
       const bc = await ensureCraft(bot, mcData, "bread", Math.floor(wheat / 3)).catch(() => ({ ok: false }));
@@ -4653,6 +4657,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
           } catch {
             /* unopenable — skip */
           }
+        }
+        // hay bales uncraft to 9 wheat each — the raid's real payload
+        const hayHeld = countItem(bot, (i) => i.name === "hay_block");
+        if (hayHeld > 0) {
+          await ensureCraft(bot, mcData, "wheat", hayHeld).catch(() => ({ ok: false }));
         }
         if (countItem(bot, "wheat") >= 3) {
           const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
