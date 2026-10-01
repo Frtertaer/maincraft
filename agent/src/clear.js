@@ -930,6 +930,10 @@ export class ClearRunner {
           } catch {
             /* ignore */
           }
+          // floor between escape iterations: on a dying socket every call
+          // fails instantly and a bare continue hot-spins the event loop
+          // until the server kicks for keepalive timeout (seen 11:49:18)
+          await sleep(800);
           continue;
         }
         if (this.combat?.shouldYield?.() && yieldCount < 50) {
@@ -1282,6 +1286,9 @@ export class ClearRunner {
           } finally {
             bot._burrowActive = false;
           }
+          // same hot-spin floor: a failed burrow on a dead socket returns
+          // instantly, and a bare continue spins the loop flat-out
+          await sleep(800);
           continue;
         }
         // surplus beyond the keep-set goes into the stash chest — a death
