@@ -290,8 +290,11 @@ function hasPickaxe(bot) {
 async function ensurePickaxe(bot, mcData) {
   if (hasPickaxe(bot)) return { ok: true, message: "pickaxe held" };
   const hasStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
-  await ensurePlanks(bot, mcData, 3);
-  if (countItem(bot, "stick") < 2) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
+  // a pickaxe head costs 3 planks and the 2 sticks cost 2 more — topping up
+  // to 3 first leaves 1 plank after the stick craft (missing materials)
+  const needSticks = countItem(bot, "stick") < 2;
+  await ensurePlanks(bot, mcData, needSticks ? 5 : 3);
+  if (needSticks) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
   if (hasStone) {
     const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (r.ok) return r;
