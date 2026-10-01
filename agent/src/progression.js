@@ -4153,8 +4153,11 @@ async function stockFood(bot, mcData, state, log, want = 6) {
       mcData
     ).catch(() => ({ ok: false }));
   }
-  // raw chicken carries the hunger effect and isn't counted edible — skip it
-  for (const prey of ["cow", "pig", "sheep", "rabbit"]) {
+  // raw chicken carries the hunger effect and isn't counted edible — skip it.
+  // Same walk-chase ceiling as the hunt: food<=6 can't sprint, and fleeing
+  // livestock outruns a walk — only the chicken is catchable on foot.
+  const stockPrey = bot.food > 6 ? ["cow", "pig", "sheep", "rabbit"] : ["chicken"];
+  for (const prey of stockPrey) {
     for (let i = 0; i < 2 && carried() < want; i++) {
       const r = await executeAction(
         bot,
@@ -4334,13 +4337,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
   })();
   const sitters = feetWet ? ["chicken", "cod", "salmon"] : ["chicken"];
-  // livestock panic-flees in ~5s bursts then stands still — a starving walk
-  // (4.3m/s) closes the gap during the pauses and lands the kill. It is the
-  // ONLY prey left in a basin with no chickens: gating it on sprint turned
-  // "food=0" into "zero huntable animals while pigs stood in render range"
-  // (speedrun6 starve-cycle). Rabbits stay sprint-only: their jukes never
-  // end inside a walk budget.
-  const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : ["cow", "pig", "sheep"];
+  // livestock panic-flees ~5m/s — a starving walk (4.3m/s) never closes:
+  // three straight 26s chases on speedrun6 landed 0 hits. Without sprint
+  // the fleet list is pure burn; only a chicken's ~3m/s flee is walkable.
+  // Rabbits stay sprint-only: their jukes never end inside a walk budget.
+  const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : [];
   const preyList = [...sitters, ...fleet].concat(
     starving && !fragile && armedForZombie ? ["zombie"] : []
   );
