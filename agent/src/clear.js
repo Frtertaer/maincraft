@@ -1244,9 +1244,32 @@ export class ClearRunner {
             // surface work in the dark is a death loop — keep looking for
             // shelter instead of falling through to the phase step.
             if (!burrowed && isNight) {
-              this.log(`[clear] no shelter — waiting out the night`);
-              this._lastBurrow = 0;
-              await sleep(15000);
+              // a melee camper aborts every prep attempt then just re-closes
+              // during the sleep — sitting still is a fuse timer. Walking is
+              // already faster than a creeper/zombie (~4.3 vs ~2.3 m/s) even
+              // at food=0, so out-walk it for real separation before retrying
+              const camperNow = Object.values(bot.entities || {})
+                .filter((e) => {
+                  if (!e?.position || e === bot.entity) return false;
+                  const n = String(e.name || "").toLowerCase();
+                  return /zombie|creeper|spider|husk|vex|slime/.test(n);
+                })
+                .sort(
+                  (a, b) =>
+                    a.position.distanceTo(bot.entity.position) -
+                    b.position.distanceTo(bot.entity.position)
+                )[0];
+              if (camperNow && camperNow.position.distanceTo(bot.entity.position) < 26) {
+                const away = bot.entity.position.minus(camperNow.position);
+                const sdx = Math.sign(away.x || 1) * 70;
+                const sdz = Math.sign(away.z || 1) * 70;
+                this.log(`[clear] camper on the fuse — out-walking ${camperNow.name}`);
+                await fleeUntilClear(sdx, sdz, 5).catch(() => {});
+              } else {
+                this.log(`[clear] no shelter — waiting out the night`);
+                this._lastBurrow = 0;
+                await sleep(15000);
+              }
             }
           } catch (err) {
             this.log(`[clear] burrow fail: ${err?.message || err}`);
