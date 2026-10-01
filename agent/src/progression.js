@@ -1571,13 +1571,14 @@ async function surfaceForAir(bot, mcData, log) {
 // Strip-mine a 1x2 tunnel `steps` long: dig head+feet cells ahead, step in,
 // collect any ore vein now visible in the tunnel walls. Never opens into
 // caves — a bad cell ahead rotates the tunnel 90° instead.
-async function stripMine(bot, mcData, steps = 20, log = null) {
-  const dirs = [
+async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) {
+  let dirs = [
     [1, 0],
     [0, 1],
     [-1, 0],
     [0, -1],
   ];
+  if (preferDir) dirs = [preferDir, ...dirs.filter(([x, z]) => !(x === preferDir[0] && z === preferDir[1]))];
   let dirIdx = 0;
   let [dx, dz] = dirs[dirIdx];
   const bad = (b) => !b || /air|lava|water|magma_block|bedrock/.test(b.name);
@@ -3846,6 +3847,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // real daylight — at night it can never fire, so the loop holds until
     // dawn unless the ceiling is hit (an escape valve for a broken safe()).
     let safeStreak = 0;
+    // set when the camper-lockdown tunnel let us surface away from the seal
+    // — the unseal/pillar exit below must NOT run: it would walk back into
+    // the shaft the camper is sitting on.
+    let tunnelEscape = false;
     while (
       Date.now() - t0 < waitCap ||
       (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 1200000)
@@ -3896,11 +3901,42 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         /* out of reach — keep waiting */
       }
     }
+    // camper lockdown: a non-burning mob parked on the plug keeps safe()
+    // false for the whole day — the loop would hold to the 20min ceiling
+    // and release at NIGHT straight on top of it. In real daylight, tunnel
+    // out the side instead: strip a 1x2 away from the camper and stair up
+    // to the surface ~10m off. The cap/seal stays intact above, so the
+    // camper can't follow through the shaft it is camping.
+    const todNow = bot.time?.timeOfDay ?? -1;
+    const lockdownMob = findHostile(bot, 14);
+    if (
+      pocketDeep &&
+      lockdownMob &&
+      todNow > 1000 &&
+      todNow < 11000 &&
+      Date.now() - t0 > 200000
+    ) {
+      const fp = bot.entity.position;
+      const cp = lockdownMob.position;
+      const awayDir =
+        Math.abs(cp.x - fp.x) > Math.abs(cp.z - fp.z)
+          ? [-Math.sign(cp.x - fp.x), 0]
+          : [0, -Math.sign(cp.z - fp.z)];
+      log?.(`[burrow] camper lockdown (${lockdownMob.name}) — tunneling out`);
+      const mined = await stripMine(bot, mcData, 10, log, awayDir).catch(() => 0);
+      const up = mined > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
+      if (up) {
+        log?.("[burrow] tunneled out clear of the camper");
+        tunnelEscape = true;
+        break;
+      }
+      // tunnel failed — the seal above is intact, keep holding
+    }
   }
   // campers re-close during the ~15s climb-out — hold the pocket until the
   // mouth is clear (or ~2min passes) before breaking the seal
   const tHold = Date.now();
-  while (findHostile(bot, 10) && Date.now() - tHold < (force ? 30000 : 120000)) {
+  while (!tunnelEscape && findHostile(bot, 10) && Date.now() - tHold < (force ? 30000 : 120000)) {
     if (state?._diedAt && Date.now() - state._diedAt < 6000) return false;
     const camper = findHostile(bot, 5);
     const armed2 = bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
@@ -3915,7 +3951,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   }
   // dig out the sealed doorway, step back into the open shaft, then pillar
   // up the shaft to the surface (can't pillar inside the pocket — ceiling)
-  if (sealedCells?.length) {
+  if (sealedCells?.length && !tunnelEscape) {
     for (const c of sealedCells) {
       try {
         await executeAction(
@@ -3937,7 +3973,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       /* pillar wherever we are */
     }
   }
-  if (solid) {
+  if (solid && !tunnelEscape) {
     for (let i = 0; i < dug + 3 && bot.entity.position.floored().y < entry.y; i++) {
       const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
       if (!ref || ref.name === "air") break;
