@@ -3154,6 +3154,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
         const t0 = Date.now();
         let lastBeat = 0;
+        const refugeTop = bot.entity.position.clone();
         // the cap is an escape valve, not an unseal trigger: when it lands
         // inside dusk/night, climbing down dumps the bot into the mob pack
         // below — hold the pillar until real dawn (safe() only passes at
@@ -3165,6 +3166,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         ) {
           if (state?._diedAt && Date.now() - state._diedAt < 6000) {
             log?.("[burrow] died on the pillar — aborting shelter");
+            return false;
+          }
+          // died mid-wait past the 6s window (loop was mid-await at respawn)
+          // or got knocked off: a bot >8m from the refuge top is no longer in
+          // its shelter — bail instead of holding till dawn at spawn
+          if (bot.entity.position.distanceTo(refugeTop) > 8) {
+            log?.("[burrow] off the pillar — aborting shelter");
             return false;
           }
           // a ranged mob that arrives (or strafes onto an unwalled axis)
@@ -3876,6 +3884,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const away = bot.entity.position.distanceTo(
         new Vec3(pocketDeep.x, pocketDeep.y, pocketDeep.z)
       );
+      // >8m out can't still be inside a ≤4-deep pocket — the bot died and
+      // respawned elsewhere (the 6s diedAt check misses when the loop was
+      // mid-await), or it got ejected. The pin-back goto would retry "no
+      // path" on an unreachable sealed cell until the 20min ceiling
+      if (away > 8) {
+        log?.(`[burrow] left the pocket (${away.toFixed(0)}m away) — aborting shelter`);
+        return false;
+      }
       if (away > 1.2) {
         await executeAction(
           bot,
