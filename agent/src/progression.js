@@ -850,6 +850,23 @@ export async function stashRecover(bot, mcData, log, state) {
       .slice(0, 4);
     if (!near.length) return { ok: false, message: "no stash" };
     let took = 0;
+    // an unreachable chest keeps its point and gets re-raided every food
+    // window forever — two consecutive reach/open failures retires it the
+    // same way an empty chest does (the @33,184 kit re-raided 4x in 25min)
+    if (state) state._stashMiss = state._stashMiss || {};
+    const stashKey = (p) => `${Math.round(p.x)},${Math.round(p.z)}`;
+    const kill = (p) => {
+      stashRemove(p, bot);
+      if (!state) return;
+      delete state._stashMiss[stashKey(p)];
+      if (state.stash && Math.abs(state.stash.x - p.x) < 2 && Math.abs(state.stash.z - p.z) < 2) state.stash = null;
+    };
+    const miss = (p) => {
+      if (!state) return;
+      const k = stashKey(p);
+      state._stashMiss[k] = (state._stashMiss[k] || 0) + 1;
+      if (state._stashMiss[k] >= 2) kill(p);
+    };
     for (const { p } of near) {
       try {
         await executeAction(
@@ -897,12 +914,16 @@ export async function stashRecover(bot, mcData, log, state) {
             mcData
           );
         } catch {
+          miss(p);
           continue; // unreachable — try the next chest
         }
       }
       try {
         const b = bot.blockAt(new Vec3(p.x, p.y, p.z));
-        if (!b || b.name !== "chest") continue;
+        if (!b || b.name !== "chest") {
+          kill(p); // chest itself is gone — the point is provably dead
+          continue;
+        }
         // a chest sealed behind rock reads via blockAt but the server
         // refuses the open (no LOS/reach) — pt() times it out, and without
         // this inner catch ONE bad chest aborted the whole raid (the
@@ -923,6 +944,7 @@ export async function stashRecover(bot, mcData, log, state) {
           chest.close();
         }
       } catch {
+        miss(p);
         continue; // unreadable chest — next candidate
       }
     }
@@ -4375,6 +4397,14 @@ export async function ensureFed(bot, mcData, log, state = null) {
           /* scan failed — no village */
         }
       }
+      // a signature inside a proven-empty village's ring is bait, not a lead:
+      // drop it so it neither sets a steer hint nor re-triggers a raid
+      if (
+        villPos &&
+        (state.villageDead || []).some((v) => Date.now() - v.at < 1800000 && Math.hypot(v.x - villPos.x, v.z - villPos.z) < 80)
+      ) {
+        villPos = null;
+      }
       // remember the last signature — the starve-walk steers toward it so
       // wandering isn't blind (a raid needs the signature back in range)
       if (villPos) state.villageHint = { x: villPos.x, z: villPos.z, at: Date.now() };
@@ -4532,6 +4562,13 @@ export async function ensureFed(bot, mcData, log, state = null) {
           .map((i) => `${i.name}x${i.count}`)
           .join(",");
         log?.(`[food] village raid empty — hay=${hayDug} crops=${cropsDug} chestFood=${chestFood} ate=${raidFood} inv=[${inv || "none"}]`);
+        // a signature that yields nothing is bait: remember it as dead so
+        // the next scan neither re-raids nor re-magnets the walk toward the
+        // same empty field (speedrun6 steered to the same raided village 3x
+        // right after an empty raid)
+        state.villageDead = (state.villageDead || []).filter((v) => Date.now() - v.at < 1800000);
+        state.villageDead.push({ x: Math.floor(villPos.x), z: Math.floor(villPos.z), at: Date.now() });
+        if (state.villageDead.length > 6) state.villageDead.shift();
       }
     }
     const p = bot.entity.position.floored();
