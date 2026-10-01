@@ -634,7 +634,8 @@ export class ClearRunner {
             let stillClose = packClose();
             let lastPos = bot.entity.position;
             let legDir = [fdx, fdz];
-            let gapAtStart = nearestHostile();
+            let lastGap = nearestHostile();
+            let noProgress = 0;
             while (stillClose && legs < 6 && bot.food > 6) {
               this.log(`[clear] pack still <40m — flee leg ${legs + 1}`);
               await fleeUntilClear(legDir[0], legDir[1], 6).catch(() => {});
@@ -645,10 +646,15 @@ export class ClearRunner {
               else legDir = [fdx, fdz];
               lastPos = bot.entity.position;
               stillClose = packClose();
-              // two legs bought no separation — the pack outruns the sprint
-              // (spider/baby/water). Every further leg burns dig time; seal in.
-              if (legs === 2 && nearestHostile() <= gapAtStart + 10) break;
-              gapAtStart = nearestHostile();
+              // two consecutive legs that don't open the gap — the pack
+              // outruns the sprint (spider/baby/water/creeper field) or the
+              // loop respawned mid-flee and the mobs closed again. Every
+              // further leg burns dig time; seal in.
+              const gap = nearestHostile();
+              if (gap <= lastGap + 10) noProgress += 1;
+              else noProgress = 0;
+              lastGap = gap;
+              if (noProgress >= 2) break;
             }
             if (stillClose) this.log(`[clear] pack won't shake — burrowing anyway`);
             // only chase shelter material when the ground under our feet is
