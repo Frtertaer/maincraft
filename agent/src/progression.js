@@ -4010,6 +4010,53 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         /* out of reach — keep waiting */
       }
     }
+    // pocket greenhouse: a sealed pocket is the only guaranteed-safe grow
+    // space this world offers — till a floor cell, drop the seeds the
+    // gather pass already collected, and let the night hold itself grow
+    // food. Torch light inside the pocket meets the crop's 9+ requirement
+    if (bot.food != null && bot.food <= 4 && !state._pocketFarmTried) {
+      state._pocketFarmTried = true;
+      const seeds2 = bot.inventory.items().find((i) => /_seeds$/.test(i.name));
+      if (seeds2) {
+        const fp3 = bot.entity.position.floored();
+        outer: for (let dx = -2; dx <= 2; dx += 1) {
+          for (let dz = -2; dz <= 2; dz += 1) {
+            const soilCell = bot.blockAt(fp3.offset(dx, -1, dz));
+            const cropCell = soilCell && bot.blockAt(fp3.offset(dx, 0, dz));
+            if (!soilCell || !cropCell) continue;
+            if (!/^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|farmland)$/.test(soilCell.name)) continue;
+            if (cropCell.name !== "air") continue;
+            // crops need light 9+ — torch light or daylight both count
+            if ((cropCell.light ?? 0) < 9 && (cropCell.skyLight ?? 0) < 9) continue;
+            if (soilCell.name !== "farmland") {
+              let hoe = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+              if (!hoe) {
+                await ensureCraft(bot, mcData, "wooden_hoe", 1).catch(() => null);
+                hoe = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+              }
+              if (!hoe) continue;
+              try {
+                await bot.equip(hoe, "hand");
+                await pt(bot.activateBlock(soilCell), 4000, "till");
+              } catch {
+                continue;
+              }
+            }
+            const tilledNow = bot.blockAt(soilCell.position);
+            if (tilledNow?.name !== "farmland") continue;
+            try {
+              await bot.equip(seeds2, "hand");
+              await pt(bot.activateBlock(tilledNow), 4000, "plant");
+              state.pocketFarm = true;
+              log?.(`[burrow] pocket farm planted @${soilCell.position.x},${soilCell.position.z}`);
+              break outer;
+            } catch {
+              /* plant best-effort */
+            }
+          }
+        }
+      }
+    }
     // camper lockdown: a non-burning mob parked on the plug keeps safe()
     // false for the whole day — the loop would hold to the 20min ceiling
     // and release at NIGHT straight on top of it. In real daylight, tunnel
