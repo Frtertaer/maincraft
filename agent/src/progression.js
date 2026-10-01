@@ -293,7 +293,18 @@ async function ensurePickaxe(bot, mcData) {
   // a pickaxe head costs 3 planks and the 2 sticks cost 2 more — topping up
   // to 3 first leaves 1 plank after the stick craft (missing materials)
   const needSticks = countItem(bot, "stick") < 2;
-  await ensurePlanks(bot, mcData, needSticks ? 5 : 3);
+  // the whole ladder is planks: head 3 + sticks 2 + a fresh table 4 when
+  // none is near. Counting only planks lies when logs are gone (the naked
+  // respawn at 4 planks: sticks eat 2 -> pickaxe and table both impossible
+  // forever) — forage a log first when total wood can't cover the chain.
+  // Sealed pockets can't forage, so they skip straight to the craft attempt
+  const needTable =
+    countItem(bot, "crafting_table") < 1 &&
+    !bot.findBlock?.({ matching: (b) => b?.name === "crafting_table", maxDistance: 8 });
+  const plankNeed = 3 + (needSticks ? 2 : 0) + (needTable ? 4 : 0);
+  const wood = countItem(bot, (i) => i.name.includes("planks")) + countItem(bot, CRAFTABLE_LOG) * 4;
+  if (!bot._inShelter && wood < plankNeed) await punchNearbyLogs(bot, mcData, 3).catch(() => null);
+  await ensurePlanks(bot, mcData, Math.max(needSticks ? 5 : 3, plankNeed));
   if (needSticks) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
   if (hasStone) {
     const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
