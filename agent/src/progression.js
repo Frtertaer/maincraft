@@ -169,6 +169,23 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
             mcData
           ).catch(() => {});
         }
+        if (!sw.ok) {
+          state.submergedFails = (state.submergedFails || 0) + 1;
+          if (state.submergedFails >= 3) {
+            // repeated surface failures = a flooded REGION, not a column:
+            // swim hard for land and mark the basin so descends and
+            // relocations stop probing columns into it
+            const fz = bot.entity.position.floored();
+            state.floodZone = { x: fz.x, z: fz.z, r: 60 };
+            const landed = await swimToLand(bot, mcData, log, 45000).catch(() => false);
+            if (landed) {
+              state.submergedFails = 0;
+              return { ok: true, phase, message: "flood basin — swam to land" };
+            }
+          }
+        } else {
+          state.submergedFails = 0;
+        }
         return { ok: true, phase, message: sw.ok ? "surfaced for air" : "still submerged" };
       }
     }
@@ -5767,6 +5784,32 @@ async function phaseIron(bot, mcData, state, log) {
         );
         if (got.ok) return { ok: true, phase: "iron", message: `surface iron @y=${y}` };
       }
+      if (state.floodZone) {
+        const p = bot.entity.position.floored();
+        if (Math.hypot(p.x - state.floodZone.x, p.z - state.floodZone.z) < state.floodZone.r) {
+          // don't dig a staircase in a drowned basin — every column probed
+          // here flooded. March to the zone edge first
+          const dirs = [
+            [80, 0],
+            [-80, 0],
+            [0, 80],
+            [0, -80],
+          ];
+          const away = dirs
+            .map(([dx, dz]) => [
+              dx,
+              dz,
+              Math.hypot(p.x + dx - state.floodZone.x, p.z + dz - state.floodZone.z),
+            ])
+            .sort((a, b) => b[2] - a[2])[0];
+          await executeAction(
+            bot,
+            { type: "goto", x: p.x + away[0], y: p.y, z: p.z + away[1], range: 4, timeoutMs: 15000 },
+            mcData
+          ).catch(() => {});
+          return { ok: true, phase: "iron", message: "exiting flood basin" };
+        }
+      }
       const d = await stairDown(bot, mcData, 8, log);
       if (d.digs > 0) state.mobRelocates = 0;
       if (d.fluid) {
@@ -5777,7 +5820,17 @@ async function phaseIron(bot, mcData, state, log) {
         state.fluidStrikes = (state.fluidStrikes || 0) + 1;
         const hop = state.fluidStrikes >= 3 ? 48 : 14;
         const p = bot.entity.position.floored();
-        const dirs = [[hop, 0], [-hop, 0], [0, hop], [0, -hop]];
+        let dirs = [[hop, 0], [-hop, 0], [0, hop], [0, -hop]];
+        // keep relocates out of a marked flood basin — it drowns every
+        // column probed into it
+        if (state.floodZone) {
+          const out = dirs.filter(
+            ([dx, dz]) =>
+              Math.hypot(p.x + dx - state.floodZone.x, p.z + dz - state.floodZone.z) >=
+              state.floodZone.r
+          );
+          if (out.length) dirs = out;
+        }
         const [wx, wz] = dirs[Math.floor(Math.random() * dirs.length)];
         await executeAction(
           bot,
