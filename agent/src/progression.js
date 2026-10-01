@@ -2774,8 +2774,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             // offer when the apply-time position (feet + vel*2.5 minus
             // ~0.25 of gravity decay) clears the destination cell's top
             const vy = bot.entity.velocity?.y ?? 0;
-            const feetAtApply = bot.entity.position.y + vy * 2.5 - 0.25;
-            if (vy > 0.08 && feetAtApply >= ref.position.y + 2.02) {
+            const feetNow = bot.entity.position.y;
+            // the server applies the place 1-3 ticks after the packet: the
+            // real feet must already clear the new block's top or it lands
+            // inside the body and the server silently refuses ("still air").
+            // The old prediction (feet+vy*2.5) offered mid-rise — the bot
+            // fell back into the cell before apply and ate 3 refusals/riser
+            if (vy > 0.05 && feetNow >= ref.position.y + 2.0) {
               try {
                 await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 8000, "placeBlock");
                 placed = true;
