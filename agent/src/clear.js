@@ -1006,7 +1006,11 @@ export class ClearRunner {
           }
         }
         if (bot.food != null && bot.food > 8) this._starveBail = 0;
-        if (bot.food != null && bot.food <= 4 && (this._starveBail || 0) < 2) {
+        // skip the 90s food window at night: every ensureFed branch is
+        // day/sky-gated, so the loop just burns ~100s per iteration while
+        // the shelter gate below is the only move that matters. Carried
+        // food still gets eaten by the 25s check above.
+        if (bot.food != null && bot.food <= 4 && !nightSoon && (this._starveBail || 0) < 2) {
           this.log(`[clear] starving (food=${bot.food}) — pausing for food`);
           const hungerT0 = Date.now();
           let foundFood = false;
