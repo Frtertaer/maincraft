@@ -4199,10 +4199,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
   });
   const armedForZombie =
     zombieReachable && bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
-  // fleeing prey needs sprint (food>6): walk 4.3m/s vs their flee ~4.2m/s
-  // means a chase closes ~0.1m/s — every attempt is a 0-hit timeout (the
-  // rabbit loop, then the identical pig loop). Chickens wander randomly
-  // and zombies come to us, so those stay catchable at walk speed
+  // sprint needs food>6, so a starving bot can only walk-chase. Livestock
+  // panic-flees in bursts then pauses — the walk closes during pauses, so a
+  // single bounded chase is worth it when nothing else is huntable. Rabbits
+  // juke continuously and stay pointless at walk speed.
   const canSprint = bot.food > 6;
   // cod/salmon are shore-only prey: the attack can't path to a fish below
   // the waterline from land, so from a dry spawn they are guaranteed 0-hit
@@ -4216,7 +4216,13 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
   })();
   const sitters = feetWet ? ["chicken", "cod", "salmon"] : ["chicken"];
-  const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : [];
+  // livestock panic-flees in ~5s bursts then stands still — a starving walk
+  // (4.3m/s) closes the gap during the pauses and lands the kill. It is the
+  // ONLY prey left in a basin with no chickens: gating it on sprint turned
+  // "food=0" into "zero huntable animals while pigs stood in render range"
+  // (speedrun6 starve-cycle). Rabbits stay sprint-only: their jukes never
+  // end inside a walk budget.
+  const fleet = canSprint ? ["cow", "pig", "sheep", "rabbit"] : ["cow", "pig", "sheep"];
   const preyList = [...sitters, ...fleet].concat(
     starving && !fragile && armedForZombie ? ["zombie"] : []
   );
@@ -4228,7 +4234,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // rabbits are a lottery ticket, not a strategy — they juke faster than a
     // hungry walk catches, so one shorter chase is the whole attempt
     // (speedrun6 burned ~2.5min on five straight 26s rabbit timeouts, 0 hits)
-    const tries = prey === "rabbit" ? 1 : 3;
+    const tries = prey === "rabbit" ? 1 : canSprint ? 3 : sitters.includes(prey) ? 3 : 1;
     // a starving walk catches sitters only when they stop — the chase is
     // marginal, so cap it short and let the loop try the next food source.
     // Except a chicken 50m out takes ~12s of walk just to reach — 14s
