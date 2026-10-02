@@ -4444,18 +4444,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // single bounded chase is worth it when nothing else is huntable. Rabbits
   // juke continuously and stay pointless at walk speed.
   const canSprint = bot.food > 6;
-  // cod/salmon are shore-only prey: the attack can't path to a fish below
-  // the waterline from land, so from a dry spawn they are guaranteed 0-hit
-  // timeouts (two 26s burns per food window on speedrun6). Keep them only
-  // when the bot is already in/near water depth.
-  const feetWet = (() => {
-    try {
-      return bot.blockAt(bot.entity.position.floored())?.name === "water";
-    } catch {
-      return false;
-    }
-  })();
-  const sitters = feetWet ? ["chicken", "cod", "salmon"] : ["chicken"];
+  // fish (cod/salmon) are never huntable via melee attack — even standing
+  // in the water the pathfinder can't reach a swimming entity, so every
+  // attempt is a guaranteed ~30s 0-hit timeout (two burns per food window
+  // dry, then four straight on speedrun6's flooded bank). Chicken only.
+  const sitters = ["chicken"];
   // livestock panic-flees ~5m/s — a starving walk (4.3m/s) never closes:
   // three straight 26s chases on speedrun6 landed 0 hits. Without sprint
   // the fleet list is pure burn; only a chicken's ~3m/s flee is walkable.
