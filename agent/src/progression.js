@@ -5318,6 +5318,14 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
       state.noLogStreak = (state.noLogStreak || 0) + 1;
       if (state.noLogStreak >= 3) {
         const p = bot.entity.position.floored();
+        // a committed trek outranks remembered sites — the sites that keep
+        // resolving are exactly what pulled the bot back into the dead basin.
+        // The leg-runner decrements and clears on a real stall (<24m moved).
+        if (state.trekLegs > 0 && state.trekDir) {
+          const msg = await runTrekLeg(bot, mcData, state, p);
+          state.noLogStreak = 1;
+          return { ok: true, message: msg };
+        }
         // ground that produced logs before beats a blind heading
         if (await gotoLogSite(bot, mcData, state, p)) {
           state.noLogStreak = 1;
@@ -5337,8 +5345,12 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
             [1, 0], [-1, 0], [0, 1], [0, -1],
             [1, 1], [-1, 1], [1, -1], [-1, -1],
           ];
+          const failedDirs = state.logTrekFailed || {};
           let bestScore = -1e9;
           for (const [bx, bz] of bearings) {
+            // a bearing that already stalled a leg stays dead for 10min —
+            // without the memory the picker re-picks the same blocked heading
+            if ((failedDirs[`${bx},${bz}`] || 0) > Date.now() - 600000) continue;
             const tx = p.x + bx * 300;
             const tz = p.z + bz * 300;
             let score = 0;
@@ -5359,22 +5371,10 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           state.wanderDir = null;
         }
         if (state.trekLegs > 0) {
-          const [bx, bz] = state.trekDir;
-          state.trekLegs -= 1;
-          if (!state.trekLegs) state.trekDir = null;
-          try {
-            await executeAction(
-              bot,
-              { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
-              mcData
-            );
-          } catch {
-            state.trekLegs = 0;
-            state.trekDir = null;
-          }
+          const msg = await runTrekLeg(bot, mcData, state, p);
           state.exploreHops += 1;
           state.noLogStreak = 1;
-          return { ok: true, message: `trek for forest (leg ${state.trekLegs})` };
+          return { ok: true, message: msg };
         }
         if (!state.wanderDir) {
           const dirs = [
@@ -5435,6 +5435,30 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     state.badDig.set(k, (state.badDig.get(k) || 0) + 1);
   }
   return dig;
+}
+
+// one leg of the committed forest trek — 60m along state.trekDir, decrement
+// legs, and on a real stall (<24m traveled) mark the bearing dead for 10min
+// so the picker never re-arms the same blocked heading
+async function runTrekLeg(bot, mcData, state, p) {
+  const [bx, bz] = state.trekDir;
+  state.trekLegs -= 1;
+  if (!state.trekLegs) state.trekDir = null;
+  try {
+    await executeAction(
+      bot,
+      { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
+      mcData
+    );
+  } catch {
+    const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+    if (moved < 24) {
+      (state.logTrekFailed = state.logTrekFailed || {})[`${bx},${bz}`] = Date.now();
+      state.trekLegs = 0;
+      state.trekDir = null;
+    }
+  }
+  return `trek for forest (leg ${state.trekLegs})`;
 }
 
 // walk to the nearest remembered productive log site — a plain that
@@ -5541,6 +5565,13 @@ async function phaseWood(bot, mcData, state, log) {
       if (state.woodZeroGain >= 4) {
         state.woodZeroGain = 0;
         const p = bot.entity.position.floored();
+        // an armed trek keeps its bearing — the previous code did ONE 180m
+        // hop then reset, so after 4 more zero-gains it re-picked a fresh
+        // heading and ping-ponged inside the same dead basin
+        if (state.trekLegs > 0 && state.trekDir) {
+          const msg = await runTrekLeg(bot, mcData, state, p);
+          return { ok: true, phase: "wood", message: msg };
+        }
         if (await gotoLogSite(bot, mcData, state, p)) {
           return { ok: true, phase: "wood", message: "zero-gain — back to log site" };
         }
@@ -5579,27 +5610,27 @@ async function phaseWood(bot, mcData, state, log) {
         }
         let trek = null;
         let trekScore = -Infinity;
+        const failedDirs = state.logTrekFailed || {};
         for (const [dx, dz] of [
-          [180, 0],
-          [-180, 0],
-          [0, 180],
-          [0, -180],
-          [128, 128],
-          [-128, 128],
-          [128, -128],
-          [-128, -128],
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+          [1, 1],
+          [-1, 1],
+          [1, -1],
+          [-1, -1],
         ]) {
-          const sx = Math.sign(dx);
-          const sz = Math.sign(dz);
-          const tx = p.x + dx;
-          const tz = p.z + dz;
+          if ((failedDirs[`${dx},${dz}`] || 0) > Date.now() - 600000) continue;
+          const tx = p.x + dx * 180;
+          const tz = p.z + dz * 180;
           if (campZones.some((c) => Math.hypot(c.x - tx, c.z - tz) < 150)) continue;
           let trees = 0;
           let wet = false;
           for (const step of [10, 25, 40]) {
-            const b = bot.blockAt(p.offset(sx * step, -1, sz * step));
+            const b = bot.blockAt(p.offset(dx * step, -1, dz * step));
             if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
-            const w = bot.blockAt(p.offset(sx * step, -1, sz * step));
+            const w = bot.blockAt(p.offset(dx * step, -1, dz * step));
             if (w && /water|kelp|ice|bubble/.test(w.name)) wet = true;
           }
           const score = trees * 3 - (wet ? 5 : 0) + Math.random();
@@ -5608,13 +5639,17 @@ async function phaseWood(bot, mcData, state, log) {
             trek = [dx, dz];
           }
         }
-        if (!trek) trek = pickDryDir(bot, [[180, 0], [-180, 0], [0, 180], [0, -180]]);
-        await executeAction(
-          bot,
-          { type: "goto", x: p.x + trek[0], y: p.y, z: p.z + trek[1], range: 6, timeoutMs: 45000 },
-          mcData
-        ).catch(() => null);
-        return { ok: true, phase: "wood", message: "zero-gain — trekking for forest" };
+        if (!trek) {
+          const dry = pickDryDir(bot, [[180, 0], [-180, 0], [0, 180], [0, -180]]) || [180, 0];
+          trek = [Math.sign(dry[0] || 1), Math.sign(dry[1] || 0)];
+        }
+        // arm the shared committed trek — later steps keep the bearing via
+        // runTrekLeg until logs are found or the legs run out
+        state.trekDir = trek;
+        state.trekLegs = 5;
+        state.wanderDir = null;
+        const msg = await runTrekLeg(bot, mcData, state, p);
+        return { ok: true, phase: "wood", message: msg };
       }
       // dug logs but the drops landed somewhere unreachable — walk onto the
       // nearest dropped log/plank item and let the pickup radius grab it
