@@ -4994,14 +4994,26 @@ export async function ensureFed(bot, mcData, log, state = null) {
       const skyWp = (state.trail || [])
         .slice()
         .reverse()
-        .find((w) => w.sky);
+        // the flag is only as good as the moment it was sampled — a waypoint
+        // that reads dark now (cave-in, never really lit) would pull the bot
+        // back down after every digger makes progress, looping forever
+        .find(
+          (w) =>
+            w.sky &&
+            ((bot.blockAt(new Vec3(Math.floor(w.x), Math.floor(w.y), Math.floor(w.z)))?.skyLight ?? 0) > 4)
+        );
       if (skyWp) {
         const w2 = await executeAction(
           bot,
           { type: "goto", x: skyWp.x, y: skyWp.y, z: skyWp.z, range: 4, timeoutMs: 16000 },
           mcData
         ).catch(() => ({ ok: false }));
-        if (w2.ok || bot.entity.position.y > p0.y + 6)
+        // the waypoint can sit within range=4 through a wall — an instant ok
+        // without actual skylight just hot-loops "climbed out" every second.
+        // Only call it climbed when the head is really sky-lit (or we gained
+        // real altitude); dark = fall through to the diggers
+        const headSky = bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0;
+        if ((w2.ok || bot.entity.position.y > p0.y + 6) && (headSky > 4 || bot.entity.position.y > p0.y + 10))
           return { ok: true, ate, message: "climbed out along the trail" };
       }
     }
