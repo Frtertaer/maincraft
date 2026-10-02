@@ -2055,6 +2055,30 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // a failed dig leaves the bot standing exposed — relocate to a different
   // patch of ground and try the whole burrow again instead of giving up
   let triedLogs = false;
+  // bare-handed underground nothing can ever seal: every wall is undiggable
+  // and no soft site scans. The only ground a bare hand can still burrow
+  // into is surface dirt — climb to a skylit block first
+  const climbToDaylight = async () => {
+    const sky = bot.findBlocks({
+      matching: (b) => {
+        const bb = b?.position ? b : bot.blockAt(b);
+        return bb && (bb.skyLight ?? 0) >= 8;
+      },
+      maxDistance: 56,
+      count: 1,
+    });
+    if (!sky.length) return false;
+    try {
+      await executeAction(
+        bot,
+        { type: "goto", x: sky[0].x + 0.5, y: sky[0].y + 1, z: sky[0].z + 0.5, range: 2, timeoutMs: 20000 },
+        mcData
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const retryElsewhere = async (why) => {
     if (_depth >= 4) return false;
     log?.(`[burrow] ${why} — relocating`);
@@ -2076,31 +2100,6 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         }
       }
     }
-    // bare-handed underground in an all-stone cave nothing can ever seal:
-    // every wall is undiggable and no soft site scans. After repeated
-    // failures climb to a skylit block — surface dirt is the only ground
-    // a bare hand can still burrow into
-    const climbToDaylight = async () => {
-      const sky = bot.findBlocks({
-        matching: (b) => {
-          const bb = b?.position ? b : bot.blockAt(b);
-          return bb && (bb.skyLight ?? 0) >= 8;
-        },
-        maxDistance: 56,
-        count: 1,
-      });
-      if (!sky.length) return false;
-      try {
-        await executeAction(
-          bot,
-          { type: "goto", x: sky[0].x + 0.5, y: sky[0].y + 1, z: sky[0].z + 0.5, range: 2, timeoutMs: 20000 },
-          mcData
-        );
-        return true;
-      } catch {
-        return false;
-      }
-    };
     const bareHands = !bot.inventory.items().some((i) => /pickaxe/.test(i.name));
     const headSky =
       bot.blockAt(bot.entity.position.floored().offset(0, 1, 0))?.skyLight ?? 0;
