@@ -4861,25 +4861,33 @@ export async function ensureFed(bot, mcData, log, state = null) {
     if ((state.foodWanderLeg || 0) >= 5 && !state.foodTrekDir) {
       const camps = campZonesFor(bot, state);
       const deadVills = state.villageDead || [];
+      const failedDirs = state.foodTrekFailed || {};
       const bearings = [
         [1, 0], [-1, 0], [0, 1], [0, -1],
         [1, 1], [-1, 1], [1, -1], [-1, -1],
       ];
       const safe = bearings.filter(([bx, bz]) => {
+        // a direction whose legs already failed gets a 10min rest — re-picking
+        // the same dead bearing every 30s is the observed basin spin
+        if ((failedDirs[`${bx},${bz}`] || 0) > Date.now() - 600000) return false;
         const tx = p.x + bx * 300;
         const tz = p.z + bz * 300;
         if (camps.some((c) => Math.hypot(tx - c.x, tz - c.z) < 150)) return false;
         if (deadVills.some((v) => Date.now() - v.at < 1800000 && Math.hypot(tx - v.x, tz - v.z) < 120)) return false;
         return true;
       });
-      const pick = pickDryDir(
-        bot,
-        (safe.length ? safe : bearings).map(([bx, bz]) => [bx * 300, bz * 300])
-      );
-      state.foodTrekDir = [Math.sign(pick[0]), Math.sign(pick[1])];
-      state.foodTrekLegs = 5;
-      state.foodWanderDir = null;
-      log?.(`[food] basin stripped — trekking ${state.foodTrekDir} for ~300m`);
+      if (safe.length) {
+        const pick = pickDryDir(
+          bot,
+          safe.map(([bx, bz]) => [bx * 300, bz * 300])
+        );
+        state.foodTrekDir = [Math.sign(pick[0]), Math.sign(pick[1])];
+        state.foodTrekLegs = 5;
+        state.foodWanderDir = null;
+        log?.(`[food] basin stripped — trekking ${state.foodTrekDir} for ~300m`);
+      } else {
+        log?.("[food] every trek bearing dead — staying on wander");
+      }
     }
     if (state.foodTrekLegs > 0) {
       const [bx, bz] = state.foodTrekDir;
@@ -4891,14 +4899,26 @@ export async function ensureFed(bot, mcData, log, state = null) {
         state.foodWanderLeg = 0;
         state.foodWanderDir = null;
       }
-      const r = await executeAction(
+      let r = await executeAction(
         bot,
         { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 6, timeoutMs: 30000 },
         mcData
       ).catch(() => ({ ok: false }));
       if (!r?.ok) {
-        const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+        let moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
         if (moved < 24) {
+          // the 60m hop pathfinds dead in broken terrain — a half-hop at the
+          // same bearing gets around cliffs/water the far target can't
+          r = await executeAction(
+            bot,
+            { type: "goto", x: p.x + bx * 24, y: p.y, z: p.z + bz * 24, range: 5, timeoutMs: 20000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+        }
+        if (moved < 14) {
+          state.foodTrekFailed = state.foodTrekFailed || {};
+          state.foodTrekFailed[`${bx},${bz}`] = Date.now();
           state.foodTrekLegs = 0;
           state.foodTrekDir = null;
         }
