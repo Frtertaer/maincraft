@@ -995,6 +995,7 @@ async function boundedCombat(bot, action) {
   const deadline = Date.now() + maxDurationMs;
   let hits = 0;
   let lastIntercept = null;
+  let lastDist = null;
 
   try {
     while (Date.now() < deadline) {
@@ -1003,12 +1004,19 @@ async function boundedCombat(bot, action) {
       }
       target = bot.entities[targetId];
       if (!target || target.isValid === false) {
-        return hits > 0
-          ? { ok: true, message: `target ${label} gone after ${hits} hit(s)` }
-          : { ok: false, message: `target ${label} disappeared before attack` };
+        // "gone" is a kill only when the entity vanished inside melee reach —
+        // the same state also fires when the target unloads past render
+        // range (~60m+), which is an ESCAPE not a kill. A fleeing sheep
+        // outruns a starving walker and unloads; reporting ok there prints
+        // "sheep down" with wool=0 and drop-walks a corpse that doesn't exist
+        if (hits > 0 && lastDist != null && lastDist <= 8) {
+          return { ok: true, message: `target ${label} gone after ${hits} hit(s)` };
+        }
+        return { ok: false, message: `target ${label} disappeared before attack` };
       }
 
       const distance = distanceBetween(bot.entity.position, target.position);
+      lastDist = distance;
       // passive prey sprints when hit — the ~36m escape leash is how every
       // sheep hunt ends with zero wool. persistent hunts hold the chase and
       // only give up when the target is truly gone (despawned / 60m out)
