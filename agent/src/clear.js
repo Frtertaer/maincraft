@@ -1502,19 +1502,43 @@ export class ClearRunner {
         }
 
         const stuckThresh = phaseAfter === "diamond" || phaseAfter === "portal" || phaseAfter === "nether" ? 20 : 12;
-        if (samePhaseSteps >= stuckThresh && this.brain) {
-          this.log("[clear] STUCK — brain.step()");
-          try {
-            this.brain.unsuspend();
-            this.brain.queueCommand(
-              `Застрял в фазе ${phaseAfter} во время прохождения. Выбери действия чтобы продвинуться: копай лестницу вниз/вперёд, поднимись, обойди препятствие.`,
-              "clear-mode"
-            );
-            await this.brain.step();
-          } catch (err) {
-            this.log(`[clear] brain step fail: ${err?.message || err}`);
-          } finally {
-            this.brain.suspend();
+        if (samePhaseSteps >= stuckThresh) {
+          // handing one step to the planner while a hostile is in range is how
+          // the last deaths happened — Opus stands the bot still mid-thought
+          // and a creeper closes the gap. Under a live threat the unstick is
+          // a deterministic sprint burst instead; brain.step only when clear
+          if (hardThreat()) {
+            const foe = Object.values(bot.entities || {})
+              .filter((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || "").toLowerCase();
+                return e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+              })
+              .sort(
+                (a, b) =>
+                  a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
+              )[0];
+            if (foe) {
+              const away = bot.entity.position.minus(foe.position);
+              this.log(`[clear] STUCK + ${foe.name} — sprint unstick, no planner`);
+              await sprintBurst(Math.sign(away.x || 1) * 40, Math.sign(away.z || 1) * 40, 2500).catch(() => {});
+            } else {
+              this.log("[clear] STUCK — threat flagged, no target; burrow next");
+            }
+          } else if (this.brain) {
+            this.log("[clear] STUCK — brain.step()");
+            try {
+              this.brain.unsuspend();
+              this.brain.queueCommand(
+                `Застрял в фазе ${phaseAfter} во время прохождения. Выбери действия чтобы продвинуться: копай лестницу вниз/вперёд, поднимись, обойди препятствие.`,
+                "clear-mode"
+              );
+              await this.brain.step();
+            } catch (err) {
+              this.log(`[clear] brain step fail: ${err?.message || err}`);
+            } finally {
+              this.brain.suspend();
+            }
           }
           samePhaseSteps = 0;
           // hard-trap escalation: the planner had its shots and the phase
