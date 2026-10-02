@@ -2080,6 +2080,27 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // every wall is undiggable and no soft site scans. After repeated
     // failures climb to a skylit block — surface dirt is the only ground
     // a bare hand can still burrow into
+    const climbToDaylight = async () => {
+      const sky = bot.findBlocks({
+        matching: (b) => {
+          const bb = b?.position ? b : bot.blockAt(b);
+          return bb && (bb.skyLight ?? 0) >= 8;
+        },
+        maxDistance: 56,
+        count: 1,
+      });
+      if (!sky.length) return false;
+      try {
+        await executeAction(
+          bot,
+          { type: "goto", x: sky[0].x + 0.5, y: sky[0].y + 1, z: sky[0].z + 0.5, range: 2, timeoutMs: 20000 },
+          mcData
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
     const bareHands = !bot.inventory.items().some((i) => /pickaxe/.test(i.name));
     const headSky =
       bot.blockAt(bot.entity.position.floored().offset(0, 1, 0))?.skyLight ?? 0;
@@ -2090,26 +2111,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       Date.now() - (state?._burrowSurfacedAt || 0) > 600000
     ) {
       if (state) state._burrowSurfacedAt = Date.now();
-      const sky = bot.findBlocks({
-        matching: (b) => {
-          const bb = b?.position ? b : bot.blockAt(b);
-          return bb && (bb.skyLight ?? 0) >= 8;
-        },
-        maxDistance: 56,
-        count: 1,
-      });
-      if (sky.length) {
-        log?.("[burrow] bare-handed underground — climbing to daylight");
-        try {
-          await executeAction(
-            bot,
-            { type: "goto", x: sky[0].x + 0.5, y: sky[0].y + 1, z: sky[0].z + 0.5, range: 2, timeoutMs: 20000 },
-            mcData
-          );
-        } catch {
-          /* no route up — fall through to the normal relocate */
-        }
-      }
+      log?.("[burrow] bare-handed underground — climbing to daylight");
+      await climbToDaylight();
     }
     // a bare-handed bot can only shelter in soft ground — head for the
     // nearest diggable surface block instead of wandering blindly
@@ -2591,6 +2594,26 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           ? "[burrow] LOS wall up vs ranged camper — pillaring behind it"
           : "[burrow] no wall vs ranged camper — pillaring anyway, open-plain flight is a death sentence"
       );
+    }
+    // a pillar needs open sky — under a solid lid every riser comes back
+    // "no headroom" and each relocate just finds another roofed column.
+    // Bare-handed the lid can't be dug through either (stone-tier needs a
+    // pickaxe), so the only shelter left is the surface: climb to daylight
+    // first instead of looping doomed pillar attempts underground
+    {
+      const feetC = bot.entity.position.floored();
+      let lid = null;
+      for (let dy = 2; dy <= 7 && !lid; dy += 1) {
+        const b = bot.blockAt(feetC.offset(0, dy, 0));
+        if (b && !/air|cave_air|void_air|water|bubble_column|snow|tall_grass|grass|fern|vine|ladder/.test(b.name)) lid = b;
+      }
+      const pickless = !bot.inventory.items().some((i) => /pickaxe/.test(i.name));
+      if (lid && pickless && !diggable(lid)) {
+        log?.(`[burrow] ${lid.name} lid overhead — pillar impossible, climbing out`);
+        if (await climbToDaylight()) return retryElsewhere("surfaced to daylight");
+        log?.("[burrow] no way to the surface — no shelter possible here");
+        return false;
+      }
     }
     // last resort: pillar up where we stand — mobs can't climb 6+ blocks
     // (skeletons can still shoot; still better than standing on the ground)
