@@ -1294,10 +1294,31 @@ export class ClearRunner {
             if (burrowed) this._lastBurrow = Date.now();
             // day-hide ends at ~90s whether or not the camper left (creepers
             // don't burn) — if it's still camped on us, sprint out of its
-            // 14m reach instead of looping straight back into a burrow
-            if (burrowed && !isNight && hostileClose()) {
-              const [fdx2, fdz2] = pickDryDir(bot, [[70, 0], [-70, 0], [0, 70], [0, -70]]);
-              this.log(`[clear] day-flee ${fdx2},${fdz2} — camper survived the hide`);
+            // 14m reach instead of looping straight back into a burrow.
+            // Same for a release inside a marked camp zone: safe() cleared
+            // only means nothing was within 40m at that tick — campers drift
+            // back in over the next ~30s while the step works beside the
+            // pocket (the "dawn out → gather → dead in 37s" loop), so inside
+            // the ring the escape leg runs first, aimed straight out of the
+            // camp centroid
+            const czDawn = this.state?.campZone;
+            const inCampDawn = czDawn &&
+              Math.hypot(bot.entity.position.x - czDawn.x, bot.entity.position.z - czDawn.z) < 150;
+            // isNight is stale here — it was read before a ~10min burrow.
+            // Fresh tod read: after a night burrow releases at dawn inside
+            // the camp the day-flee must actually fire
+            const todNow = bot.time?.timeOfDay;
+            const dayNow = todNow != null && todNow < 12541;
+            if (burrowed && dayNow && (hostileClose() || inCampDawn)) {
+              let dawnDirs = [[70, 0], [-70, 0], [0, 70], [0, -70]];
+              if (inCampDawn) {
+                const axD = bot.entity.position.x - czDawn.x;
+                const azD = bot.entity.position.z - czDawn.z;
+                const nD = Math.hypot(axD, azD) || 1;
+                dawnDirs = [[Math.round((axD / nD) * 210), Math.round((azD / nD) * 210)], ...dawnDirs];
+              }
+              const [fdx2, fdz2] = pickDryDir(bot, dawnDirs);
+              this.log(`[clear] day-flee ${fdx2},${fdz2} — ${inCampDawn ? "inside camp zone" : "camper survived the hide"}`);
               // sustained sprint until the camper is beyond ~52m — a burst+goto
               // walks at ~4.3m/s and a tracking creeper stays in fuse range
               await fleeUntilClear(fdx2, fdz2, 10).catch(() => {});
