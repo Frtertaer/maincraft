@@ -4408,10 +4408,17 @@ export async function ensureFed(bot, mcData, log, state = null) {
   const canSeeSky = (() => {
     try {
       const feet = bot.entity.position.floored();
+      let sawBlock = false;
       for (let dy = 0; dy < 3; dy++) {
         const b = bot.blockAt(feet.offset(0, dy, 0));
-        if (b && (b.skyLight ?? 0) > 4) return true;
+        if (!b) continue;
+        sawBlock = true;
+        if ((b.skyLight ?? 0) > 4) return true;
       }
+      // loaded blocks with no skylight = genuinely indoors — a cave floor at
+      // y>58 must not read as surface (starve-walk + food trek spun all 8
+      // bearings dead in a cave at y=60)
+      if (sawBlock) return false;
     } catch {
       /* unknown — assume indoor */
     }
