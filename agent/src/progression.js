@@ -5168,12 +5168,19 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           await ensureCraft(bot, mcData, logName, 4).catch(() => {});
         }
         if (countItem(bot, (i) => i.name.endsWith("_planks")) >= 3) {
-          const wool =
-            bot.inventory.items().find((i) => /wool$/.test(i.name) && i.count >= 3) ||
-            bot.inventory.items().find((i) => /wool$/.test(i.name));
-          const color = wool ? wool.name.replace("_wool", "") : "white";
-          const t = await ensureTable(bot, mcData);
-          if (t.ok) await ensureCraft(bot, mcData, `${color}_bed`, 1).catch(() => {});
+          // a bed needs 3 wool of ONE color — the first stack found can be a
+          // lone gray among whites, and crafting "gray_bed" with 1 gray wool
+          // just fails in silence forever (the "Шерсть есть" → "no bed" loop)
+          const byColor = {};
+          for (const i of bot.inventory.items()) {
+            if (/(?:^|_)wool$/.test(i.name)) byColor[i.name] = (byColor[i.name] || 0) + i.count;
+          }
+          const colorWool = Object.keys(byColor).find((n) => byColor[n] >= 3);
+          if (colorWool) {
+            const t = await ensureTable(bot, mcData);
+            if (t.ok)
+              await ensureCraft(bot, mcData, `${colorWool.replace("_wool", "")}_bed`, 1).catch(() => {});
+          }
         }
       }
     }
