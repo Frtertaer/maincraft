@@ -5065,9 +5065,10 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     // a pass that gained no real altitude proved the gotos dead — next pass
     // goes straight to the diggers instead of burning the window in
-    // pathfinder timeouts again. Gaining ground clears it so a later,
-    // easier cave can still try walking first
-    state.foodClimbDigMode = bot.entity.position.y <= p0.y + 1;
+    // pathfinder timeouts again. Sticky once set: the same cave is still a
+    // maze next pass, and the gate stops firing entirely once the bot is
+    // actually above ground, so keeping it costs nothing
+    if (bot.entity.position.y <= p0.y + 1) state.foodClimbDigMode = true;
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
