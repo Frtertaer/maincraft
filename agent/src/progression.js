@@ -4984,7 +4984,16 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // day only: climbing out of a sealed pocket into the night mob field is
   // worse than starving below — the pocket holds until dawn, the field
   // doesn't (speedrun6 surfaced at tod=20727 into it)
-  if (bot.food <= 4 && !canSeeSky && state && (bot.time?.timeOfDay ?? 0) < 12541 && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
+  const todNow = bot.time?.timeOfDay ?? 0;
+  // a climb takes ~300 ticks per y-gained (dig+place+goto per stair) —
+  // starting one that can't top out before dusk means surfacing into the
+  // night mob field (the actual death this gate exists to prevent, twice
+  // on speedrun6). Dawn starts (tod<2000) always run: partial progress
+  // seals mid-shaft at dusk and resumes next dawn. Later starts need an
+  // ETA that lands in daylight
+  const estClimbTicks = Math.max(0, 95 - bot.entity.position.y) * 300 + 600;
+  const climbWindow = todNow < 2000 || todNow + estClimbTicks < 11500;
+  if (bot.food <= 4 && !canSeeSky && state && climbWindow && Date.now() - (state.foodClimbFailAt || 0) > 120000) {
     const p0 = bot.entity.position.floored();
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
     // breadcrumbs first: the corridor the bot came down through is already
