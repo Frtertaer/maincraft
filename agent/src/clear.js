@@ -1076,11 +1076,40 @@ export class ClearRunner {
                 /^(zombie|husk|drowned)$/.test(String(e.name || e.displayName || "").toLowerCase())
               );
               const armed = bot.inventory.items().some((i) => /_(sword|axe)$/.test(i.name));
-              if (!(fleshStalkers.length === 1 && mobsNear.length === 1 && armed && (bot.health ?? 20) > 12)) {
-                this.log(`[clear] starving + hostile near — shelter before food`);
-                break;
+              if (fleshStalkers.length === 1 && mobsNear.length === 1 && armed && (bot.health ?? 20) > 12) {
+                this.log(`[clear] starving — the stalker IS food (hunting it)`);
+              } else {
+                // a lone slow melee stalker can't catch a walking bot (zombie
+                // 2.3 m/s vs walk 4.3) — kite it with a walk-away leg and keep
+                // the food window running. Sheltering sealed→exited→same
+                // zombie→sealed forever while food stayed 0 (grave-starve)
+                const dayNow2 = (bot.time?.timeOfDay ?? 0) < 12541;
+                const slowStalker =
+                  dayNow2 &&
+                  mobsNear.length === 1 &&
+                  /^(zombie|husk|drowned|zombie_villager|slime)$/.test(
+                    String(mobsNear[0].name || mobsNear[0].displayName || "").toLowerCase()
+                  );
+                if (slowStalker) {
+                  const away = bot.entity.position.minus(mobsNear[0].position);
+                  this.log(`[clear] starving — kiting lone ${mobsNear[0].name}, hunt continues`);
+                  await executeAction(
+                    bot,
+                    {
+                      type: "goto",
+                      x: p0.x + Math.sign(away.x || 1) * 50,
+                      y: p0.y,
+                      z: p0.z + Math.sign(away.z || 1) * 50,
+                      range: 4,
+                      timeoutMs: 12000,
+                    },
+                    this.mcData
+                  ).catch(() => {});
+                } else {
+                  this.log(`[clear] starving + hostile near — shelter before food`);
+                  break;
+                }
               }
-              this.log(`[clear] starving — the stalker IS food (hunting it)`);
             }
             try {
               const fed2 = await ensureFed(bot, this.mcData, this.log, this.state);
