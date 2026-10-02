@@ -198,7 +198,40 @@ export class ClearRunner {
             const dx = me.x - dp.x;
             const dz = me.z - dp.z;
             const len = Math.hypot(dx, dz) || 1;
-            void sprintBurst((dx / len) * 40, (dz / len) * 40, 7000).catch(() => {});
+            // naive away-from-death marches it back into a camped landing —
+            // the respawn spiral. Score candidates like a trek pick: dry
+            // runway, landing outside every kill ring and the camp centroid
+            const killPtsR = [
+              ...(this.state?._deathPts || []),
+              ...((deathZonesLoadFile(this.bot) || {}).pts || []),
+            ].filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+            const czR = this.state?.campZone;
+            const inKill = (x, z) =>
+              killPtsR.some((c) => Math.hypot(x - c.x, z - c.z) < 80) ||
+              (czR && Math.hypot(x - czR.x, z - czR.z) < 150);
+            const ux = dx / len;
+            const uz = dz / len;
+            const cands = [
+              [ux, uz],
+              [-uz, ux],
+              [uz, -ux],
+              [-ux, -uz],
+            ];
+            if (czR) {
+              const ax = me.x - czR.x;
+              const az = me.z - czR.z;
+              const an = Math.hypot(ax, az) || 1;
+              cands.unshift([ax / an, az / an]); // straight out of the camp
+            }
+            let bestR = null;
+            for (const [cx2, cz2] of cands) {
+              const lx = me.x + cx2 * 40;
+              const lz = me.z + cz2 * 40;
+              const kill = inKill(lx, lz);
+              const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz); // prefer free landings, bias away-from-death
+              if (!bestR || score > bestR.score) bestR = { score, dx: cx2 * 40, dz: cz2 * 40 };
+            }
+            void sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {});
           }
         } catch {
           /* ignore */
