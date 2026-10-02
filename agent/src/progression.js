@@ -4989,8 +4989,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
     log?.(`[food] starving underground — staircasing for surface (y=${Math.floor(bot.entity.position.y)})`);
     // breadcrumbs first: the corridor the bot came down through is already
     // open, so the newest sky-lit waypoint on the trail is walkable without
-    // a single pickaxe swing — re-digging a staircase burned whole days
-    {
+    // a single pickaxe swing — re-digging a staircase burned whole days.
+    // But in a mined maze both gotos burn ~80s of pathfinder timeouts before
+    // the diggers get scraps — after one pass that gained no altitude, skip
+    // them and go straight to the diggers (the ratchet never gaining y)
+    if (!state.foodClimbDigMode) {
       const skyWp = (state.trail || [])
         .slice()
         .reverse()
@@ -5022,11 +5025,13 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // diggers below can never finish, while the walked path is already
     // proven. Only a real climb counts; a 12s no-path timeout falls through
     // to the diggers
-    const w = await executeAction(
-      bot,
-      { type: "goto", x: p0.x, y: p0.y + 18, z: p0.z, range: 4, timeoutMs: 12000 },
-      mcData
-    ).catch(() => ({ ok: false }));
+    const w = !state.foodClimbDigMode
+      ? await executeAction(
+          bot,
+          { type: "goto", x: p0.x, y: p0.y + 18, z: p0.z, range: 4, timeoutMs: 12000 },
+          mcData
+        ).catch(() => ({ ok: false }))
+      : { ok: false };
     if (w.ok || bot.entity.position.y > p0.y + 6)
       return { ok: true, ate, message: "walked back up for food" };
     const up = await stairwayUp(bot, mcData, 14, log);
@@ -5058,6 +5063,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
       // a hostile overhead-adjacent spot isn't worth a second column — keep hopping
       if (findHostile(bot, 8)) break;
     }
+    // a pass that gained no real altitude proved the gotos dead — next pass
+    // goes straight to the diggers instead of burning the window in
+    // pathfinder timeouts again. Gaining ground clears it so a later,
+    // easier cave can still try walking first
+    state.foodClimbDigMode = bot.entity.position.y <= p0.y + 1;
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
