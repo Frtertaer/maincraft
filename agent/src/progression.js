@@ -5081,6 +5081,20 @@ export async function ensureFed(bot, mcData, log, state = null) {
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
+  // Every actionable path is gated (night + underground seals hunts, treks
+  // and walks; the climb may be cooling or outside its daylight window).
+  // Starving is survivable — hp floor 1 on normal — so the right move is
+  // hold position and re-scan next ticks, NOT an instant failed step:
+  // instant-false burned a stuck tick ~1/s doing literally nothing while
+  // the bot was waiting anyway (speedrun6 spun 12 straight "food: hunger"
+  // fails into a /kill — the kill itself was a fine escape, but a third
+  // recurrence would spin forever once unstickKills are spent). Holding
+  // paces the loop to ~6s/tick so dawn, a drop, or a climb-cooldown can
+  // open a real path before the counter runs out.
+  if (bot.food != null && bot.food <= 4) {
+    await sleep(5000);
+    return { ok: true, ate, message: "no food path — holding" };
+  }
   return { ok: bot.food > 4, ate };
 }
 
