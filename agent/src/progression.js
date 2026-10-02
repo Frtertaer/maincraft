@@ -4913,7 +4913,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
         [0, 60],
         [0, -60],
       ]);
-      state.foodWanderLeg = 0;
+      // do NOT reset foodWanderLeg here — every non-spiral ensureFed path
+      // (underground climb, grave interrupt, village detour) ends by wiping
+      // foodWanderDir, so resetting the leg on re-pick meant the counter
+      // could never reach the basin-stripped trek threshold. It only
+      // resets when a committed trek arrives in fresh ground
     }
     // same expanding square spiral as the log wander — a fixed heading can
     // starve-walk a biome strip away from every herd
