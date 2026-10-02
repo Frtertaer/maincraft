@@ -4479,8 +4479,8 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // budgets timed out at 0 hits twice on speedrun6
     // bare-handed kills take ~10 swings — a cow/pig lands 8 hits inside
     // 14s then times out mid-kill (speedrun6 pig hunt). Starving chases
-    // get the full 26s; rabbits keep the short lottery ticket.
-    const chaseMs = prey === "rabbit" ? 12000 : 26000;
+    // get the full 34s; rabbits keep the short lottery ticket.
+    const chaseMs = prey === "rabbit" ? 12000 : 34000;
     for (let i = 0; i < tries && bot.food < 12; i++) {
       const r = await executeAction(
         bot,
@@ -5141,7 +5141,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       for (let i = 0; i < 5 && woolCount() < 3; i++) {
         const r = await executeAction(
           bot,
-          { type: "attack", name: "sheep", maxDurationMs: 25000, maxDistance: 64, persistent: true },
+          { type: "attack", name: "sheep", maxDurationMs: 40000, maxDistance: 64, persistent: true },
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) {
