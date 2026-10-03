@@ -4597,7 +4597,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // chunks, so keep moving along one heading until something spawns.
   // Underground it can only time out — no animals spawn below ground, and a
   // wander goto just crashes into rock; keep working hungry instead.
-  if (bot.food <= 4 && state && canSeeSky && (bot.time?.timeOfDay ?? 0) < 12541) {
+  // A COMMITTED trek rides out regardless: stepping under a ledge mid-trek
+  // flips canSeeSky and the walk dissolved into "hold" every other tick —
+  // a 300m bearing that dies under one tree canopy (speedrun6 treks kept
+  // aborting at leg 3-4 into 6s holds until the stuck counter fired)
+  if (bot.food <= 4 && state && (canSeeSky || (state.foodTrekLegs || 0) > 0) && (bot.time?.timeOfDay ?? 0) < 12541) {
     // a stash chest IS food — the restart kit stocks bread/meat. Raid the
     // nearest recorded chest before wandering blind for a herd (speedrun6
     // starved in a shelter loop at food=0 for ~40min with a full kit 60m away).
