@@ -1767,8 +1767,23 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
     if (!hasPickaxe(bot)) {
       const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
       if (!pk?.ok) {
-        log?.(`[stripMine] pickaxe gone and not recraftable (${pk?.message || "?"}) — bailing`);
-        break;
+        // bare hands still clear a dirt tunnel — only bail when every face
+        // needs a pick. A lockdown escape through a dirt bank has to stay
+        // available to a naked respawn with no wood in reach
+        const handDig = (b) =>
+          b &&
+          /dirt|grass_block|sand|gravel|clay|mud|snow|podzol|mycelium|coarse_dirt|rooted_dirt|farmland|moss_block|soul_sand|soul_soil|_leaves/.test(
+            b.name || ""
+          );
+        const canHand = dirs.some(([tx, tz]) => {
+          const f = bot.blockAt(p.offset(tx, 0, tz));
+          const h = bot.blockAt(p.offset(tx, 1, tz));
+          return handDig(f) || handDig(h);
+        });
+        if (!canHand) {
+          log?.(`[stripMine] pickaxe gone and not recraftable (${pk?.message || "?"}) — bailing`);
+          break;
+        }
       }
     }
     const floor = bot.blockAt(p.offset(dx, -1, dz));
