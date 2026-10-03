@@ -2025,6 +2025,104 @@ async function steerSwimTo(bot, x, z, ms = 10000) {
   bot.setControlState("sprint", false);
 }
 
+// ── home: a sealed pocket is already the safest room on the map — sink a
+// chest into the deep floor (the kit survives every death) and claim a bed
+// at the deep end (respawn lands INSIDE the seal), and every later death
+// wakes up behind the wall instead of the camped world spawn. The burrow
+// the runner already digs becomes a permanent base for ~1 craft.
+async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, px, pz) {
+  if (!state || !pocketDeep) return false;
+  const deep = { x: Math.floor(pocketDeep.x), y: pocketDeep.y, z: Math.floor(pocketDeep.z) };
+  let chestOk = false;
+  try {
+    const nearChest = bot.findBlock?.({ matching: (b) => b && b.name === "chest", maxDistance: 5 });
+    if (!nearChest) {
+      if (countItem(bot, "chest") < 1) {
+        await ensurePlanks(bot, mcData, 8).catch(() => {});
+        if (countItem(bot, (i) => i.name.includes("planks")) >= 8)
+          await ensureCraft(bot, mcData, "chest", 1).catch(() => {});
+      }
+      if (countItem(bot, "chest") >= 1) {
+        const floor = bot.blockAt(new Vec3(deep.x, deep.y - 1, deep.z));
+        const cell = bot.blockAt(new Vec3(deep.x, deep.y, deep.z));
+        if (floor && floor.name !== "air" && !/lava|water/.test(floor.name) && cell?.name === "air") {
+          await executeAction(bot, { type: "dig", x: deep.x, y: deep.y - 1, z: deep.z, timeoutMs: 10000 }, mcData).catch(() => {});
+          const p = await executeAction(
+            bot,
+            { type: "place", item: "chest", x: deep.x, y: deep.y - 1, z: deep.z, face: "top", timeoutMs: 8000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (p.ok && bot.blockAt(new Vec3(deep.x, deep.y - 1, deep.z))?.name === "chest") {
+            stashRecord({ x: deep.x, y: deep.y - 1, z: deep.z }, bot);
+            state.stash = { x: deep.x, y: deep.y - 1, z: deep.z };
+            chestOk = true;
+            log?.("[home] chest sunk into the pocket floor");
+          }
+        }
+      }
+    } else chestOk = true;
+  } catch {
+    /* chest is best-effort */
+  }
+  if (chestOk) await stashDeposit(bot, mcData, log, state).catch(() => {});
+  // bed head at the deepest cell, foot one back toward the plug — vanilla's
+  // respawn scan finds air on top of the bed inside the 2-tall corridor, so
+  // the anchor lands the bot inside the seal. If the head's floor became
+  // the chest, shift the whole bed one cell toward the plug
+  let bedOk = false;
+  const bedIt = bot.inventory.items().find((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name));
+  if (bedIt && !state.home?.claimed) {
+    try {
+      const clear = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name === "air";
+      const solid = (x, y, z) => {
+        const b = bot.blockAt(new Vec3(x, y, z));
+        return b && !/air|water|lava/.test(b.name);
+      };
+      let hx = deep.x, hz = deep.z, fx = deep.x - px, fz = deep.z - pz;
+      if (!solid(hx, deep.y - 1, hz)) {
+        hx = fx; hz = fz; fx = deep.x - 2 * px; fz = deep.z - 2 * pz;
+      }
+      if (
+        clear(hx, deep.y, hz) && clear(hx, deep.y + 1, hz) &&
+        clear(fx, deep.y, fz) && clear(fx, deep.y + 1, fz) &&
+        solid(hx, deep.y - 1, hz) && solid(fx, deep.y - 1, fz)
+      ) {
+        // the bed's foot lands on the far side of the player's facing —
+        // face toward the plug so the foot doesn't overshoot the corridor
+        await bot.look(Math.atan2(px, pz), 0, true).catch(() => {});
+        const pl = await executeAction(
+          bot,
+          { type: "place", item: bedIt.name, x: hx, y: deep.y, z: hz, face: "top", timeoutMs: 8000 },
+          mcData
+        ).catch(() => ({ ok: false }));
+        if (pl.ok) {
+          const bb = bot.findBlock?.({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 6 });
+          if (bb) {
+            await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "claim bed").catch(() => {});
+            bedOk = true;
+            log?.(`[home] bed claimed inside the seal @${hx},${deep.y},${hz}`);
+          }
+        }
+      }
+    } catch {
+      /* bed is best-effort */
+    }
+  }
+  if (chestOk || bedOk) {
+    state.home = {
+      x: deep.x,
+      y: deep.y,
+      z: deep.z,
+      dir: [px, pz],
+      seal: (sealedCells || []).map((c) => ({ x: c.x, y: c.y, z: c.z })),
+      claimed: bedOk,
+      at: Date.now(),
+    };
+    return true;
+  }
+  return false;
+}
+
 export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
@@ -3600,6 +3698,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
+    let corridorDir = null;
     for (const [px, pz] of sealedCells ? [] : [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       let carvedDepth = 0;
       for (const depth of [4, 3, 2]) {
@@ -3823,6 +3922,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // far end of the pocket — the wait loop re-pins the bot here so it
       // never drifts into melee reach of the doorway plug
       pocketDeep = { x: feet.x + px * carvedDepth + 0.5, y: feet.y, z: feet.z + pz * carvedDepth + 0.5 };
+      corridorDir = [px, pz];
       // depth-3 fallback pockets still sit inside melee reach of a mob
       // hugging the plug (~3m) — deepen from inside once sealed. Digging
       // further straight ahead is safe: sealed in, worst case the cells are
@@ -3971,6 +4071,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // seeing them anyway just pathfinds against the seal (and a creeper at
   // the wall blowing up means fighting was already lost). Park it.
   bot._inShelter = true;
+  // one shot per seal: upgrade the pocket into a home (floor chest + kit +
+  // claimed bed at the deep end) so future respawns land behind this wall
+  // instead of the camped world spawn. Cheap while it sits out the night
+  if (state && corridorDir && (!state.home?.claimed || Date.now() - state.home.at > 3600000)) {
+    await fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, corridorDir[0], corridorDir[1]).catch(() => false);
+  }
   try {
     const t0 = Date.now();
     // daytime hide (force): skeletons/zombies burn in ~30-60s — 90s covers

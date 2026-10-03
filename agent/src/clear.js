@@ -167,6 +167,24 @@ export class ClearRunner {
           this._note("ТИТРЫ ДОСМОТРЕНЫ — Майнкрафт пройден полностью!");
         }
         this._note(`Возродился. Фаза: ${detectPhase(this.bot)}`);
+        // a home respawn lands INSIDE the sealed pocket: the kit is in the
+        // floor chest and the plug is still up. Everything below is
+        // spawn-camp logic — marking the room a camp, fleeing the room,
+        // sprinting out of it are all exactly what the home exists to skip
+        try {
+          const me = this.bot.entity?.position;
+          const home = this.state?.home;
+          if (me && home && Math.hypot(me.x - home.x, me.z - home.z) < 8 && Math.abs(me.y - home.y) < 5) {
+            const head = this.bot.blockAt(me.floored().offset(0, 2, 0));
+            if (head && head.name !== "air" && (head.skyLight ?? 15) < 10) {
+              this.state._homeRespawn = true;
+              this._note("респаун в доме — за печатью");
+              return;
+            }
+          }
+        } catch {
+          /* home check best-effort */
+        }
         // the camp is the respawn ANCHOR, not the ring of bodies: fleeing
         // 70m in different directions lands each death somewhere new and no
         // 150m cluster ever forms — the zone every pick must avoid is the
@@ -443,6 +461,55 @@ export class ClearRunner {
         // tod 12541 is already inside the hostile-spawn window; starting the
         // shelter at 11800 buys a step or two of slack before mobs can spawn
         const nightSoon = nightTod != null && nightTod >= 11800;
+        // home respawn: already behind the seal — pull the kit from the
+        // floor chest, crack the plug, walk out like a dawn exit. The
+        // spawn-camp machinery (flee/sprint/burrow) must NOT run: it sprints
+        // the bot out of the one safe room on the map
+        if (this.state._homeRespawn && bot.entity) {
+          this.state._homeRespawn = false;
+          this._needRetreat = false;
+          bot._inShelter = false;
+          bot._burrowActive = true;
+          try {
+            this.log("[home] respawn behind the seal — kit, sleep, out");
+            try { await stashRecover(bot, this.mcData, this.log, this.state); } catch { /* kit best-effort */ }
+            if (isNight) {
+              // sleep the night out in the room's own bed — the anchor that
+              // landed us here. With no bed (claim never landed) hold behind
+              // the intact plug until dawn: cracking the seal into the mob
+              // wave is the spawn-camp move the home exists to prevent
+              const homeBed = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 6 });
+              if (homeBed) {
+                try { await bot.sleep(homeBed); } catch { /* keep holding */ }
+              }
+              const holdT0 = Date.now();
+              while ((bot.time?.timeOfDay ?? 0) >= 11800 && Date.now() - holdT0 < 660000) {
+                await sleep(5000);
+                const intr = Object.values(bot.entities || {}).find(
+                  (e) =>
+                    e?.position &&
+                    e !== bot.entity &&
+                    /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|pillager/.test(String(e.name || "")) &&
+                    e.position.distanceTo(bot.entity.position) < 4
+                );
+                if (intr) break; // seal breached — bail to the exit path
+              }
+            }
+            for (const c of this.state.home?.seal || []) {
+              const b = bot.blockAt(new Vec3(c.x, c.y, c.z));
+              if (b && !/air|bedrock/.test(b.name)) {
+                await executeAction(bot, { type: "dig", x: c.x, y: c.y, z: c.z, timeoutMs: 8000 }, this.mcData).catch(() => {});
+              }
+            }
+            const h = this.state.home;
+            if (h) {
+              await executeAction(bot, { type: "goto", x: h.x - h.dir[0] * 4, y: h.y, z: h.z - h.dir[1] * 4, range: 2, timeoutMs: 8000 }, this.mcData).catch(() => {});
+            }
+          } finally {
+            bot._burrowActive = false;
+          }
+          continue;
+        }
         if (this._needRetreat && bot.entity) {
           this._needRetreat = false;
           // died mid-shelter — flag lives on the bot object, reflex must be
