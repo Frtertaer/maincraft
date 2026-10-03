@@ -535,22 +535,16 @@ export class ClearRunner {
           try {
             const bedHere0 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
             if (bedHere0) {
-              // camped = deaths at the BED, not at the camp centroid — the
-              // centroid chases every fight so any bed near an active zone
-              // counted as camped (the meadow anchor was broken by deaths
-              // on the trek back, not at the bed). And breaking only pays
-              // when world spawn is the SAFER anchor — a bed inside a weak
-              // camp beats respawning inside the drowned ring.
-              const spawnPt0 = bot.spawnPoint ? { x: bot.spawnPoint.x, z: bot.spawnPoint.z } : null;
+              // camped = deaths AT the bed — a 20m radius is the respawn-kill
+              // signature (the spider loop killed inside 10m of the anchor 3x
+              // in a row). Comparing against spawnPoint is degenerate: once
+              // the bed is claimed, spawnPoint IS the bed, so the guard could
+              // never fire. A camped bed is a guaranteed kill loop — breaking
+              // it always beats another respawn into the same camper
               const recentBedDeaths0 = (this.state?._deathPts || []).filter(
-                (d) => Math.hypot(d.x - bedHere0.position.x, d.z - bedHere0.position.z) < 60 && Date.now() - d.t < 240000
+                (d) => Math.hypot(d.x - bedHere0.position.x, d.z - bedHere0.position.z) < 20 && Date.now() - d.t < 240000
               ).length;
-              const recentSpawnDeaths0 = spawnPt0
-                ? (this.state?._deathPts || []).filter(
-                    (d) => Math.hypot(d.x - spawnPt0.x, d.z - spawnPt0.z) < 80 && Date.now() - d.t < 240000
-                  ).length
-                : 0;
-              if (recentBedDeaths0 >= 2 && recentSpawnDeaths0 < recentBedDeaths0) {
+              if (recentBedDeaths0 >= 2) {
                 await executeAction(bot, { type: "dig", x: bedHere0.position.x, y: bedHere0.position.y, z: bedHere0.position.z, timeoutMs: 6000 }, this.mcData).catch(() => {});
                 // dig leaves the bed as a drop — walk over it so the next
                 // safe claim plants THIS bed instead of farming 3 more wool
@@ -893,17 +887,15 @@ export class ClearRunner {
               try {
                 const bedNear2 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 45 });
                 if (bedNear2) {
-                  const spawnPt2 = bot.spawnPoint ? { x: bot.spawnPoint.x, z: bot.spawnPoint.z } : null;
+                  // deaths AT the bed are the camp signature — a spawnPoint
+                  // comparison is degenerate once the bed is claimed (it IS
+                  // the spawnPoint), so the guard never fired while a spider
+                  // loop-killed at the anchor. 20m keeps the count to true
+                  // respawn kills, not periphery fights near the meadow
                   const nearDeaths = (this.state._deathPts || []).filter(
-                    (d) => Math.hypot(d.x - bedNear2.position.x, d.z - bedNear2.position.z) < 60 && Date.now() - d.t < 240000
+                    (d) => Math.hypot(d.x - bedNear2.position.x, d.z - bedNear2.position.z) < 20 && Date.now() - d.t < 240000
                   ).length;
-                  // don't trade a locally-hot bed for a hotter world spawn
-                  const spawnDeaths2 = spawnPt2
-                    ? (this.state._deathPts || []).filter(
-                        (d) => Math.hypot(d.x - spawnPt2.x, d.z - spawnPt2.z) < 80 && Date.now() - d.t < 240000
-                      ).length
-                    : 0;
-                  if (nearDeaths >= 2 && spawnDeaths2 < nearDeaths) {
+                  if (nearDeaths >= 2) {
                     await executeAction(
                       bot,
                       { type: "dig", x: bedNear2.position.x, y: bedNear2.position.y, z: bedNear2.position.z, timeoutMs: 6000 },
