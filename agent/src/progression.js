@@ -3569,6 +3569,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   const feet = bot.entity.position.floored();
   let sealedCells = null;
   let pocketDeep = null;
+  // corridor direction of the winning pocket — null on grave/shaft shelters,
+  // which have no deep end a bed can anchor to
+  let corridorDir = null;
   const sealWhy = {};
   const sealMiss = (why) => {
     sealWhy[why] = (sealWhy[why] || 0) + 1;
@@ -3698,7 +3701,6 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // pocket depth: a mob pressed against the single doorway wall reaches
     // ~3m — a 2-deep pocket leaves the bot in melee range. 4-deep puts it
     // out of reach; shallower pockets are carved only as a fallback
-    let corridorDir = null;
     for (const [px, pz] of sealedCells ? [] : [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       let carvedDepth = 0;
       for (const depth of [4, 3, 2]) {
