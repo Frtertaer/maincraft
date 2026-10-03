@@ -5291,6 +5291,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
     state.foodClimbFailAt = Date.now();
   }
   if (state) state.foodWanderDir = null;
+  if (state && (bot.food ?? 20) > 6) state.foodHoldStreak = 0;
   // Every actionable path is gated (night + underground seals hunts, treks
   // and walks; the climb may be cooling or outside its daylight window).
   // Starving is survivable — hp floor 1 on normal — so the right move is
@@ -5302,6 +5303,41 @@ export async function ensureFed(bot, mcData, log, state = null) {
   // paces the loop to ~6s/tick so dawn, a drop, or a climb-cooldown can
   // open a real path before the counter runs out.
   if (bot.food != null && bot.food <= 4) {
+    // last resort once the hold has idled a while: starving still WALKS
+    // (only the sprint is gone) — march toward the nearest proven living
+    // ground (home/log site/stash chest) instead of standing at hp=1
+    // until a mob or the stuck counter ends the run. Surface only —
+    // underground the climb paths above own the escape; a hostile on the
+    // tile keeps the hold since shelter-first already owns that branch.
+    if (state) state.foodHoldStreak = (state.foodHoldStreak || 0) + 1;
+    const headSky =
+      bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0;
+    if (state?.foodHoldStreak >= 5 && headSky > 4 && !findHostile(bot, 24)) {
+      const p = bot.entity.position;
+      const anchors = [];
+      if (state?.home) anchors.push(state.home);
+      for (const s of state?.logSites || []) anchors.push(s);
+      if (state?.stash) anchors.push(state.stash);
+      for (const s of stashLoadFile(bot)) anchors.push(s);
+      const tgt = anchors
+        .filter((a) => a && Math.hypot(a.x - p.x, a.z - p.z) > 36)
+        .sort(
+          (a, b) =>
+            Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z)
+        )[0];
+      if (tgt) {
+        log?.(
+          `[food] starving — marching to anchor @${Math.round(tgt.x)},${Math.round(tgt.z)}`
+        );
+        await executeAction(
+          bot,
+          { type: "goto", x: tgt.x, y: tgt.y, z: tgt.z, range: 12, timeoutMs: 30000 },
+          mcData
+        ).catch(() => {});
+        state.foodHoldStreak = 0;
+        return { ok: true, ate, message: "starvation march" };
+      }
+    }
     await sleep(5000);
     return { ok: true, ate, message: "no food path — holding" };
   }
