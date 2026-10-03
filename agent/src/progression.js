@@ -4359,6 +4359,31 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     }
     await sleep(3000);
   }
+  // still camped in melee reach at the hold cap — walking out the plug is
+  // the recurring exit death (the camper lands its hits before the sprint
+  // even engages). Rain keeps zombies/skeletons from ever burning off, so
+  // waiting longer doesn't help either. Escape sideways instead: strip a
+  // 1x2 away from the camper and stair up ~10m off — the same tunnel the
+  // wait-loop lockdown digs; the plug stays sealed behind us
+  if (!tunnelEscape) {
+    const foe = findHostile(bot, 10);
+    if (foe) {
+      const fp = bot.entity.position;
+      const cp = foe.position;
+      const awayDir =
+        Math.abs(cp.x - fp.x) > Math.abs(cp.z - fp.z)
+          ? [-Math.sign(cp.x - fp.x), 0]
+          : [0, -Math.sign(cp.z - fp.z)];
+      log?.(`[burrow] still camped at exit — tunneling out (${foe.name})`);
+      const mined = await stripMine(bot, mcData, 18, log, awayDir).catch(() => 0);
+      const up = mined > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
+      if (up) {
+        log?.("[burrow] tunneled out clear of the camper");
+        tunnelEscape = true;
+      }
+      // tunnel failed — fall through to the normal unseal+exit sprint
+    }
+  }
   // dig out the sealed doorway, step back into the open shaft, then pillar
   // up the shaft to the surface (can't pillar inside the pocket — ceiling)
   if (sealedCells?.length && !tunnelEscape) {
