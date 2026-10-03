@@ -307,6 +307,21 @@ function hasPickaxe(bot) {
 async function ensurePickaxe(bot, mcData) {
   const held = bot.inventory.items().find((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
   const hasStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
+  // a failed recraft retries the whole plank/stick/table chain — each pass
+  // runs several world findBlock scans (solid CPU work). Callers in dig and
+  // burrow loops invoke this every iteration, so a naked underground bot
+  // burned minutes of near-uninterrupted scan time — enough sync starvation
+  // to stall keepalives and get the client timed out of the server. Cool
+  // down failed attempts so the scans run at most once per ~20s
+  if (bot._pickFailAt && Date.now() - bot._pickFailAt < 20000) {
+    // a synchronous return would let the caller's loop spin in pure
+    // microtasks — the same starvation with cheaper iterations. Suspend on a
+    // real timer so the event loop keeps keepalives and ticks flowing
+    await sleep(800);
+    return held
+      ? { ok: true, message: "pickaxe held" }
+      : { ok: false, message: "pickaxe recraft cooling down" };
+  }
   // a wood/gold pickaxe underground is a dead tool — stone and every ore
   // refuse it, and short-circuiting on "a pickaxe exists" left the bot
   // unable to dig any burrow or shaft while holding cobble for a stone
@@ -332,10 +347,17 @@ async function ensurePickaxe(bot, mcData) {
   if (needSticks) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
   if (hasStone) {
     const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
-    if (r.ok) return r;
+    if (r.ok) {
+      bot._pickFailAt = 0;
+      return r;
+    }
+    bot._pickFailAt = Date.now();
   }
   if (held) return { ok: true, message: "pickaxe held" };
-  return ensureCraft(bot, mcData, "wooden_pickaxe", 1);
+  const r = await ensureCraft(bot, mcData, "wooden_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
+  if (!r?.ok) bot._pickFailAt = Date.now();
+  else bot._pickFailAt = 0;
+  return r;
 }
 
 // mineflayer calls that wait on server acks (equip/placeBlock) can hang
