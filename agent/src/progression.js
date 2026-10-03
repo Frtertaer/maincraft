@@ -2832,8 +2832,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     }
     // a naked bot (post-death, fresh spawn) owns nothing to place — mine a
     // few hand-diggable terrain blocks right here and pillar with those
-    if (solidsCount() < 12) {
-      const SOFT = /^(dirt|grass_block|sand|red_sand|gravel|farmland|dirt_path|mycelium|podzol|snow_block|clay|mud|coarse_dirt|rooted_dirt|soul_sand|soul_soil|mangrove_roots)$|leaves$/;
+    const SOFT = /^(dirt|grass_block|sand|red_sand|gravel|farmland|dirt_path|mycelium|podzol|snow_block|clay|mud|coarse_dirt|rooted_dirt|soul_sand|soul_soil|mangrove_roots)$|leaves$/;
+    const grabSoft = async () => {
       const feet = bot.entity.position.floored();
       const cands = [];
       for (let dx = -3; dx <= 3; dx += 1) {
@@ -2858,6 +2858,24 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           /* keep grabbing the rest */
         }
         await sleep(250); // let the drop land in the pickup radius
+      }
+    };
+    if (solidsCount() < 12) {
+      await grabSoft();
+      // bare stone yields nothing — the fist can't dig gravel. Walk to the
+      // nearest dirt patch (same rule the grave path uses) and scavenge
+      // there, or every pillar attempt starts empty and fails the same way
+      if (solidsCount() < 12) {
+        const softFar = bot.findBlock({ matching: (b) => b && SOFT.test(b.name || ""), maxDistance: 26 });
+        if (softFar) {
+          log?.("[burrow] no soft ground here — walking to a dirt patch for pillar material");
+          await executeAction(
+            bot,
+            { type: "goto", x: softFar.position.x, y: softFar.position.y + 1, z: softFar.position.z, range: 1, timeoutMs: 12000 },
+            mcData
+          ).catch(() => {});
+          await grabSoft();
+        }
       }
     }
     let raised = 0;
