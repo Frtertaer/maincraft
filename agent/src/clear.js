@@ -1325,6 +1325,14 @@ export class ClearRunner {
             // and the wait-until-safe logic is exactly what we need anyway
             if (!burrowed) burrowed = await burrowForNight(bot, this.mcData, this.log, !isNight, 0, this.state);
             if (burrowed) this._lastBurrow = Date.now();
+            else {
+              // a failed shelter leaves the 120s gate wide open — the next
+              // tick re-enters instantly and a bare-handed+no-seal spot spins
+              // the full punch/recraft/lid/climb cycle ~5x/s doing nothing.
+              // Back the gate off to ~10s: still retries quickly when the
+              // camper leaves, just not hot.
+              this._lastBurrow = Date.now() - (120000 - 10000);
+            }
             // day-hide ends at ~90s whether or not the camper left (creepers
             // don't burn) — if it's still camped on us, sprint out of its
             // 14m reach instead of looping straight back into a burrow.
