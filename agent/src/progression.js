@@ -4177,7 +4177,16 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     let lockdownTried = false;
     while (
       Date.now() - t0 < waitCap ||
-      (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 1200000)
+      (!safe() &&
+        (bot.time?.timeOfDay ?? 0) >= 9500 &&
+        // the 20min ceiling must never release into night proper: a zombie
+        // or skeleton camper burns off at first light, so holding the seal
+        // the extra few minutes frees the exit it would otherwise drop on
+        // top of. Night proper (>=12541 or <1000) holds past the ceiling;
+        // only the late-day portion stays time-bounded
+        (Date.now() - t0 < 1200000 ||
+          (bot.time?.timeOfDay ?? 0) >= 12541 ||
+          (bot.time?.timeOfDay ?? 0) < 1000))
     ) {
       if (safe()) {
         safeStreak += 1;
