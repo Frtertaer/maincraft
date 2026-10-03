@@ -535,11 +535,22 @@ export class ClearRunner {
           try {
             const bedHere0 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
             if (bedHere0) {
-              const czBed0 = this.state?.campZone;
-              const recentCampDeaths0 = (this.state?._deathPts || []).filter(
-                (d) => czBed0 && Math.hypot(d.x - czBed0.x, d.z - czBed0.z) < 120 && Date.now() - d.t < 240000
+              // camped = deaths at the BED, not at the camp centroid — the
+              // centroid chases every fight so any bed near an active zone
+              // counted as camped (the meadow anchor was broken by deaths
+              // on the trek back, not at the bed). And breaking only pays
+              // when world spawn is the SAFER anchor — a bed inside a weak
+              // camp beats respawning inside the drowned ring.
+              const spawnPt0 = bot.spawnPoint ? { x: bot.spawnPoint.x, z: bot.spawnPoint.z } : null;
+              const recentBedDeaths0 = (this.state?._deathPts || []).filter(
+                (d) => Math.hypot(d.x - bedHere0.position.x, d.z - bedHere0.position.z) < 60 && Date.now() - d.t < 240000
               ).length;
-              if (czBed0 && Math.hypot(bedHere0.position.x - czBed0.x, bedHere0.position.z - czBed0.z) < 120 && recentCampDeaths0 >= 2) {
+              const recentSpawnDeaths0 = spawnPt0
+                ? (this.state?._deathPts || []).filter(
+                    (d) => Math.hypot(d.x - spawnPt0.x, d.z - spawnPt0.z) < 80 && Date.now() - d.t < 240000
+                  ).length
+                : 0;
+              if (recentBedDeaths0 >= 2 && recentSpawnDeaths0 < recentBedDeaths0) {
                 await executeAction(bot, { type: "dig", x: bedHere0.position.x, y: bedHere0.position.y, z: bedHere0.position.z, timeoutMs: 6000 }, this.mcData).catch(() => {});
                 // dig leaves the bed as a drop — walk over it so the next
                 // safe claim plants THIS bed instead of farming 3 more wool
@@ -882,10 +893,17 @@ export class ClearRunner {
               try {
                 const bedNear2 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 45 });
                 if (bedNear2) {
+                  const spawnPt2 = bot.spawnPoint ? { x: bot.spawnPoint.x, z: bot.spawnPoint.z } : null;
                   const nearDeaths = (this.state._deathPts || []).filter(
                     (d) => Math.hypot(d.x - bedNear2.position.x, d.z - bedNear2.position.z) < 60 && Date.now() - d.t < 240000
                   ).length;
-                  if (nearDeaths >= 2) {
+                  // don't trade a locally-hot bed for a hotter world spawn
+                  const spawnDeaths2 = spawnPt2
+                    ? (this.state._deathPts || []).filter(
+                        (d) => Math.hypot(d.x - spawnPt2.x, d.z - spawnPt2.z) < 80 && Date.now() - d.t < 240000
+                      ).length
+                    : 0;
+                  if (nearDeaths >= 2 && spawnDeaths2 < nearDeaths) {
                     await executeAction(
                       bot,
                       { type: "dig", x: bedNear2.position.x, y: bedNear2.position.y, z: bedNear2.position.z, timeoutMs: 6000 },
