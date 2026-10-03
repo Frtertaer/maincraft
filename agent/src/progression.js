@@ -5288,6 +5288,25 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           // no-target (the 7-hit timeout on speedrun6 let a 1hp sheep live)
           const hits = /after (\d+) hit/.exec(r.message || "");
           if (hits && +hits[1] > 0) continue;
+          // "no safe target" is the 60m attack leash, not a missing sheep —
+          // the spotter that started this run sees 130m. Walk the gap to
+          // the closest one still in sight and let the next pass swing
+          if (/no safe target/.test(r.message || "")) {
+            const sh = Object.values(bot.entities || {})
+              .filter((e) => e?.position && e.name === "sheep")
+              .sort(
+                (a, b) =>
+                  a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position)
+              )[0];
+            if (sh && sh.position.distanceTo(bot.entity.position) < 130) {
+              await executeAction(
+                bot,
+                { type: "goto", x: sh.position.x, y: sh.position.y, z: sh.position.z, range: 10, timeoutMs: 20000 },
+                mcData
+              ).catch(() => {});
+              continue;
+            }
+          }
           break; // no sheep in range — give up early
         }
         // the drops spawn a tick or two AFTER the kill lands — an instant
