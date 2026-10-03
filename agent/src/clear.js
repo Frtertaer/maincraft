@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -106,6 +106,12 @@ export class ClearRunner {
           _deathPts: dz.pts,
           campZone: dz.camp ? { x: dz.camp.x, z: dz.camp.z } : null,
         };
+      })(),
+      // the home room survives restarts as blocks in the world — a reboot
+      // should keep the respawn fast-path instead of re-learning it
+      ...(() => {
+        const h = homeLoadFile();
+        return h ? { home: h } : {};
       })(),
     };
     this._deathHandler = () => {

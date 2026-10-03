@@ -588,6 +588,29 @@ export function deathZonesSaveFile(bot, pts, camp) {
   }
 }
 
+// the home room: a restart forgets the pocket but the bed claim and the
+// floor chest stay in the world — persist it so a reconnect keeps the
+// respawn fast-path
+const HOME_FILE = path.resolve(__dirname, "../../logs/home.json");
+
+export function homeLoadFile() {
+  try {
+    const h = JSON.parse(fs.readFileSync(HOME_FILE, "utf8"));
+    return h && Number.isFinite(h.x) ? h : null;
+  } catch {
+    return null;
+  }
+}
+
+export function homeSaveFile(h) {
+  try {
+    fs.mkdirSync(path.dirname(HOME_FILE), { recursive: true });
+    fs.writeFileSync(HOME_FILE, JSON.stringify(h));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // a stash that opened empty is dead weight: starving raids re-walked the
 // same chest 50m+ twice in 6min because nothing retires the point
 function stashRemove(pos, bot) {
@@ -2118,6 +2141,7 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
       claimed: bedOk,
       at: Date.now(),
     };
+    homeSaveFile(state.home);
     return true;
   }
   return false;
