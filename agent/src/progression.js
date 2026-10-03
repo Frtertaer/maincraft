@@ -4307,7 +4307,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           ? [-Math.sign(cp.x - fp.x), 0]
           : [0, -Math.sign(cp.z - fp.z)];
       log?.(`[burrow] camper lockdown (${lockdownMob.name}) — tunneling out`);
-      const mined = await stripMine(bot, mcData, 10, log, awayDir).catch(() => 0);
+      // 10 cells surfaced back into the pack: the camper tracks the tunnel
+      // through the ceiling, so a shallow escape lands under it. 18 cells
+      // puts real horizontal distance between the exit and the kill ring
+      const mined = await stripMine(bot, mcData, 18, log, awayDir).catch(() => 0);
       const up = mined > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
       if (up) {
         log?.("[burrow] tunneled out clear of the camper");
