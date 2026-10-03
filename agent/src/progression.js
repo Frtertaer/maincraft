@@ -2514,20 +2514,48 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       }
     });
     if (!softNear) {
-      const trunk = bot.findBlock({
-        matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
-        // one log is the whole recovery ladder (table→planks→sticks→pick), so
-        // scan far — a 90m walk beats sealing forever naked when the basin
-        // around spawn has been logged out
-        maxDistance: 90,
+      // stone underfoot: the fist can't dig its own grave here and punching a
+      // log for lid material is ~25s standing still (a mob on the fuse kills
+      // inside that window). If diggable dirt sits within ~26m, walking there
+      // and grave-digging (~5s, moving) beats the punch outright
+      const softFar = bot.findBlock({
+        matching: (b) => b && SOFTGROUND.test(b.name || ""),
+        maxDistance: 26,
+        // the shaft goes to -6 — surface dirt over stone still won't dig
+        useExtraInfo: (b) =>
+          SOFTGROUND.test(bot.blockAt(b.position.offset(0, -1, 0))?.name || "") &&
+          SOFTGROUND.test(bot.blockAt(b.position.offset(0, -2, 0))?.name || ""),
       });
-      if (trunk) {
-        if (creeperClose()) {
-          log?.("[burrow] creeper closing — aborting prep");
-          return false;
+      if (softFar && !creeperClose()) {
+        log?.("[burrow] stone underfoot — walking to diggable dirt for the grave");
+        await executeAction(
+          bot,
+          {
+            type: "goto",
+            x: softFar.position.x,
+            y: softFar.position.y + 1,
+            z: softFar.position.z,
+            range: 0,
+            timeoutMs: 15000,
+          },
+          mcData
+        ).catch(() => {});
+      } else {
+        const trunk = bot.findBlock({
+          matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
+          // one log is the whole recovery ladder (table→planks→sticks→pick), so
+          // scan far — a 90m walk beats sealing forever naked when the basin
+          // around spawn has been logged out
+          maxDistance: 90,
+        });
+        if (trunk) {
+          if (creeperClose()) {
+            log?.("[burrow] creeper closing — aborting prep");
+            return false;
+          }
+          log?.("[burrow] bare-handed — punching a log for shelter material");
+          await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
         }
-        log?.("[burrow] bare-handed — punching a log for shelter material");
-        await pt(punchNearbyLogs(bot, mcData, 4, state), 25000, "log punch").catch(() => null);
       }
     }
   }
