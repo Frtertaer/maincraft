@@ -305,10 +305,17 @@ function hasPickaxe(bot) {
 // around, wooden otherwise. Without one every stone column reads undiggable
 // and the whole burrow/descend machinery stalls — recraft on the spot.
 async function ensurePickaxe(bot, mcData) {
-  if (hasPickaxe(bot)) return { ok: true, message: "pickaxe held" };
+  const held = bot.inventory.items().find((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
   const hasStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
+  // a wood/gold pickaxe underground is a dead tool — stone and every ore
+  // refuse it, and short-circuiting on "a pickaxe exists" left the bot
+  // unable to dig any burrow or shaft while holding cobble for a stone
+  // one. Upgrade instead of returning early
+  if (held && (!/^(wooden|golden)_pickaxe$/.test(held.name) || !hasStone))
+    return { ok: true, message: "pickaxe held" };
   // a pickaxe head costs 3 planks and the 2 sticks cost 2 more — topping up
-  // to 3 first leaves 1 plank after the stick craft (missing materials)
+  // to 3 first leaves 1 plank after the stick craft (missing materials).
+  // A stone head uses cobble, so an upgrade skips the head's 3 planks
   const needSticks = countItem(bot, "stick") < 2;
   // the whole ladder is planks: head 3 + sticks 2 + a fresh table 4 when
   // none is near. Counting only planks lies when logs are gone (the naked
@@ -318,15 +325,16 @@ async function ensurePickaxe(bot, mcData) {
   const needTable =
     countItem(bot, "crafting_table") < 1 &&
     !bot.findBlock?.({ matching: (b) => b?.name === "crafting_table", maxDistance: 8 });
-  const plankNeed = 3 + (needSticks ? 2 : 0) + (needTable ? 4 : 0);
+  const plankNeed = (held ? 0 : 3) + (needSticks ? 2 : 0) + (needTable ? 4 : 0);
   const wood = countItem(bot, (i) => i.name.includes("planks")) + countItem(bot, CRAFTABLE_LOG) * 4;
   if (!bot._inShelter && wood < plankNeed) await punchNearbyLogs(bot, mcData, 3).catch(() => null);
-  await ensurePlanks(bot, mcData, Math.max(needSticks ? 5 : 3, plankNeed));
+  if (plankNeed > 0) await ensurePlanks(bot, mcData, Math.max(needSticks ? 5 : 3, plankNeed));
   if (needSticks) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
   if (hasStone) {
     const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (r.ok) return r;
   }
+  if (held) return { ok: true, message: "pickaxe held" };
   return ensureCraft(bot, mcData, "wooden_pickaxe", 1);
 }
 
