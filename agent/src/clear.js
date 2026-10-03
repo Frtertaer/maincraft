@@ -1443,14 +1443,13 @@ export class ClearRunner {
               // walks at ~4.3m/s and a tracking creeper stays in fuse range
               await fleeUntilClear(fdx2, fdz2, 10).catch(() => {});
             }
-            // Night burrow gave up entirely (no diggable ground anywhere):
-            // surface work in the dark is a death loop — keep looking for
-            // shelter instead of falling through to the phase step.
-            if (!burrowed && isNight) {
-              // a melee camper aborts every prep attempt then just re-closes
-              // during the sleep — sitting still is a fuse timer. Walking is
-              // already faster than a creeper/zombie (~4.3 vs ~2.3 m/s) even
-              // at food=0, so out-walk it for real separation before retrying
+            // Burrow gave up entirely: a camper that aborts every prep then
+            // re-closes is a fuse timer, and walking is already faster than
+            // a creeper/zombie (~4.3 vs ~2.3 m/s) even at food=0 — out-walk
+            // it for real separation before retrying. Day-hide aborts need
+            // the same escalation: a creeper camper doesn't burn off at noon
+            // and was locking every ~90s retry into the same abort forever
+            if (!burrowed) {
               const camperNow = Object.values(bot.entities || {})
                 .filter((e) => {
                   if (!e?.position || e === bot.entity) return false;
@@ -1468,7 +1467,7 @@ export class ClearRunner {
                 const sdz = Math.sign(away.z || 1) * 70;
                 this.log(`[clear] camper on the fuse — out-walking ${camperNow.name}`);
                 await fleeUntilClear(sdx, sdz, 5).catch(() => {});
-              } else {
+              } else if (isNight) {
                 this.log(`[clear] no shelter — waiting out the night`);
                 this._lastBurrow = 0;
                 await sleep(15000);
