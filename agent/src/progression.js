@@ -4379,8 +4379,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
     "cooked_mutton", "cooked_chicken", "baked_potato",
     // wool is bed material — a scavenge walk that also banks wool turns the
     // next dusk burrow into a bed-claim instead of a 9.5min pocket sit-out.
-    // string converts 4:1 into wool — spiders are everywhere a sheep isn't
-    "string",
+    // string converts 4:1 into wool — spiders are everywhere a sheep isn't.
+    // bone→meal is fertilizer for the farm row and dye material for wool
+    "string", "bone", "bone_meal",
     ...Object.keys(mcData.itemsByName || {}).filter((n) => /_wool$/.test(n)),
   ]);
   // starving widens the scavenge net: dawn-burned zombies drop rotten_flesh
@@ -5170,13 +5171,18 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) {
           log?.(`[bed] sheep attack #${i}: ${r.message}`);
+          // a timeout WITH hits means a wounded sheep is still in range —
+          // the next pass lands the last swings. Only give up on a real
+          // no-target (the 7-hit timeout on speedrun6 let a 1hp sheep live)
+          const hits = /after (\d+) hit/.exec(r.message || "");
+          if (hits && +hits[1] > 0) continue;
           break; // no sheep in range — give up early
         }
-        log?.(`[bed] sheep down — wool=${woolCount()}`);
         // the drops spawn a tick or two AFTER the kill lands — an instant
         // scan sees an empty field and the wool sits there forever. Wait for
-        // the drops, then walk over every item near the corpse (the mutton
-        // beside the wool is free food anyway)
+        // the drops, walk over every item near the corpse (the mutton beside
+        // the wool is free food anyway), THEN count: logging wool before the
+        // pickup printed "wool=0" while the fleece sat in the bag
         await sleep(700);
         const drops = Object.values(bot.entities || {}).filter(
           (e) =>
@@ -5192,6 +5198,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
             mcData
           ).catch(() => {});
         }
+        log?.(`[bed] sheep down — wool=${woolCount()}`);
       }
       if (woolCount() >= 3) {
         if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3 && countItem(bot, CRAFTABLE_LOG) > 0) {
