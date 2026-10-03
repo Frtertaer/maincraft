@@ -3994,6 +3994,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // — the unseal/pillar exit below must NOT run: it would walk back into
     // the shaft the camper is sitting on.
     let tunnelEscape = false;
+    // a lockdown tunnel is a one-shot: stripMine digs the same cells every
+    // retry and its bail conditions (no pickaxe, nothing recraftable
+    // underground) never change inside one sealed wait. Retrying every
+    // ~4s loop turned a whole night's hold into "tunneling out" spam —
+    // a failed try just keeps holding behind the intact seal.
+    let lockdownTried = false;
     while (
       Date.now() - t0 < waitCap ||
       (!safe() && (bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 1200000)
@@ -4109,11 +4115,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const lockdownMob = findHostile(bot, 14);
     if (
       pocketDeep &&
+      !lockdownTried &&
       lockdownMob &&
       todNow > 1000 &&
       todNow < 11000 &&
       Date.now() - t0 > 200000
     ) {
+      lockdownTried = true;
       const fp = bot.entity.position;
       const cp = lockdownMob.position;
       const awayDir =
