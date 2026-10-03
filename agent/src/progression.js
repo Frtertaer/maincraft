@@ -5408,9 +5408,13 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // a sheep sprints when hit and the default 36m leash ends every chase
       // with zero wool — hold the same target until it's dead or truly gone
       for (let i = 0; i < 5 && woolCount() < 3; i++) {
+        // a fleeing sheep runs at sprint speed — below food>6 the bot can't
+        // sprint and the full 40s chase is a guaranteed 0-hit timeout. Keep a
+        // short window: a cornered/close sheep still dies, a fleeing one
+        // fails fast instead of burning the whole day-hide window
         const r = await executeAction(
           bot,
-          { type: "attack", name: "sheep", maxDurationMs: 40000, maxDistance: 64, persistent: true },
+          { type: "attack", name: "sheep", maxDurationMs: bot.food > 6 ? 40000 : 14000, maxDistance: 64, persistent: true },
           mcData
         ).catch((e) => ({ ok: false, message: e?.message || String(e) }));
         if (!r.ok) {
