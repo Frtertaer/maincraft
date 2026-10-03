@@ -699,7 +699,14 @@ const STASH_FOOD = /^(bread|cooked_beef|cooked_porkchop|cooked_chicken|cooked_mu
 
 export async function stashDeposit(bot, mcData, log, state) {
   try {
-    const surplus = bot.inventory.items().filter((i) => i.count > stashKeepCount(i.name));
+    // bed materials are not surplus while no bed is claimed anywhere — a
+    // stashed wool stack can never become tonight's bed, and a stashed bed
+    // item never reaches the pocket
+    const bedless = !(state?.home?.claimed);
+    const surplus = bot.inventory.items().filter((i) => {
+      if (bedless && (/(?:^|_)wool$/.test(i.name) || (/_bed$/.test(i.name) && !/bedrock/.test(i.name)))) return false;
+      return i.count > stashKeepCount(i.name);
+    });
     // one-time "restart kit" per world: planks+sticks+table+food in the chest
     // is enough to re-craft the whole wood toolkit standing at the chest —
     // a death then costs a walk home, not a naked forest trek with fists
