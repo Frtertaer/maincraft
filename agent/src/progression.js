@@ -3464,7 +3464,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         while (
           !safe() &&
           (Date.now() - t0 < 620000 ||
-            ((bot.time?.timeOfDay ?? 0) >= 9500 && Date.now() - t0 < 800000))
+            ((bot.time?.timeOfDay ?? 0) >= 9500 &&
+              // same rule as the pocket wait: the absolute ceiling must not
+              // descend into night proper — burning campers free safe() at
+              // first light, so hold past the cap until dawn instead of
+              // climbing down into the pack
+              (Date.now() - t0 < 800000 ||
+                (bot.time?.timeOfDay ?? 0) >= 12541 ||
+                (bot.time?.timeOfDay ?? 0) < 1000)))
         ) {
           if (state?._diedAt && Date.now() - state._diedAt < 6000) {
             log?.("[burrow] died on the pillar — aborting shelter");
