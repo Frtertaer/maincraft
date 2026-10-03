@@ -4287,7 +4287,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // to the surface ~10m off. The cap/seal stays intact above, so the
     // camper can't follow through the shaft it is camping.
     const todNow = bot.time?.timeOfDay ?? -1;
-    const lockdownMob = findHostile(bot, 14);
+    // the safe() release checks <28m — a camper parked 15-27m blocks the dawn
+    // exit forever yet never came inside the old 14m tunnel radius, so the
+    // hold ran to the 20min ceiling and released at night on top of it
+    const lockdownMob = findHostile(bot, 28);
     if (
       pocketDeep &&
       !lockdownTried &&
