@@ -455,6 +455,28 @@ export class ClearRunner {
           // sprint finish)
           bot._burrowActive = true;
           try {
+          // a camped bed anchors every kill loop on ANY respawn, not just
+          // night ones: the bed @-35,81,74 sat inside the spawn-basin ring
+          // and fed 4 respawn kills in ~3min before a night respawn ever
+          // tested the check below. Run it first on every respawn
+          try {
+            const bedHere0 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
+            if (bedHere0) {
+              const czBed0 = this.state?.campZone;
+              const recentCampDeaths0 = (this.state?._deathPts || []).filter(
+                (d) => czBed0 && Math.hypot(d.x - czBed0.x, d.z - czBed0.z) < 120 && Date.now() - d.t < 240000
+              ).length;
+              if (czBed0 && Math.hypot(bedHere0.position.x - czBed0.x, bedHere0.position.z - czBed0.z) < 120 && recentCampDeaths0 >= 2) {
+                await executeAction(bot, { type: "dig", x: bedHere0.position.x, y: bedHere0.position.y, z: bedHere0.position.z, timeoutMs: 6000 }, this.mcData).catch(() => {});
+                // dig leaves the bed as a drop — walk over it so the next
+                // safe claim plants THIS bed instead of farming 3 more wool
+                await executeAction(bot, { type: "goto", x: bedHere0.position.x, y: bedHere0.position.y, z: bedHere0.position.z, range: 1, timeoutMs: 4000 }, this.mcData).catch(() => {});
+                this.log(`[clear] broke camped bed — next respawn goes to world spawn`);
+              }
+            }
+          } catch {
+            /* bed break is best-effort — fall through to flee/sleep */
+          }
           if (isNight) {
             this.log(`[clear] night respawn — flee then burrow`);
             // respawning on a claimed bed puts the bed a few blocks away —
@@ -467,22 +489,6 @@ export class ClearRunner {
                 if (slept.ok) {
                   this.log(`[clear] ${slept.message}`);
                   continue;
-                }
-                // a bed inside an active death camp is the kill anchor — every
-                // respawn lands back in the witch's/mob's ring (speedrun6: 5
-                // straight respawns into the same camping witch). Break it:
-                // the next death then respawns at world spawn, far away
-                const czBed = this.state?.campZone;
-                const recentCampDeaths = (this.state?._deathPts || []).filter(
-                  (d) => czBed && Math.hypot(d.x - czBed.x, d.z - czBed.z) < 120 && Date.now() - d.t < 240000
-                ).length;
-                if (czBed && Math.hypot(bedHere.position.x - czBed.x, bedHere.position.z - czBed.z) < 120 && recentCampDeaths >= 2) {
-                  try {
-                    await executeAction(bot, { type: "dig", x: bedHere.position.x, y: bedHere.position.y, z: bedHere.position.z, timeoutMs: 6000 }, this.mcData);
-                    this.log(`[clear] broke camped bed — next respawn goes to world spawn`);
-                  } catch {
-                    /* couldn't reach it — flee anyway */
-                  }
                 }
               }
             } catch {
