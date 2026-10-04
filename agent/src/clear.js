@@ -210,6 +210,38 @@ export class ClearRunner {
         // the respawn kill-zone before resuming progression. Bare-handed
         // reflex fights are suicide — park combat until the escape lands.
         this._needRetreat = true;
+        // A camped bed must be broken HERE, before the sprint kick below:
+        // the burst carries the bot >10m out in the first second, so by the
+        // time the loop's own camped-bed check runs findBlock(10m) sees
+        // nothing and the anchor never breaks — the pillager loop killed 8
+        // respawns in a row inside 10m of the bed before the anchor finally
+        // died to splash damage. At respawn we ARE at the bed — dig it now.
+        try {
+          const bedR = this.bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
+          if (bedR) {
+            const campDeathsR = (this.state?._deathPts || []).filter(
+              (d) => Math.hypot(d.x - bedR.position.x, d.z - bedR.position.z) < 20 && Date.now() - d.t < 240000
+            ).length;
+            if (campDeathsR >= 2) {
+              this._note("кровать закемплена — ломаю до побега");
+              // the sprint kick below chains on this promise: sprinting first
+              // moves the bot out of swing range mid-dig and the anchor
+              // survives — the same race that kept the loop's own check from
+              // ever firing (the burst carries it >10m before the first tick)
+              this._pendingBedDig = (async () => {
+                try {
+                  await executeAction(this.bot, { type: "dig", x: bedR.position.x, y: bedR.position.y, z: bedR.position.z, timeoutMs: 5000 }, this.mcData).catch(() => {});
+                  await executeAction(this.bot, { type: "goto", x: bedR.position.x, y: bedR.position.y, z: bedR.position.z, range: 1, timeoutMs: 3000 }, this.mcData).catch(() => {});
+                  this.log(`[clear] broke camped bed — next respawn goes to world spawn`);
+                } finally {
+                  this._pendingBedDig = null;
+                }
+              })();
+            }
+          }
+        } catch {
+          /* bed-break best-effort — the flee still runs */
+        }
         // kick the sprint NOW — waiting for the next loop tick gives a
         // spawn-camping creeper its whole 1.5s fuse. A 1.5s burst is ~8
         // blocks: the camper re-closes during the wake-up gap and that's the
@@ -255,7 +287,9 @@ export class ClearRunner {
               const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz); // prefer free landings, bias away-from-death
               if (!bestR || score > bestR.score) bestR = { score, dx: cx2 * 40, dz: cz2 * 40 };
             }
-            void sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {});
+            void (this._pendingBedDig || Promise.resolve()).then(() =>
+              sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
+            );
           }
         } catch {
           /* ignore */
