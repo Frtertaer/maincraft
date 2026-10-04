@@ -3622,7 +3622,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               }
               await sleep(200);
             }
-            const mined2 = await stripMine(bot, mcData, 18, log, awayDir2).catch(() => 0);
+            const mined2 = (await stripMine(bot, mcData, 18, log, awayDir2).catch(() => null))?.mined || 0;
             const up2 = mined2 > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
             if (up2) {
               log?.("[burrow] tunneled out clear of the pillar camper");
@@ -4387,17 +4387,30 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       !tunnelEscape &&
       !camper &&
       !nightDigDone &&
-      Date.now() - nightDigAt > 25000 &&
-      (nightDigFloorY == null || bot.entity.position.y > nightDigFloorY - 15)
+      Date.now() - nightDigAt > 25000
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
       nightDigAt = Date.now();
-      const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
-      if (!shifted?.digs) nightDigDone = true;
-      if (shifted?.digs > 0) {
-        const np = bot.entity.position.floored();
-        pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
-        log?.(`[burrow] night shift: descended to y=${np.y} — top stays sealed`);
+      if (bot.entity.position.y > nightDigFloorY - 15) {
+        const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
+        if (!shifted?.digs) nightDigDone = true;
+        if (shifted?.digs > 0) {
+          const np = bot.entity.position.floored();
+          pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
+          log?.(`[burrow] night shift: descended to y=${np.y} — top stays sealed`);
+        }
+      } else {
+        // descent capped at iron level: spend the rest of the hold strip-
+        // mining a horizontal tunnel instead of idling — the descent alone
+        // never touched ore before dawn pulled us back out
+        const sd = state._nightStripDir || [Math.random() < 0.5 ? 1 : -1, 0];
+        state._nightStripDir = sd;
+        const sm = await stripMine(bot, mcData, 6, log, sd).catch(() => null);
+        if (sm?.mined > 0) {
+          const np = bot.entity.position.floored();
+          pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
+          log?.(`[burrow] night shift: strip-mined ${sm.mined} (${sm.oreHits || 0} ore) at y=${np.y}`);
+        } else nightDigDone = true;
       }
     }
     // pocket greenhouse: a sealed pocket is the only guaranteed-safe grow
@@ -4477,7 +4490,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // 10 cells surfaced back into the pack: the camper tracks the tunnel
       // through the ceiling, so a shallow escape lands under it. 18 cells
       // puts real horizontal distance between the exit and the kill ring
-      const mined = await stripMine(bot, mcData, 18, log, awayDir).catch(() => 0);
+      const mined = (await stripMine(bot, mcData, 18, log, awayDir).catch(() => null))?.mined || 0;
       const up = mined > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
       if (up) {
         log?.("[burrow] tunneled out clear of the camper");
@@ -4519,7 +4532,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           ? [-Math.sign(cp.x - fp.x), 0]
           : [0, -Math.sign(cp.z - fp.z)];
       log?.(`[burrow] still camped at exit — tunneling out (${foe.name})`);
-      const mined = await stripMine(bot, mcData, 18, log, awayDir).catch(() => 0);
+      const mined = (await stripMine(bot, mcData, 18, log, awayDir).catch(() => null))?.mined || 0;
       const up = mined > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
       if (up) {
         log?.("[burrow] tunneled out clear of the camper");
