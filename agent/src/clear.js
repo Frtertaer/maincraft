@@ -512,6 +512,20 @@ export class ClearRunner {
                 ]);
               }
             }
+            // feet already wet mid-hop — the ±30° drift or a longer shore
+            // landing dropped us in, and every paddle-second is trident
+            // window. Exit at the nearest lip before the next sprint hop
+            {
+              try {
+                const fb = bot.blockAt(bot.entity.position.floored());
+                if (fb && /water|kelp|seagrass|bubble/.test(fb.name)) {
+                  await swimToLand(bot, this.mcData, this.log, 8000).catch(() => {});
+                  continue; // re-scan hostiles/kill-ring from the new lip
+                }
+              } catch {
+                /* keep hopping */
+              }
+            }
             await sprintBurst(hopX, hopZ, 3500).catch(() => {});
             // drift the heading ~30° each hop: keeps distance from the swarm
             // arc and bounces us around cliffs/water instead of dead-stalling
