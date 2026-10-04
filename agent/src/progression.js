@@ -5950,6 +5950,15 @@ async function phaseWood(bot, mcData, state, log) {
       state.woodNoPath = 0;
     }
     if (!rr.ok) {
+      // just walked to a remembered log site and the scan still finds no
+      // trunks — that site is stripped ground. Dead cells were only marked
+      // on the zero-gain path, which needs rr.ok; on this path the cell
+      // stayed live and gotoLogSite ping-ponged between stripped sites
+      // until the hard-trap kill (the 04:52 death loop)
+      if (state && state.lastSiteCell) {
+        (state.deadLogCells = state.deadLogCells || {})[state.lastSiteCell] = true;
+        state.lastSiteCell = null;
+      }
       // walk toward the nearest visible log — cliff spawns leave trees
       // visible but unreachable until the approach changes the space. A
       // trunk inside the death ring is a re-kill pull, never a gather target
@@ -5970,6 +5979,8 @@ async function phaseWood(bot, mcData, state, log) {
       }
     }
     const now = countItem(bot, CRAFTABLE_LOG);
+    // site visit actually produced logs — it stays a live target
+    if (now > logs && state) state.lastSiteCell = null;
     if (rr.ok && now <= logs) {
       // zero-gain streak: collect keeps resolving ok while grabbing nothing —
       // escalate a real wander after a few rounds or the run churns forever
