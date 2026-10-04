@@ -3512,6 +3512,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const t0 = Date.now();
         let lastBeat = 0;
         const refugeTop = bot.entity.position.clone();
+        // a non-burning shooter parked in bow range keeps safe() false for a
+        // full day-night cycle (a skeleton @18 held this run through a whole
+        // day under shade) — the tunnel escape below is a one-shot
+        let pillarTunnelTried = false;
+        let pillarTunnelEscaped = false;
         // the cap is an escape valve, not an unseal trigger: when it lands
         // inside dusk/night, climbing down dumps the bot into the mob pack
         // below — hold the pillar until real dawn (safe() only passes at
@@ -3574,9 +3579,58 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
               /* out of reach — keep waiting */
             }
           }
+          // camper lockdown on the pillar: a shooter parked 15-27m out blocks
+          // the dawn release forever without stepping into melee (the pocket
+          // lockdown mirrors this). In real daylight dig down through our own
+          // column — the tower is already the shaft — then strip a 1x2 away
+          // from the camper and stair up clear of the kill ring
+          const todP = bot.time?.timeOfDay ?? -1;
+          const ldMob = findHostile(bot, 28);
+          if (
+            !pillarTunnelTried &&
+            ldMob &&
+            todP > 1000 &&
+            todP < 11000 &&
+            Date.now() - t0 > 150000
+          ) {
+            pillarTunnelTried = true;
+            const fp2 = bot.entity.position;
+            const cp2 = ldMob.position;
+            const awayDir2 =
+              Math.abs(cp2.x - fp2.x) > Math.abs(cp2.z - fp2.z)
+                ? [-Math.sign(cp2.x - fp2.x), 0]
+                : [0, -Math.sign(cp2.z - fp2.z)];
+            log?.(`[burrow] pillar lockdown (${ldMob.name}) — descending through the column, tunneling out`);
+            for (let i = 0; i < raised + 6; i++) {
+              const b = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+              if (!b || b.name === "air" || /bedrock|lava|water/.test(b.name)) break;
+              try {
+                await executeAction(
+                  bot,
+                  { type: "dig", x: b.position.x, y: b.position.y, z: b.position.z, timeoutMs: 10000 },
+                  mcData
+                );
+              } catch {
+                break;
+              }
+              await sleep(200);
+            }
+            const mined2 = await stripMine(bot, mcData, 18, log, awayDir2).catch(() => 0);
+            const up2 = mined2 > 2 && (await stairwayUp(bot, mcData, 10, log).catch(() => false));
+            if (up2) {
+              log?.("[burrow] tunneled out clear of the pillar camper");
+              pillarTunnelEscaped = true;
+              break;
+            }
+            // tunnel failed — underground at the column base; exiting the
+            // hold anyway beats re-climbing into bow range
+            break;
+          }
           await sleep(4000);
         }
-        // dig back down through our own pillar
+        // dig back down through our own pillar (skipped after a lockdown
+        // tunnel — we already surfaced ~18m away)
+        if (!pillarTunnelEscaped) {
         for (let i = 0; i < raised + 2; i++) {
           const b = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
           if (!b || b.name === "air" || /bedrock|lava|water/.test(b.name)) break;
@@ -3590,6 +3644,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
             break;
           }
           await sleep(200);
+        }
         }
       } finally {
         bot._inShelter = false;
