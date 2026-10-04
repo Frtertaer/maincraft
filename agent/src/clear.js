@@ -222,7 +222,18 @@ export class ClearRunner {
             const campDeathsR = (this.state?._deathPts || []).filter(
               (d) => Math.hypot(d.x - bedR.position.x, d.z - bedR.position.z) < 20 && Date.now() - d.t < 240000
             ).length;
-            if (campDeathsR >= 2) {
+            // one bed-side death plus a camper at the door IS the camp —
+            // waiting for a second costs the whole kill-chain first (the
+            // spider loop fed 3 respawns at the 698 anchor before the bed
+            // even got checked). A mob within bow/melee range of the wake
+            // point is what separates a camper from a wandering fluke
+            const bedCamper = Object.values(this.bot.entities || {}).some((e) => {
+              if (!e?.position || e === this.bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return /zombie|spider|creeper|husk|drowned|slime|skeleton|stray|pillager|vex|witch|phantom/.test(n) &&
+                e.position.distanceTo(this.bot.entity.position) < 20;
+            });
+            if (campDeathsR >= 1 && bedCamper) {
               this._note("кровать закемплена — ломаю до побега");
               // the sprint kick below chains on this promise: sprinting first
               // moves the bot out of swing range mid-dig and the anchor
@@ -571,7 +582,15 @@ export class ClearRunner {
           // and fed 4 respawn kills in ~3min before a night respawn ever
           // tested the check below. Run it first on every respawn
           try {
-            const bedHere0 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
+            // the bed's chunk can lag the respawn packet — a single findBlock
+            // at this tick returns null and the camped-anchor break misses
+            // for good (the spider loop at 698,66,13: every check ran before
+            // the chunk streamed in, the bed sat unbroken through 3 kills)
+            let bedHere0 = null;
+            for (let tries = 0; tries < 4 && !bedHere0; tries++) {
+              bedHere0 = bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 10 });
+              if (!bedHere0) await sleep(400);
+            }
             if (bedHere0) {
               // camped = deaths AT the bed — a 20m radius is the respawn-kill
               // signature (the spider loop killed inside 10m of the anchor 3x
@@ -582,7 +601,16 @@ export class ClearRunner {
               const recentBedDeaths0 = (this.state?._deathPts || []).filter(
                 (d) => Math.hypot(d.x - bedHere0.position.x, d.z - bedHere0.position.z) < 20 && Date.now() - d.t < 240000
               ).length;
-              if (recentBedDeaths0 >= 2) {
+              // same loosened signature as the respawn handler: one bed-side
+              // death + a camper in reach = camped anchor, break it now —
+              // waiting for a second death fed the kill-chain first
+              const bedCamper0 = Object.values(bot.entities || {}).some((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || "").toLowerCase();
+                return /zombie|spider|creeper|husk|drowned|slime|skeleton|stray|pillager|vex|witch|phantom/.test(n) &&
+                  e.position.distanceTo(bot.entity.position) < 20;
+              });
+              if (recentBedDeaths0 >= 1 && bedCamper0) {
                 await executeAction(bot, { type: "dig", x: bedHere0.position.x, y: bedHere0.position.y, z: bedHere0.position.z, timeoutMs: 6000 }, this.mcData).catch(() => {});
                 // dig leaves the bed as a drop — walk over it so the next
                 // safe claim plants THIS bed instead of farming 3 more wool
@@ -1008,7 +1036,10 @@ export class ClearRunner {
                   const nearDeaths = (this.state._deathPts || []).filter(
                     (d) => Math.hypot(d.x - bedNear2.position.x, d.z - bedNear2.position.z) < 20 && Date.now() - d.t < 240000
                   ).length;
-                  if (nearDeaths >= 2) {
+                  // one death at the anchor is enough — this branch already
+                  // runs under a camper (packNear48/swarm guard above), and
+                  // the second death it used to wait for was the kill-chain
+                  if (nearDeaths >= 1) {
                     await executeAction(
                       bot,
                       { type: "dig", x: bedNear2.position.x, y: bedNear2.position.y, z: bedNear2.position.z, timeoutMs: 6000 },
