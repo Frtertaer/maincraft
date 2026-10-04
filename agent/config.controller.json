@@ -42,7 +42,7 @@
     "botName": "Opus",
     "mode": "auto",
     "language": "ru",
-    "tickMs": 3000,
+    "tickMs": 1500,
     "idleWhenNoGoal": false,
     "maxHistory": 16,
     "announceOnSpawn": true,
@@ -90,10 +90,23 @@
     "enabled": true,
     "host": "127.0.0.1",
     "port": 3007,
-    "firstPerson": false,
-    "viewDistance": 8
+    "firstPerson": true
   },
-  "clear": {
-    "maxMs": 43200000
+  "controller": {
+    "type": "jev",
+    "plannerEveryTicks": 8,
+    "minConfidence": 0.45,
+    "fallbackToLocal": true,
+    "decisionTimeoutMs": 2500,
+    "jev": {
+      "model": "jev-latest",
+      "timeoutMs": 2000,
+      "apiKeyEnv": "TYPESAFE_API_KEY",
+      "baseUrl": "https://api.typesafe.ai/v1/systemone"
+    },
+    "laya": {
+      "url": "http://127.0.0.1:8091/decide",
+      "timeoutMs": 3000
+    }
   }
 }
