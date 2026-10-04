@@ -817,6 +817,32 @@ export class ClearRunner {
             let noProgress = 0;
             while (stillClose && legs < 6 && bot.food > 6) {
               this.log(`[clear] pack still <40m — flee leg ${legs + 1}`);
+              // naked + pack: the stash chest IS the exit — a sword from it
+              // turns the chase around, a naked burrow only defers death.
+              // Aim the legs at the nearest stash and raid it mid-flight;
+              // the grave-abort → flee → re-camp chain died 3x this way
+              const armed = bot.inventory.items().some((i) => /_sword|_axe/.test(i.name));
+              if (!armed) {
+                const st = [...stashLoadFile(bot), this.state?.stash]
+                  .filter(Boolean)
+                  .map((s) => ({ s, d: Math.hypot(s.x - bot.entity.position.x, s.z - bot.entity.position.z) }))
+                  .filter((e) => e.d < 200)
+                  .sort((a, b) => a.d - b.d)[0];
+                if (st) {
+                  const sx = st.s.x - bot.entity.position.x;
+                  const sz = st.s.z - bot.entity.position.z;
+                  const sn = Math.max(Math.abs(sx), Math.abs(sz)) || 1;
+                  legDir = [Math.round((sx / sn) * 70), Math.round((sz / sn) * 70)];
+                  if (st.d < 12) {
+                    try {
+                      const rec = await stashRecover(bot, this.mcData, this.log, this.state);
+                      if (rec?.ok) this.log(`[clear] mid-flee stash raid: ${rec.message}`);
+                    } catch {
+                      /* pack is on us — keep running */
+                    }
+                  }
+                }
+              }
               await fleeUntilClear(legDir[0], legDir[1], 6).catch(() => {});
               legs += 1;
               const moved = bot.entity.position.distanceTo(lastPos);
