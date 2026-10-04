@@ -308,6 +308,14 @@ export class CombatReflex {
     const name = this._mobName(entity);
     if (NEVER_ATTACK.has(name)) return false;
     if (isBossMobName(name)) return true;
+    // piglin neutral until provoked — treat brute as hostile always.
+    // Must run BEFORE the kind check: minecraft-data files zombified_piglin
+    // under "Hostile mobs", so the kind test alone engaged every ZP on
+    // sight — the world-spawn portal kept a pack angry and 13 respawns in
+    // a row died to "zombified_piglin" the bot itself was provoking
+    if (name === "piglin" || name === "zombified_piglin") {
+      return this.cfg.attackAllLiving === true;
+    }
     if (entity.kind === "Hostile mobs") return true;
     // berserk: cows, sheep, villagers, iron golems — anything living/mob
     if (this.cfg.attackAllLiving === true) {
