@@ -6352,6 +6352,25 @@ async function phaseIron(bot, mcData, state, log) {
       const woodStock =
         countItem(bot, CRAFTABLE_LOG) + countItem(bot, (i) => i.name.endsWith("_planks"));
       if (woodStock < 8) {
+        // underground there are no logs — every gather path below resolves
+        // ok:true while reaching nothing, and that loop ran to a hard-trap
+        // kill at 496,43,-76. Climb to skylight first; next pass gathers.
+        const headSky =
+          bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 15;
+        if (headSky < 4) {
+          const sh = await shaftUp(bot, mcData, 56, log).catch(() => ({ ok: false }));
+          if (sh.ok || (bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0) >= 4)
+            return { ok: true, phase: "iron", message: "climbed out for wood" };
+          // shaft blocked overhead — keep walking sideways; do not arm the
+          // gather loop where nothing can ever be reached
+          const p0 = bot.entity.position.floored();
+          await executeAction(
+            bot,
+            { type: "goto", x: p0.x + 9, y: p0.y, z: p0.z + 9, range: 3, timeoutMs: 9000 },
+            mcData
+          ).catch(() => {});
+          return { ok: true, phase: "iron", message: "shifting for a clear column" };
+        }
         const w = await punchNearbyLogs(bot, mcData, 10, state);
         if (!w.ok) {
           const t = bot.findBlock({ matching: (b) => b && b.name.endsWith("_log"), maxDistance: 48 });
