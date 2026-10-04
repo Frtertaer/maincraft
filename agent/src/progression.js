@@ -1766,6 +1766,12 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
     return false;
   };
   let sealTried = 0;
+  // a flooded aquifer returns water on every face — each rotation just moves
+  // the bot through more drowned territory while walling buys seconds. Count
+  // water-blocked faces and bail the whole strip once it's clearly a flood;
+  // holding one cell in a drowned cave is slower death than retreating up the
+  // staircase it came down
+  let waterHits = 0;
   for (let i = 0; i < steps; i++) {
     const p = bot.entity.position.floored();
     // submerged head = drowning — a flooded aquifer returns mined=0 on every
@@ -1829,6 +1835,20 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
     // bad() treats air/liquid as bad — an open cell ahead is a cave mouth,
     // and a mob standing near the step cell is an ambush; both rotate
     if (bad(f1) || bad(h1) || !floor || /lava|water|air/.test(floor.name) || mobNear(p.offset(dx, 0, dz))) {
+      // water-blocked: a flooded face or a drowned guarding the cell counts
+      // toward a flood bail — dry bad cells (air mouths, undiggable) don't
+      if (
+        /water|bubble_column/.test(String(f1?.name || "")) ||
+        /water|bubble_column/.test(String(h1?.name || "")) ||
+        /water|bubble_column/.test(String(floor?.name || "")) ||
+        /drowned/.test(String(nearestHostile(7)?.name || ""))
+      ) {
+        waterHits += 1;
+        if (waterHits >= 6) {
+          log?.("[stripMine] flooded aquifer — bailing out of the tunnel");
+          break;
+        }
+      }
       // fissure traverse: if the cells ahead are open air but each has a
       // solid floor and a diggable wall resumes within 12 blocks, walk
       // across and keep stripping on the far side — a 4-cell cap spun
@@ -1942,7 +1962,7 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
     }
   }
   log?.(`[stripMine] mined=${mined} oreHits=${oreHits} y=${Math.floor(bot.entity.position.y)}`);
-  return { mined, oreHits };
+  return { mined, oreHits, flooded: waterHits >= 6 };
 }
 
 // Night survival: dig a straight 1x1 shaft down (~8s, no walkable path for
@@ -4406,7 +4426,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         const sd = state._nightStripDir || [Math.random() < 0.5 ? 1 : -1, 0];
         state._nightStripDir = sd;
         const sm = await stripMine(bot, mcData, 6, log, sd).catch(() => null);
-        if (sm?.mined > 0) {
+        if (sm?.flooded) {
+          // the strip broke into a drowned aquifer — holding at this depth is
+          // a drowning trap. Climb back toward the seal top and hold there;
+          // the flooded tunnel level stays walled off below. nightDigDone
+          // stops further descent this hold
+          nightDigDone = true;
+          for (let c = 0; c < 14; c += 1) {
+            const up1 = await stairwayUp(bot, mcData, 1, log).catch(() => false);
+            if (!up1) break;
+            const np2 = bot.entity.position.floored();
+            pocketDeep = { x: np2.x + 0.5, y: np2.y, z: np2.z + 0.5 };
+            if (bot.entity.position.y >= nightDigFloorY - 2) break;
+          }
+          log?.(`[burrow] night shift: flooded tunnel — retreated to y=${Math.floor(bot.entity.position.y)}`);
+        } else if (sm?.mined > 0) {
           const np = bot.entity.position.floored();
           pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
           log?.(`[burrow] night shift: strip-mined ${sm.mined} (${sm.oreHits || 0} ore) at y=${np.y}`);
