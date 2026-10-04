@@ -327,6 +327,19 @@ export class ClearRunner {
             const clusterDeaths = killPtsR.filter(
               (c) => Math.hypot(c.x - me.x, c.z - me.z) < 160
             ).length;
+            // three or more deaths in one basin marks it a dead zone: every
+            // "log"/"log site" inside is bait that pulls the next gather back
+            // into the camp. Suppress wood work while inside it — the wood
+            // phase sees deadZone and migrates out instead of stopping to
+            // gather, so the chain resumes on genuinely new land
+            if (clusterDeaths >= 3 && this.state) {
+              this.state.deadZone = {
+                x: me.x,
+                z: me.z,
+                r: 350,
+                until: Date.now() + 15 * 60000,
+              };
+            }
             // the 250m migration is a DAY move: sprinting that far through a
             // night mob field is suicide (the burst can't dodge), while the
             // proven night answer is a short burst + an immediate seal. At

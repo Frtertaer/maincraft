@@ -5805,8 +5805,18 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   // ring is exactly what drags the bot back to its death site
   const campZones = campZonesFor(bot, state);
   const campFree = (b) => !posInCamp(b.position, campZones);
+  // dead zone: three-plus deaths in one basin makes every visible trunk bait
+  // that pulls the next gather back into the camp — suppress collect+scan
+  // while inside and force the committed trek out instead
+  const p0 = bot.entity.position;
+  const inDead = !!(
+    state?.deadZone &&
+    Date.now() < state.deadZone.until &&
+    Math.hypot(p0.x - state.deadZone.x, p0.z - state.deadZone.z) < state.deadZone.r
+  );
+  if (inDead) state.exploreHops = Math.max(state.exploreHops || 0, 5);
   const logCount = () => countItem(bot, CRAFTABLE_LOG);
-  for (const b of logNames) {
+  for (const b of inDead ? [] : logNames) {
     const before = logCount();
     const rr = await executeAction(
       bot,
@@ -5825,16 +5835,18 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   // failed to path to and anything far below (cave-visible trunks the
   // pathfinder can never reach from the surface)
   const feet = bot.entity.position.floored();
-  const block = bot.findBlock({
-    matching: (b) => {
-      const blk = b && b.position ? b : b && bot.blockAt(b);
-      if (!blk || !(blk.name.endsWith("_log") || blk.name.endsWith("_stem"))) return false;
-      if (blk.position.y <= feet.y - 12) return false;
-      if (!campFree(blk)) return false;
-      return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
-    },
-    maxDistance: 72,
-  });
+  const block = inDead
+    ? null
+    : bot.findBlock({
+        matching: (b) => {
+          const blk = b && b.position ? b : b && bot.blockAt(b);
+          if (!blk || !(blk.name.endsWith("_log") || blk.name.endsWith("_stem"))) return false;
+          if (blk.position.y <= feet.y - 12) return false;
+          if (!campFree(blk)) return false;
+          return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
+        },
+        maxDistance: 72,
+      });
   if (!block) {
     // nothing in scan range — wander toward new ground instead of stalling.
     // Keep one heading and grow the leap each streak: a tree-poor basin
@@ -6000,7 +6012,14 @@ async function gotoLogSite(bot, mcData, state, p) {
         e.d > 30 &&
         e.d < 400 &&
         !dead[cellOf(e.s.x, e.s.z)] &&
-        !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150)
+        !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150) &&
+        // a remembered site inside a proven dead zone is bait — every gather
+        // there died. Skip it; the committed trek carries the bot to new land
+        !(
+          state?.deadZone &&
+          Date.now() < state.deadZone.until &&
+          Math.hypot(e.s.x - state.deadZone.x, e.s.z - state.deadZone.z) < state.deadZone.r
+        )
     )
     .sort((a, b) => a.d - b.d)[0];
   if (!site) return false;
