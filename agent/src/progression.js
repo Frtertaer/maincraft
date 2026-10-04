@@ -2032,7 +2032,7 @@ export function pickDryDir(bot, dirs) {
 // a shaft is water, a pocket wall is water. Scan outward rings for the
 // nearest column whose surface is dry solid with air above, then swim at it
 // with the same look+jump+forward steering surfaceForAir uses on lips
-async function swimToLand(bot, mcData, log, ms = 40000) {
+export async function swimToLand(bot, mcData, log, ms = 40000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     const p = bot.entity.position.floored();

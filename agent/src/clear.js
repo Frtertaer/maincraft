@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -298,13 +298,27 @@ export class ClearRunner {
               const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz); // prefer free landings, bias away-from-death
               if (!bestR || score > bestR.score) bestR = { score, dx: cx2 * 40, dz: cz2 * 40 };
             }
+            // a respawn inside the drowned ring: the compass burst is a slow
+            // paddle with every trident tracking it. First steer for the
+            // nearest dry column — exiting water at the closest lip beats
+            // swimming 70m along a cardinal — then the burst runs on land
+            const wet0 = (() => {
+              try {
+                const fb = me && this.bot.blockAt(me.floored());
+                return fb && /water|kelp|seagrass|bubble/.test(fb.name);
+              } catch {
+                return false;
+              }
+            })();
             // NOTE: must be this._sprintBurst — the sprintBurst local only
             // exists inside _loop (line ~413); the bare call used to throw
             // ReferenceError inside the catch — the "kick sprint NOW" was
             // dead code on every respawn until now
-            void (this._pendingBedDig || Promise.resolve()).then(() =>
-              this._sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
-            );
+            void (this._pendingBedDig || Promise.resolve())
+              .then(() => (wet0 ? swimToLand(this.bot, this.mcData, this.log, 12000).catch(() => false) : Promise.resolve()))
+              .then(() =>
+                this._sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
+              );
           }
         } catch {
           /* ignore */
