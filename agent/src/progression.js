@@ -4299,6 +4299,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // ~4s loop turned a whole night's hold into "tunneling out" spam —
     // a failed try just keeps holding behind the intact seal.
     let lockdownTried = false;
+    // night-shift anchor: the floor the pocket was sealed at, so the descent
+    // cap measures depth below the seal — reset per hold
+    let nightDigFloorY = null;
+    let nightDigAt = 0;
     while (
       Date.now() - t0 < waitCap ||
       (!safe() &&
@@ -4364,6 +4368,30 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         await pt(bot.attack(camper), 6000, "attack");
       } catch {
         /* out of reach — keep waiting */
+      }
+    }
+    // night shift: a sealed pocket is the safest room on this map — nothing
+    // topside reaches us here, and underground night work is what reaches
+    // iron on a starved seed. Instead of idling till dawn keep the
+    // staircase going DOWN under the intact seal. pocketDeep tracks the new
+    // floor so the pin-abort (>8m from refuge) never trips on our own
+    // staircase; capped ~15 below the seal so the dawn climb-out stays a
+    // short walk, and stairDown's own guards refuse lava/water/cliffs/
+    // mob-doorways.
+    if (
+      (bot.time?.timeOfDay ?? 0) >= 12541 &&
+      !tunnelEscape &&
+      !camper &&
+      Date.now() - nightDigAt > 25000 &&
+      (nightDigFloorY == null || bot.entity.position.y > nightDigFloorY - 15)
+    ) {
+      if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
+      nightDigAt = Date.now();
+      const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
+      if (shifted?.digs > 0) {
+        const np = bot.entity.position.floored();
+        pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
+        log?.(`[burrow] night shift: descended to y=${np.y} — top stays sealed`);
       }
     }
     // pocket greenhouse: a sealed pocket is the only guaranteed-safe grow
