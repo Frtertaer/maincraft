@@ -966,6 +966,31 @@ export class ClearRunner {
                   /zombie|spider|husk|vex|slime|drowned/.test(String(e.name || "")) &&
                   dist(e) < 10
               ).length >= 2;
+            // naked respawn into a close camper on diggable ground: the capped
+            // shaft seals in ~3s — faster than the sprint window a skeleton
+            // exploits (deaths #3-5 all died mid-flee at the bed field).
+            // Sprint still wins against a creeper on the fuse or a true melee
+            // swarm — a hole with two zombies inside reach is a trap
+            const diggableHere = (b) =>
+              b &&
+              /dirt|grass|sand|gravel|clay|mud|snow|mycelium|podzol|coarse_dirt|rooted_dirt|farmland|moss|soul_sand|soul_soil/.test(
+                b.name || ""
+              );
+            const closeCamper =
+              respawnHostiles.some((e) => dist(e) < 10) ||
+              respawnHostiles.some((e) => isRanged(e) && dist(e) < 16);
+            if (diggableHere(bot.blockAt(pf.floored().offset(0, -1, 0))) && closeCamper && !meleeSwarm && !creepNear) {
+              this.log(`[clear] naked day respawn into close camper — grave first`);
+              try {
+                const okG = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                if (okG) {
+                  await sleep(800);
+                  continue;
+                }
+              } catch (errG) {
+                this.log(`[clear] respawn grave fail: ${errG?.message || errG}`);
+              }
+            }
             if (!respawnHostile || creepNear || meleeSwarm || (bareHands && packNear48)) {
               // a bed-side respawn under repeat kills is the bed camping us:
               // every death lands at the same anchor in the same mob pocket.
