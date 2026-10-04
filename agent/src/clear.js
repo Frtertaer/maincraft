@@ -327,8 +327,18 @@ export class ClearRunner {
             const clusterDeaths = killPtsR.filter(
               (c) => Math.hypot(c.x - me.x, c.z - me.z) < 160
             ).length;
+            // the 250m migration is a DAY move: sprinting that far through a
+            // night mob field is suicide (the burst can't dodge), while the
+            // proven night answer is a short burst + an immediate seal. At
+            // night in a kill field hold to the short burst and let the
+            // burrow seal; the dawn trek carries the migration instead.
+            const isNightR = (this.bot.time?.timeOfDay ?? 0) >= 12541 || (this.bot.time?.timeOfDay ?? 0) < 1000;
             const inCamp0 =
-              clusterDeaths >= 3 ? 45000 : czR && Math.hypot(me.x - czR.x, me.z - czR.z) < 150 ? 15000 : 7000;
+              clusterDeaths >= 3 && !isNightR
+                ? 45000
+                : czR && Math.hypot(me.x - czR.x, me.z - czR.z) < 150
+                  ? 15000
+                  : 7000;
             void (this._pendingBedDig || Promise.resolve())
               .then(() => (wet0 ? swimToLand(this.bot, this.mcData, this.log, 12000).catch(() => false) : Promise.resolve()))
               .then(() =>
