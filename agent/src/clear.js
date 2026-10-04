@@ -287,8 +287,12 @@ export class ClearRunner {
               const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz); // prefer free landings, bias away-from-death
               if (!bestR || score > bestR.score) bestR = { score, dx: cx2 * 40, dz: cz2 * 40 };
             }
+            // NOTE: must be this._sprintBurst — the sprintBurst local only
+            // exists inside _loop (line ~413); the bare call used to throw
+            // ReferenceError inside the catch — the "kick sprint NOW" was
+            // dead code on every respawn until now
             void (this._pendingBedDig || Promise.resolve()).then(() =>
-              sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
+              this._sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
             );
           }
         } catch {
