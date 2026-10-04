@@ -1972,6 +1972,7 @@ export function pickDryDir(bot, dirs) {
     const scanCap = Math.min(leg, 170);
     for (let step = 6; step <= scanCap; step += 6) {
       let wet = false;
+      let cliff = false;
       for (let dy = 0; dy >= -20; dy--) {
         const b = bot.blockAt(feet.offset(sx * step, dy, sz * step));
         if (!b) continue;
@@ -1979,9 +1980,15 @@ export function pickDryDir(bot, dirs) {
           wet = true;
           break;
         }
-        if (dy < 0 && b.boundingBox === "block") break; // walk surface — deeper is under it
+        if (dy < 0 && b.boundingBox === "block") {
+          // a >7-block fall mid-flee is a ravine ticket: the landing survives
+          // physically but whatever waits down there finishes the job (the
+          // creeper at the 709,43 cave floor was death #2 of that chain)
+          if (dy <= -7) cliff = true;
+          break; // walk surface — deeper is under it
+        }
       }
-      if (wet) {
+      if (wet || cliff) {
         runway = step;
         break;
       }
