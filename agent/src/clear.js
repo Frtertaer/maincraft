@@ -318,9 +318,17 @@ export class ClearRunner {
             // drowned range (the #4-9 water-ring chain: six respawns each
             // paddled ~40m out and got tridented). When the spawn point is
             // inside the camp centroid's ring, sprint ~3x longer — the away-
-            // from-camp direction is already chosen above.
+            // from-camp direction is already chosen above. And when the respawn
+            // sits inside a PROVEN kill field — three or more deaths clustered
+            // around it — an 85m burst still leaves the bot inside the barren
+            // basin it keeps dying in. That zone is a dead zone, not a camp:
+            // commit to a sustained ~250m migration in the best direction and
+            // let the loop's own escape continue from genuinely new land.
+            const clusterDeaths = killPtsR.filter(
+              (c) => Math.hypot(c.x - me.x, c.z - me.z) < 160
+            ).length;
             const inCamp0 =
-              czR && Math.hypot(me.x - czR.x, me.z - czR.z) < 150 ? 15000 : 7000;
+              clusterDeaths >= 3 ? 45000 : czR && Math.hypot(me.x - czR.x, me.z - czR.z) < 150 ? 15000 : 7000;
             void (this._pendingBedDig || Promise.resolve())
               .then(() => (wet0 ? swimToLand(this.bot, this.mcData, this.log, 12000).catch(() => false) : Promise.resolve()))
               .then(() =>
