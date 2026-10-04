@@ -643,6 +643,28 @@ export class ClearRunner {
                 continue;
               }
             }
+            // naked respawn into a point-blank melee camper: the sprint can't
+            // break a spider's contact — it leaps mid-sprint and every spawn-
+            // basin chain this run (7 deaths in ~10min) was exactly that. The
+            // ~20s pocket carve is also out. The capped grave is the counter:
+            // ~3s under one dirt block and a melee camper is locked out — a
+            // drop-in is handled by the shaft abort inside burrowForNight
+            const meleeAtDoor = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return /zombie|spider|creeper|husk|slime|silverfish|endermite|wolf|zoglin|hoglin|piglin|blaze|magma_cube|vindicator|evoker|ravager|vex/.test(n) &&
+                e.position.distanceTo(bot.entity.position) < 8;
+            });
+            const hasWeapon0 = bot.inventory.items().some((i) => /_sword|_axe/.test(i.name));
+            if (meleeAtDoor && !hasWeapon0) {
+              this.log(`[clear] naked respawn into melee camper — grave first`);
+              try {
+                const okG = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                if (okG) continue;
+              } catch (errG) {
+                this.log(`[clear] grave-first fail: ${errG?.message || errG}`);
+              }
+            }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
