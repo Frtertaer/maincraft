@@ -4329,6 +4329,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     let nightDigDone = false;
     while (
       Date.now() - t0 < waitCap ||
+      // deep mining: a staircase ~9 below the seal with a pickaxe and food is
+      // its own safe room — keep the hold (and descent) running past the cap
+      // and through the day instead of releasing back to the lethal surface
+      (nightDigFloorY != null &&
+        bot.entity.position.y < nightDigFloorY - 8 &&
+        hasPickaxe(bot) &&
+        (bot.food ?? 0) > 3) ||
       (!safe() &&
         (bot.time?.timeOfDay ?? 0) >= 9500 &&
         // the 20min ceiling must never release into night proper: a zombie
@@ -4340,7 +4347,17 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           (bot.time?.timeOfDay ?? 0) >= 12541 ||
           (bot.time?.timeOfDay ?? 0) < 1000))
     ) {
-      if (safe()) {
+      // deep mining: once the staircase is ~9 below the seal with a pickaxe
+      // and food, the descent itself is the safe room — the lethal surface
+      // is what's "safe" here, and releasing at dawn just resets the depth
+      // back to the barren basin. A pickaxe means the stairs keep going;
+      // keep the hold (and the descent) running across the day boundary.
+      const deepMining =
+        nightDigFloorY != null &&
+        bot.entity.position.y < nightDigFloorY - 8 &&
+        hasPickaxe(bot) &&
+        (bot.food ?? 0) > 3;
+      if (!deepMining && safe()) {
         safeStreak += 1;
         if (safeStreak >= 2) break;
       } else {
@@ -4403,7 +4420,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // short walk, and stairDown's own guards refuse lava/water/cliffs/
     // mob-doorways.
     if (
-      (bot.time?.timeOfDay ?? 0) >= 12541 &&
+      ((bot.time?.timeOfDay ?? 0) >= 12541 || deepMining) &&
       !tunnelEscape &&
       !camper &&
       !nightDigDone &&
@@ -4411,7 +4428,9 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
       nightDigAt = Date.now();
-      if (bot.entity.position.y > nightDigFloorY - 15) {
+      // deep mining removes the 15-below-seal climb-out cap and aims for the
+      // iron band — that's the whole point of staying down past dawn
+      if (bot.entity.position.y > (deepMining ? 28 : nightDigFloorY - 15)) {
         const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
         if (!shifted?.digs) nightDigDone = true;
         if (shifted?.digs > 0) {
