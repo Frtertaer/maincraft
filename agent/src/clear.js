@@ -314,10 +314,17 @@ export class ClearRunner {
             // exists inside _loop (line ~413); the bare call used to throw
             // ReferenceError inside the catch — the "kick sprint NOW" was
             // dead code on every respawn until now
+            // a ~40m burst lands a respawn INSIDE a marked camp ring back in
+            // drowned range (the #4-9 water-ring chain: six respawns each
+            // paddled ~40m out and got tridented). When the spawn point is
+            // inside the camp centroid's ring, sprint ~3x longer — the away-
+            // from-camp direction is already chosen above.
+            const inCamp0 =
+              czR && Math.hypot(me.x - czR.x, me.z - czR.z) < 150 ? 15000 : 7000;
             void (this._pendingBedDig || Promise.resolve())
               .then(() => (wet0 ? swimToLand(this.bot, this.mcData, this.log, 12000).catch(() => false) : Promise.resolve()))
               .then(() =>
-                this._sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, 7000).catch(() => {})
+                this._sprintBurst(bestR ? bestR.dx : (dx / len) * 40, bestR ? bestR.dz : (dz / len) * 40, inCamp0).catch(() => {})
               );
           }
         } catch {
