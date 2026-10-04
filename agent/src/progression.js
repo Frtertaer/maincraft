@@ -4303,6 +4303,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // cap measures depth below the seal — reset per hold
     let nightDigFloorY = null;
     let nightDigAt = 0;
+    // a 0-dig stairDown inside a sealed hold means the tool can't harvest
+    // the floor (dirt vs stone) or every dir is mob/fluid-blocked — neither
+    // improves in 25s, so stop instead of spamming a stuck line all night
+    let nightDigDone = false;
     while (
       Date.now() - t0 < waitCap ||
       (!safe() &&
@@ -4382,12 +4386,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       (bot.time?.timeOfDay ?? 0) >= 12541 &&
       !tunnelEscape &&
       !camper &&
+      !nightDigDone &&
       Date.now() - nightDigAt > 25000 &&
       (nightDigFloorY == null || bot.entity.position.y > nightDigFloorY - 15)
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
       nightDigAt = Date.now();
       const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
+      if (!shifted?.digs) nightDigDone = true;
       if (shifted?.digs > 0) {
         const np = bot.entity.position.floored();
         pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
