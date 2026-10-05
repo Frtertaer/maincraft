@@ -290,12 +290,40 @@ export class ClearRunner {
               const an = Math.hypot(ax, az) || 1;
               cands.unshift([ax / an, az / an]); // straight out of the camp
             }
+            // steer the long migration toward proven fertile ground, not just
+            // "away": an away-from-death landing inside another barren basin
+            // re-seals the same starvation (the 461,-35 hop out of the kill
+            // field still had no game in reach). Find the nearest anchor that
+            // already yielded wood/meat — log sites, home, stash chests — and
+            // weight every candidate by how directly it heads there; anchors
+            // sitting inside a kill ring stay bait and are skipped.
+            const fertDir = (() => {
+              const anchors = [];
+              if (this.state?.home) anchors.push(this.state.home);
+              for (const s of this.state?.logSites || []) anchors.push(s);
+              if (this.state?.stash) anchors.push(this.state.stash);
+              for (const s of stashLoadFile(this.bot) || []) anchors.push(s);
+              const near = anchors
+                .filter((a) => a && Math.hypot(a.x - me.x, a.z - me.z) > 40 && !inKill(a.x, a.z))
+                .sort(
+                  (a, b) =>
+                    Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z)
+                )[0];
+              if (!near) return null;
+              const an = Math.hypot(near.x - me.x, near.z - me.z) || 1;
+              return [(near.x - me.x) / an, (near.z - me.z) / an];
+            })();
+            if (fertDir) cands.unshift(fertDir); // try the fertile heading first
             let bestR = null;
             for (const [cx2, cz2] of cands) {
               const lx = me.x + cx2 * 40;
               const lz = me.z + cz2 * 40;
               const kill = inKill(lx, lz);
-              const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz); // prefer free landings, bias away-from-death
+              // a candidate aligned with a fertile anchor scores as high as a
+              // free landing — both keep the next gather out of the kill field
+              // and onto ground that actually has game
+              const towardFertile = fertDir ? cx2 * fertDir[0] + cz2 * fertDir[1] : 0;
+              const score = (kill ? 0 : 1) + (cx2 * ux + cz2 * uz) + towardFertile;
               if (!bestR || score > bestR.score) bestR = { score, dx: cx2 * 40, dz: cz2 * 40 };
             }
             // a respawn inside the drowned ring: the compass burst is a slow
