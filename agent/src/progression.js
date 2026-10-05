@@ -301,6 +301,26 @@ function hasPickaxe(bot) {
   return bot.inventory.items().some((i) => /_pickaxe$/.test(i.name) || i.name.includes("pickaxe"));
 }
 
+// a wooden pickaxe (59 uses) dies a few levels into a real descent and
+// underground there's no way to remake it without a table+logs — the bot
+// ends stranded mid-shaft with fists against stone (the y=58 stall). Only a
+// stone-tier+ pick (132+ uses) survives a staircase to iron, OR a carried
+// recraft kit (crafting_table + cobble + stick-source) that can lay a table
+// and rebuild one on the spot when the held pick breaks.
+function hasDurablePick(bot) {
+  return bot.inventory.items().some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name));
+}
+function canRecraftPickHere(bot) {
+  const items = bot.inventory.items();
+  const table = items.some((i) => i.name === "crafting_table");
+  const cobble = items.some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
+  const stickSource =
+    items.some((i) => i.name === "stick" && i.count >= 2) ||
+    items.some((i) => /_planks$/.test(i.name) && i.count >= 2) ||
+    items.some((i) => /_log$|_stem$/.test(i.name));
+  return table && cobble && stickSource;
+}
+
 // best pickaxe the inventory supports: stone when the cobble-family is
 // around, wooden otherwise. Without one every stone column reads undiggable
 // and the whole burrow/descend machinery stalls — recraft on the spot.
@@ -2693,7 +2713,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     log?.("[burrow] creeper closing — aborting prep");
     return false;
   }
-  if (!hasPickaxe(bot)) {
+  // recraft also upgrades: a held WOODEN pickaxe with cobble in the bag is
+  // a fragile descent tool — ensurePickaxe swaps it to stone before the
+  // night shift ever trusts it with the staircase (the y=58 break)
+  const woodenHeld = bot.inventory.items().some((i) => /^(wooden|golden)_pickaxe$/.test(i.name));
+  const cobbleForStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
+  if (!hasPickaxe(bot) || (woodenHeld && cobbleForStone)) {
     const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
     else log?.(`[burrow] pickaxe recraft failed: ${pk?.message || "?"}`);
@@ -4547,6 +4572,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // stone with dirt") — hands get no drop and ~10x slower. No pickaxe
       // means the sealed night is just a wait: don't start the descent
       hasPickaxe(bot) &&
+      // and a pickaxe that won't outlive the shaft is worse than none: a
+      // wooden pick snaps mid-descent and can't recraft underground, so a
+      // sealed night ends stranded at y~58 fisting stone. Only go deep on a
+      // durable pick, or a carried kit that rebuilds one when it breaks.
+      (hasDurablePick(bot) || canRecraftPickHere(bot)) &&
       Date.now() - nightDigAt > 25000
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
