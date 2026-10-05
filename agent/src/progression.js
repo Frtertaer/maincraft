@@ -6364,6 +6364,20 @@ async function phaseStone(bot, mcData, state, log) {
 
   await ensureTable(bot, mcData);
   const cobble = countItem(bot, (i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name));
+  // a stone pickaxe is THE bootstrap tool — a wooden pick (~59 durability)
+  // can't survive a real iron descent and strands the bot deep underground
+  // with no wood to recraft. Make one the moment 3 cobble + 2 sticks exist
+  // instead of waiting for the whole 8-cobble tool set.
+  if (cobble >= 3 && !hasAny(bot, ["stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"])) {
+    if (countItem(bot, "stick") < 2) {
+      await ensurePlanks(bot, mcData, 4);
+      await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
+    }
+    if (countItem(bot, "stick") >= 2) {
+      const cr = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch(() => null);
+      if (cr?.ok) log?.("[stone] early stone pickaxe — wooden pick retired");
+    }
+  }
   if (cobble < 8) {
     // Only target stone with an exposed face — buried blocks can't be dug from outside
     const stonePos = bot
