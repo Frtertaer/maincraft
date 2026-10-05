@@ -2649,6 +2649,23 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
     else log?.(`[burrow] pickaxe recraft failed: ${pk?.message || "?"}`);
   }
+  // a sealed night is the safest place on a hostile seed to come up armed —
+  // bare fists lose every mob trade at hp<20, and a wooden sword (2 planks +
+  // 1 stick) turns the dawn exit into something that fights a zombie for its
+  // flesh instead of starving to it. Run the full chain on whatever logs the
+  // log-punch above left in the bag; a table is already up from the recraft.
+  if (
+    !hasAny(bot, ["wooden_sword", "stone_sword", "iron_sword", "diamond_sword", "netherite_sword", "wooden_axe", "stone_axe", "iron_axe", "diamond_axe", "netherite_axe"]) &&
+    (countItem(bot, CRAFTABLE_LOG) >= 1 || countItem(bot, (i) => i.name.includes("planks")) >= 3)
+  ) {
+    await ensurePlanks(bot, mcData, 4).catch(() => {});
+    if (countItem(bot, "stick") < 1) await ensureCraft(bot, mcData, "stick", 4).catch(() => {});
+    const wpn =
+      countItem(bot, "cobblestone") >= 3 || countItem(bot, "cobbled_deepslate") >= 3
+        ? await ensureCraft(bot, mcData, "stone_sword", 1).catch(() => ({ ok: false }))
+        : await ensureCraft(bot, mcData, "wooden_sword", 1).catch(() => ({ ok: false }));
+    if (wpn?.ok) log?.("[burrow] crafted a weapon — exits armed");
+  }
   // Try up to 9 candidate spots for a dig-down column: here, then east, west,
   // south, north at 3 and 6 blocks — the ground must be solid to -6.
   let entry = bot.entity.position.floored();
