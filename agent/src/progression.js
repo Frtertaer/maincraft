@@ -141,7 +141,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
       const wetCell = (b) => /water|bubble_column|kelp|seagrass/.test(String(b?.name || ""));
       if (!bot.entity.vehicle && (wetCell(headW) || wetCell(underW))) {
         const wasDeep = bot.entity.position.y < 48;
-        const sw = await surfaceForAir(bot, mcData, log);
+        const sw = await surfaceForAir(bot, mcData, log, state);
         // head above water but still treading an open lake = the next wander
         // step just steers around the water until a drowned arrives. Route to
         // a dry shore cell while the air is full — the drowned@(-18,62,31)
@@ -149,7 +149,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         if (sw.ok) {
           const f2 = bot.entity.position.floored();
           if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
-            await swimToLand(bot, mcData, log, 10000).catch(() => {});
+            await swimToLand(bot, mcData, log, 10000, state).catch(() => {});
           }
         }
         if (sw.ok && wasDeep) {
@@ -177,7 +177,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
             // relocations stop probing columns into it
             const fz = bot.entity.position.floored();
             state.floodZone = { x: fz.x, z: fz.z, r: 60 };
-            const landed = await swimToLand(bot, mcData, log, 45000).catch(() => false);
+            const landed = await swimToLand(bot, mcData, log, 45000, state).catch(() => false);
             if (landed) {
               state.submergedFails = 0;
               return { ok: true, phase, message: "flood basin — swam to land" };
@@ -1596,7 +1596,7 @@ async function placeShoreStep(bot, mcData) {
 // climbable lip (a solid top at the water line). No lip = a flooded pocket
 // or deep pool — place a shore step against a wall face, or drift toward
 // the next probe direction until a shore scan finds land.
-async function surfaceForAir(bot, mcData, log) {
+async function surfaceForAir(bot, mcData, log, state = null) {
   const t0 = Date.now();
   let dirIdx = 0;
   const dirs = [
@@ -1667,7 +1667,7 @@ async function surfaceForAir(bot, mcData, log) {
         // Treading + blind direction probes is the drowning-pool death
         // (three "still submerged" timeouts on speedrun6): steer for the
         // wide-ring dry-column scan instead, same target swimToLand uses
-        const landed = await swimToLand(bot, mcData, log, 8000).catch(() => false);
+        const landed = await swimToLand(bot, mcData, log, 8000, state).catch(() => false);
         if (landed) continue;
         const [dx, dz] = dirs[dirIdx % 4];
         dirIdx += 1;
@@ -2093,7 +2093,7 @@ export function pickDryDir(bot, dirs, bias = null) {
 // a shaft is water, a pocket wall is water. Scan outward rings for the
 // nearest column whose surface is dry solid with air above, then swim at it
 // with the same look+jump+forward steering surfaceForAir uses on lips
-export async function swimToLand(bot, mcData, log, ms = 40000) {
+export async function swimToLand(bot, mcData, log, ms = 40000, state = null) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     const p = bot.entity.position.floored();
@@ -2112,10 +2112,10 @@ export async function swimToLand(bot, mcData, log, ms = 40000) {
       return true;
     let best = null;
     let bestD = 1e9;
-    for (let dx = -8; dx <= 8; dx += 1) {
-      for (let dz = -8; dz <= 8; dz += 1) {
+    for (let dx = -12; dx <= 12; dx += 1) {
+      for (let dz = -12; dz <= 12; dz += 1) {
         if (!dx && !dz) continue;
-        for (let dy = -3; dy <= 4; dy += 1) {
+        for (let dy = -4; dy <= 6; dy += 1) {
           const b = bot.blockAt(p.offset(dx * 5, dy, dz * 5));
           if (!b || b.boundingBox !== "block" || /water|kelp|seagrass|bubble/.test(b.name)) continue;
           const a1 = bot.blockAt(b.position.offset(0, 1, 0));
@@ -2130,9 +2130,17 @@ export async function swimToLand(bot, mcData, log, ms = 40000) {
       }
     }
     if (!best) {
-      // nothing dry in scan range — keep swimming in the same heading
+      // nothing dry in scan range — a fixed heading can spin in a bay or
+      // swim straight back out to sea. Steer for the nearest proven-dry
+      // anchor (logSite/home/stash) when we know one; only fall back to the
+      // current heading when the whole map is still blank.
+      const fd = state ? fertileDir(bot, state) : null;
+      if (fd) {
+        bot.look(Math.atan2(-fd[0], -fd[1]), 0, true);
+      }
       bot.setControlState("jump", true);
       bot.setControlState("forward", true);
+      bot.setControlState("sprint", true);
       await sleep(400);
       continue;
     }
@@ -2278,7 +2286,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // shore within reach — the land swim drowned the bot at y=13. Climb a
     // ceiling/air pocket first; the land scan stays as its fallback
     log?.("[burrow] in open water — surfacing for air");
-    await surfaceForAir(bot, mcData, log).catch(() => {});
+    await surfaceForAir(bot, mcData, log, state).catch(() => {});
   }
   // a creeper inside ~16m outranges the whole prep window: the separation
   // sprint buys ~4s, then the bot stands still punching logs for 60s while
@@ -3009,7 +3017,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         // column first, then the retry pillars on real ground. Bare-handed on
         // a lake under a camper this was burning 20s+ per refused attempt
         log?.("[burrow] feet in water — swimming for land before pillar");
-        await swimToLand(bot, mcData, log, 20000).catch(() => {});
+        await swimToLand(bot, mcData, log, 20000, state).catch(() => {});
         break;
       }
       try {
