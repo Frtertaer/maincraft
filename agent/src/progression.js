@@ -2880,6 +2880,31 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           ? "[burrow] LOS wall up vs ranged camper — pillaring behind it"
           : "[burrow] no wall vs ranged camper — pillaring anyway, open-plain flight is a death sentence"
       );
+      if (!walled) {
+        // naked vs a shooter with no wall material — a pillar is a clean
+        // shot at the climb and the dirt walk is a clean shot at the walk
+        // (the drowned-trident deaths on speedrun6). The only working move
+        // is to keep sprinting until the shots whiff (~25m past): break the
+        // shooter's line of sight, then the loop can seal on the next call.
+        const ex = bot.entity.position;
+        const sx = ex.x - (shooter?.position.x ?? ex.x);
+        const sz = ex.z - (shooter?.position.z ?? ex.z);
+        const n = Math.hypot(sx, sz) || 1;
+        log?.("[burrow] no wall vs shooter — sprinting to break LOS");
+        await executeAction(
+          bot,
+          {
+            type: "goto",
+            x: ex.x + Math.round((sx / n) * 32),
+            y: ex.y,
+            z: ex.z + Math.round((sz / n) * 32),
+            range: 6,
+            timeoutMs: 22000,
+          },
+          mcData
+        ).catch(() => {});
+        return false;
+      }
     }
     // a pillar needs open sky — under a solid lid every riser comes back
     // "no headroom" and each relocate just finds another roofed column.
