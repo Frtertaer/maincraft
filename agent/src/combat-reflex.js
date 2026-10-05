@@ -905,14 +905,19 @@ export class CombatReflex {
       return;
     }
 
-    // Melee range
-    try {
-      bot.pathfinder.setGoal(null);
-    } catch {
-      /* ignore */
+    // Melee range. A phase-owned move in flight (migration/goto) keeps it:
+    // clearing the goal to strafe in place aborts the escape leg every time
+    // a mob wanders into reach — the migration through a kill field dies to
+    // "goal superseded" one mob at a time. Outrunning a melee mob IS the
+    // escape; we still swing back defensively without owning the position.
+    if (!bot._phaseMove) {
+      try {
+        bot.pathfinder.setGoal(null);
+      } catch {
+        /* ignore */
+      }
+      this._strafeAround(target);
     }
-
-    this._strafeAround(target);
     void this._meleeHit(target);
   }
 }
