@@ -6052,6 +6052,34 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           const deadCells = Object.keys(state.deadLogCells || {})
             .map((k) => k.split(",").map(Number))
             .filter((a) => a.length === 2);
+          // steer toward the nearest remembered productive ground — on a
+          // uniformly-barren seed every bearing avoids the same dead cells,
+          // so the cluster of sites where wood was actually found is the only
+          // real signal of where trees live. Distance is uncapped (unlike
+          // gotoLogSite's 400m) since a far fertile cluster still says which
+          // way the forest is.
+          const deadSet = state?.deadLogCells || {};
+          const cellKey = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
+          const fertile = (state?.logSites || [])
+            .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+            .filter(
+              (e) =>
+                e.d > 40 &&
+                !deadSet[cellKey(e.s.x, e.s.z)] &&
+                !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150) &&
+                !(
+                  state?.deadZone &&
+                  Date.now() < state.deadZone.until &&
+                  Math.hypot(e.s.x - state.deadZone.x, e.s.z - state.deadZone.z) < state.deadZone.r
+                )
+            )
+            .sort((a, b) => a.d - b.d)[0]?.s;
+          const fertDir = fertile
+            ? (() => {
+                const n = Math.hypot(fertile.x - p.x, fertile.z - p.z) || 1;
+                return [(fertile.x - p.x) / n, (fertile.z - p.z) / n];
+              })()
+            : null;
           const bearings = [
             [1, 0], [-1, 0], [0, 1], [0, -1],
             [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -6071,6 +6099,13 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
             }
             for (const [dx, dz] of deadCells) {
               score += Math.min(Math.hypot(tx - dx * 32, tz - dz * 32), 400) / 400;
+            }
+            // dominant term: how directly the bearing heads toward the fertile
+            // cluster (normalized so a diagonal on a diagonal target correctly
+            // outranks a cardinal that only half-aligns).
+            if (fertDir) {
+              const bn = Math.hypot(bx, bz) || 1;
+              score += ((bx / bn) * fertDir[0] + (bz / bn) * fertDir[1]) * 10;
             }
             if (score > bestScore) {
               bestScore = score;
