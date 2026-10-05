@@ -5560,6 +5560,17 @@ export async function ensureFed(bot, mcData, log, state = null) {
     if (state) state.foodHoldStreak = (state.foodHoldStreak || 0) + 1;
     const headSky =
       bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0;
+    // starving UNDERGROUND with no food path: daylight, livestock and the
+    // stash are all topside, so hold-position just waits for the stuck
+    // counter to /kill the run. Climb the dug staircase toward the surface
+    // first — on reaching daylight the anchor march below takes over.
+    if (state?.foodHoldStreak >= 5 && headSky <= 4) {
+      const up = await stairwayUp(bot, mcData, 14, log).catch(() => null);
+      if (up?.ok) {
+        state.foodHoldStreak = 0;
+        return { ok: true, ate, message: "starvation climb to surface" };
+      }
+    }
     if (state?.foodHoldStreak >= 5 && headSky > 4 && !findHostile(bot, 24)) {
       const p = bot.entity.position;
       const anchors = [];
