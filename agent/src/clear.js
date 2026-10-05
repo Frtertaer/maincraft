@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -1381,8 +1381,12 @@ export class ClearRunner {
           (i) => this.mcData.blocksByName[i.name]?.boundingBox === "block" && !/sand$|gravel|concrete_powder|anvil|snow$|tnt|_bed$|_fence|_pane|_wall$|_door$|_bars$|chest|furnace|table/.test(i.name)
         );
         const fragile = (bot.health ?? 20) <= 12 || (bot.food ?? 20) <= 6;
-        if (meleeInReach && hasBlocks && fragile && !bot._inShelter && !bot._burrowActive && !bot._phaseMove) {
-          await panicPillar(bot, this.mcData, this.log, 3);
+        if (meleeInReach && fragile && !bot._inShelter && !bot._burrowActive && !bot._phaseMove) {
+          if (hasBlocks) {
+            await panicPillar(bot, this.mcData, this.log, 3);
+          } else {
+            await panicBurrow(bot, this.mcData, this.log);
+          }
         }
         if (this.combat?.shouldYield?.() && yieldCount < 50) {
           yieldCount += 1;

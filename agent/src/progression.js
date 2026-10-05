@@ -6248,6 +6248,84 @@ export async function panicPillar(bot, mcData, log, maxRise = 3) {
   return raised;
 }
 
+// Cornered with nothing to stand on: dig a straight shaft under our feet and
+// cap the mouth. A sealed 1x1 is unreachable — mobs don't dig. This is the
+// naked respawn's only reliable out when a melee pack is already in range on
+// soft ground (on bare stone a fist can't dig fast enough — that's hopeless
+// and the flee has to win instead).
+export async function panicBurrow(bot, mcData, log) {
+  const hasPick = bot.inventory.items().some((i) => /_pickaxe$/.test(i.name));
+  const diggable = (b) =>
+    b &&
+    b.boundingBox === "block" &&
+    !/bedrock|lava|water|magma_block|ice|_ore$|chest|furnace|table|sand$|gravel|concrete_powder|snow$|snow_layer|red_sand|dirt_path|farmland/.test(b.name) &&
+    (hasPick || !/stone$|deepslate|andesite|diorite|granite|tuff|cobblestone|sandstone|netherrack|blackstone|basalt|calcite|dripstone|smooth_|polished_|brick|_bricks|packed_ice|obsidian|end_stone|purpur|prismarine/.test(b.name));
+  const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+  const capMat = () =>
+    bot.inventory
+      .items()
+      .find(
+        (i) =>
+          isCube(i) &&
+          !/sand$|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|_bed$|_fence|_pane|_wall$|_door$|_bars$|chest|furnace|table|dirt_path|farmland|_log$|_stem$|_wood$/.test(i.name)
+      );
+  const startFeet = bot.entity.position.floored();
+  if (!diggable(bot.blockAt(startFeet.offset(0, -1, 0)))) return 0;
+  const wasShelter = bot._inShelter;
+  bot._inShelter = true; // park the reflex while we dig/cap
+  try {
+    let dug = 0;
+    for (let n = 0; n < 3; n += 1) {
+      const feet = bot.entity.position.floored();
+      const under = bot.blockAt(feet.offset(0, -1, 0));
+      const below2 = bot.blockAt(feet.offset(0, -2, 0));
+      if (!diggable(under)) break;
+      // don't pop a cave ceiling — landing cell must be solid
+      if (!below2 || /air|lava|water|magma_block|bedrock/.test(below2.name)) break;
+      let d = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        d = await executeAction(bot, { type: "dig", x: under.position.x, y: under.position.y, z: under.position.z, timeoutMs: 8000 }, mcData);
+        if (d.ok || !/abort/i.test(String(d?.message || ""))) break;
+        await sleep(250);
+      }
+      if (!d?.ok) break;
+      dug += 1;
+      for (let w = 0; w < 10; w += 1) {
+        await sleep(120);
+        if (bot.entity.position.floored().y < feet.y) break;
+      }
+    }
+    if (dug < 2) return 0;
+    const feet = bot.entity.position.floored();
+    const mouthY = feet.y + dug - 1;
+    const mouth = bot.blockAt(new Vec3(feet.x, mouthY, feet.z));
+    if (!mouth || mouth.name !== "air") return dug;
+    // a shaft dig on dirt drops ~dug cubes — if none made it to inventory
+    // (they landed beside us), bank one head-level side cell for the cap
+    if (!capMat()) {
+      for (const [mx, mz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const mat = bot.blockAt(new Vec3(feet.x + mx, feet.y + 1, feet.z + mz));
+        if (!mat || !diggable(mat)) continue;
+        await executeAction(bot, { type: "dig", x: mat.position.x, y: mat.position.y, z: mat.position.z, timeoutMs: 8000 }, mcData).catch(() => {});
+        await sleep(200);
+        if (capMat()) break;
+      }
+    }
+    const capSolid = capMat();
+    if (!capSolid) return dug;
+    for (const face of ["west", "east", "north", "south"]) {
+      const cap = await executeAction(bot, { type: "place", item: capSolid.name, x: feet.x, y: mouthY, z: feet.z, face, timeoutMs: 8000 }, mcData);
+      if (cap.ok) {
+        log?.(`[panic] sealed the shaft over a melee mob (${dug} deep — grave)`);
+        return dug;
+      }
+    }
+    return dug;
+  } finally {
+    bot._inShelter = wasShelter;
+  }
+}
+
 export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   const logNames = [
     "oak_log",
