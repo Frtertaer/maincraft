@@ -5178,14 +5178,27 @@ export async function ensureFed(bot, mcData, log, state = null) {
       return false; // slow melee — a walker out-distances it
     });
     if (!expBlocker) {
-      const camps = campZonesFor(bot, state);
+      // same lone-death rule as the log gather — a single kill site is one
+      // mob that has wandered off, not a 120m no-go ring; only the clustered
+      // camp ZONE keeps the wide berth. A starving bot marches in regardless
+      // (a risky meal beats certain starvation) — speedrun6 marched 177m to
+      // the barren middle while fertile anchors sat 25-58m inside one ring
+      const dzCamps = deathZonesLoadFile(bot) || { pts: [], camp: null };
+      const campCores = [state?.campZone, dzCamps.camp].filter(Boolean);
+      const loneDeaths = [...(state?._deathPts || []), ...(dzCamps.pts || [])];
+      const starving = bot.food != null && bot.food <= 5;
+      const clearOfKill = (a) => {
+        if (starving) return true;
+        if (campCores.some((c) => Math.hypot(c.x - a.x, c.z - a.z) < 120)) return false;
+        return !loneDeaths.some((d) => Math.hypot(d.x - a.x, d.z - a.z) < 55);
+      };
       const anchors = [];
       if (state.home) anchors.push(state.home);
       for (const s of state.logSites || []) anchors.push(s);
       if (state.stash) anchors.push(state.stash);
       for (const s of stashLoadFile(bot)) anchors.push(s);
       const tgt = anchors
-        .filter((a) => a && Math.hypot(a.x - mp.x, a.z - mp.z) > 36 && !posInCamp(a, camps))
+        .filter((a) => a && Math.hypot(a.x - mp.x, a.z - mp.z) > 36 && clearOfKill(a))
         .sort((a, b) => Math.hypot(a.x - mp.x, a.z - mp.z) - Math.hypot(b.x - mp.x, b.z - mp.z))[0];
       if (tgt) {
         state.foodExpeditionAt = Date.now();
@@ -6018,16 +6031,34 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     "mangrove_log",
     "pale_oak_log",
   ];
-  // Prefer small collect batches (less pathfinder thrash / OOM). Targets
-  // inside a death camp are never collected — a visible trunk in the kill
-  // ring is exactly what drags the bot back to its death site
-  const campZones = campZonesFor(bot, state);
-  const campFree = (b) => !posInCamp(b.position, campZones);
+  // Prefer small collect batches (less pathfinder thrash / OOM). A lone death
+  // point is ONE mob that has most likely wandered off — blanking a 120m ring
+  // around every kill nukes a whole fertile pocket's wood after one death and
+  // forces a starvation trek past reachable trunks (speedrun6 starved at
+  // food=0 marching 177m to the barren middle while two log sites sat 25-58m
+  // away inside a single-death ring). Keep the wide berth only for the
+  // clustered camp ZONE; a lone death site gets a 55m ring — the killer's
+  // real guard radius.
+  const dzCamps = deathZonesLoadFile(bot) || { pts: [], camp: null };
+  const campCores = [state?.campZone, dzCamps.camp].filter(Boolean);
+  const loneDeaths = [...(state?._deathPts || []), ...(dzCamps.pts || [])];
+  // a starving bot takes the risky grab over certain starvation — it must arm
+  // up (wood → weapon → zombie flesh = food) instead of trekking to death
+  const starving = bot.food != null && bot.food <= 5;
+  const campFree = (b) => {
+    if (starving) return true;
+    const bp = b.position;
+    if (campCores.some((c) => Math.hypot(c.x - bp.x, c.z - bp.z) < 120)) return false;
+    return !loneDeaths.some((d) => Math.hypot(d.x - bp.x, d.z - bp.z) < 55);
+  };
   // dead zone: three-plus deaths in one basin makes every visible trunk bait
   // that pulls the next gather back into the camp — suppress collect+scan
-  // while inside and force the committed trek out instead
+  // while inside and force the committed trek out instead. A starving bot is
+  // exempt: the forced 300m migration is what starves it, so it grabs the
+  // nearest reachable trunk first.
   const p0 = bot.entity.position;
   const inDead = !!(
+    !starving &&
     state?.deadZone &&
     Date.now() < state.deadZone.until &&
     Math.hypot(p0.x - state.deadZone.x, p0.z - state.deadZone.z) < state.deadZone.r
