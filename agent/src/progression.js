@@ -3698,7 +3698,22 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // false yet sat outside the old 28m trigger, so the hold ran the
           // whole day-budget and released into dusk instead of escaping
           const todP = bot.time?.timeOfDay ?? -1;
-          const ldMob = findHostile(bot, 40);
+          // ranged only — a melee camper parked at the column base can NOT
+          // reach the top, and zombies/skeletons burn at first light; digging
+          // down through the column drops us INTO it (the y66 descent death).
+          // Only a shooter that outranges the hold is worth escaping early.
+          const ldMob = Object.values(bot.entities || {})
+            .filter((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return /skeleton|stray|pillager|witch|drowned|blaze|ghast/.test(n) &&
+                e.position.distanceTo(bot.entity.position) < 40;
+            })
+            .sort(
+              (a, b) =>
+                a.position.distanceTo(bot.entity.position) -
+                b.position.distanceTo(bot.entity.position)
+            )[0];
           if (
             !pillarTunnelTried &&
             ldMob &&
