@@ -5081,6 +5081,65 @@ export async function ensureFed(bot, mcData, log, state = null) {
       }
     }
   }
+  // Early food expedition — every local source came up empty (no carried
+  // food, no drops, no animals in 60m, no stew pair, no farm). In a barren
+  // basin there IS no food nearby, so the honest answer is to march to
+  // proven living ground while the legs still work: at food 5-12 the bot
+  // can sprint (>6) or at least out-walk slow melee (5-6), whereas the
+  // starving branches below only arm at food<=4 — after the sprint window
+  // has already closed and every chase is a 4.3m/s crawl no animal respects.
+  // Marching EARLY to the nearest fertile anchor (where it already found
+  // wood/mutton/sheep) is the difference between hunting with sprint and
+  // starving in place. Cooldown so a failed leg doesn't re-goto every call.
+  if (
+    bot.food != null &&
+    bot.food > 4 &&
+    bot.food < 12 &&
+    canSeeSky &&
+    (bot.time?.timeOfDay ?? 0) < 12541 &&
+    state &&
+    Date.now() - (state.foodExpeditionAt || 0) > 90000
+  ) {
+    const mp = bot.entity.position;
+    // same interceptor rule as the starving march — only something that can
+    // actually catch a walker blocks it; a trailing zombie is out-paced
+    const expBlocker = Object.values(bot.entities || {}).some((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      const n = String(e.name || e.displayName || "").toLowerCase();
+      const hostile =
+        (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish/.test(n);
+      if (!hostile) return false;
+      const d = e.position.distanceTo(mp);
+      if (/skeleton|stray|witch|pillager|blaze|ghast|shulker|drowned/.test(n)) return d < 28;
+      if (/creeper|phantom/.test(n)) return d < 12;
+      if (/silverfish|cave_spider|vex/.test(n)) return d < 8;
+      return false; // slow melee — a walker out-distances it
+    });
+    if (!expBlocker) {
+      const camps = campZonesFor(bot, state);
+      const anchors = [];
+      if (state.home) anchors.push(state.home);
+      for (const s of state.logSites || []) anchors.push(s);
+      if (state.stash) anchors.push(state.stash);
+      for (const s of stashLoadFile(bot)) anchors.push(s);
+      const tgt = anchors
+        .filter((a) => a && Math.hypot(a.x - mp.x, a.z - mp.z) > 36 && !posInCamp(a, camps))
+        .sort((a, b) => Math.hypot(a.x - mp.x, a.z - mp.z) - Math.hypot(b.x - mp.x, b.z - mp.z))[0];
+      if (tgt) {
+        state.foodExpeditionAt = Date.now();
+        log?.(
+          `[food] hungry (food=${Math.floor(bot.food)}) — sprinting to fertile ground @${Math.round(tgt.x)},${Math.round(tgt.z)} (${Math.round(Math.hypot(tgt.x - mp.x, tgt.z - mp.z))}m)`
+        );
+        await executeAction(
+          bot,
+          { type: "goto", x: tgt.x, y: tgt.y, z: tgt.z, range: 14, timeoutMs: 35000 },
+          mcData
+        ).catch(() => {});
+        return { ok: true, ate, message: "food expedition" };
+      }
+    }
+  }
   // nothing edible in range — starve-walk: animals render within a few
   // chunks, so keep moving along one heading until something spawns.
   // Underground it can only time out — no animals spawn below ground, and a
