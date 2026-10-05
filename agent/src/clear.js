@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -1386,6 +1386,36 @@ export class ClearRunner {
             await panicPillar(bot, this.mcData, this.log, 3);
           } else {
             await panicBurrow(bot, this.mcData, this.log);
+          }
+        }
+        // Retry a skipped bed fortification: the claim at :6157 walls the bed
+        // only when it's quiet — on a hostile tick it flags bedFortify for a
+        // later pass. An exposed bed is a creeper blast away from losing the
+        // whole spawn relocation, so re-wall it whenever we're back in range
+        // of it and the block faces aren't under fire.
+        const bf = this.state.bedFortify;
+        if (bf && !meleeInReach) {
+          const me = bot.entity.position;
+          if (Math.hypot(me.x - (bf.x + 0.5), me.z - (bf.z + 0.5)) < 9 && Math.abs(me.y - bf.y) < 4) {
+            const quiet = !Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "");
+              const hostile =
+                (e.kind === "Hostile mobs" && n !== "enderman") ||
+                /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+              if (!hostile) return false;
+              const d = e.position.distanceTo(me);
+              return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast/.test(n) ? d < 26 : d < 7;
+            });
+            if (quiet) {
+              const bb = bot.blockAt(new Vec3(bf.x, bf.y, bf.z));
+              if (bb && /_bed$/.test(bb.name)) {
+                await protectBed(bot, this.mcData, this.log, bb);
+                delete this.state.bedFortify;
+              } else {
+                delete this.state.bedFortify; // bed already gone — stop retrying
+              }
+            }
           }
         }
         if (this.combat?.shouldYield?.() && yieldCount < 50) {

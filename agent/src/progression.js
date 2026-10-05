@@ -5896,7 +5896,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
 // open faces and roof it in, leaving the cell past the foot open as the
 // 2-air spawn porch so the point stays valid — mobs don't break beds, only
 // explosions do, and they can't reach a walled bed.
-async function protectBed(bot, mcData, log, headB) {
+export async function protectBed(bot, mcData, log, headB) {
   try {
     const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
     const solid = () =>
@@ -6158,15 +6158,26 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
     // wall the claim in while it's safe: a hostile inside ~12m makes standing
     // still to build deadlier than a bare bed. The porch keeps the spawn
     // point valid even fully skirted.
+    // remember the claim so the fortify can be retried on a later pass —
+    // a bed skipped once for a passing hostile stayed bare and got broken
+    // (the @512 claim was walled by nobody and a creeper undid the respawn)
+    if (state) state.bedFortify = { x: bb.position.x, y: bb.position.y, z: bb.position.z };
     const hostileNow = Object.values(bot.entities || {}).some((e) => {
       if (!e?.position || e === bot.entity) return false;
       const n = String(e.name || "");
-      return (
+      const hostile =
         (e.kind === "Hostile mobs" && n !== "enderman") ||
-        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
-      ) && e.position.distanceTo(bot.entity.position) < 12;
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
+      if (!hostile) return false;
+      const d = e.position.distanceTo(bot.entity.position);
+      // melee inside ~7m interrupts the build; a mob 8-12m out leaves a
+      // ~4s window that's still worth a fast wall. Ranged always blocks it.
+      return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast/.test(n) ? d < 26 : d < 7;
     });
-    if (!hostileNow) await protectBed(bot, mcData, log, bb);
+    if (!hostileNow) {
+      await protectBed(bot, mcData, log, bb);
+      if (state) delete state.bedFortify;
+    }
   } catch {
     /* claim is best-effort */
   }
