@@ -4486,41 +4486,73 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     if (bot.food != null && bot.food <= 4 && !state._pocketFarmTried) {
       state._pocketFarmTried = true;
       const seeds2 = bot.inventory.items().find((i) => /_seeds$/.test(i.name));
+      const hoeNow = () => bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+      const tillAndPlant = async (soilBlock, cropPos) => {
+        // crop needs light 9+ at its own cell — torch or daylight
+        const cc = cropPos && bot.blockAt(cropPos);
+        if (!cc || cc.name !== "air" || ((cc.light ?? 0) < 9 && (cc.skyLight ?? 0) < 9)) return false;
+        if (soilBlock.name !== "farmland") {
+          let hoe = hoeNow();
+          if (!hoe) {
+            await ensureCraft(bot, mcData, "wooden_hoe", 1).catch(() => null);
+            hoe = hoeNow();
+          }
+          if (!hoe) return false;
+          try {
+            await bot.equip(hoe, "hand");
+            await pt(bot.activateBlock(soilBlock), 4000, "till");
+          } catch {
+            return false;
+          }
+        }
+        const tilledNow = bot.blockAt(soilBlock.position);
+        if (tilledNow?.name !== "farmland") return false;
+        try {
+          await bot.equip(seeds2, "hand");
+          await pt(bot.activateBlock(tilledNow), 4000, "plant");
+          state.pocketFarm = true;
+          log?.(`[burrow] pocket farm planted @${soilBlock.position.x},${soilBlock.position.z}`);
+          return true;
+        } catch {
+          return false;
+        }
+      };
       if (seeds2) {
         const fp3 = bot.entity.position.floored();
-        outer: for (let dx = -2; dx <= 2; dx += 1) {
+        let planted = false;
+        outer: for (let dx = -2; dx <= 2 && !planted; dx += 1) {
           for (let dz = -2; dz <= 2; dz += 1) {
             const soilCell = bot.blockAt(fp3.offset(dx, -1, dz));
-            const cropCell = soilCell && bot.blockAt(fp3.offset(dx, 0, dz));
-            if (!soilCell || !cropCell) continue;
+            if (!soilCell) continue;
             if (!/^(dirt|grass_block|coarse_dirt|rooted_dirt|podzol|mycelium|farmland)$/.test(soilCell.name)) continue;
-            if (cropCell.name !== "air") continue;
-            // crops need light 9+ — torch light or daylight both count
-            if ((cropCell.light ?? 0) < 9 && (cropCell.skyLight ?? 0) < 9) continue;
-            if (soilCell.name !== "farmland") {
-              let hoe = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
-              if (!hoe) {
-                await ensureCraft(bot, mcData, "wooden_hoe", 1).catch(() => null);
-                hoe = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+            planted = await tillAndPlant(soilCell, fp3.offset(dx, 0, dz));
+          }
+        }
+        // stone floor — nothing to till. If we carry dirt (the descent digs
+        // plenty), place a farm cell: drop a dirt block onto an adjacent
+        // floor cell, till it, and plant on top — a raised bed in the pocket
+        if (!planted) {
+          const dirt = bot.inventory.items().find((i) => /^(dirt|coarse_dirt|grass_block|rooted_dirt|podzol)$/.test(i.name));
+          if (dirt) {
+            outer2: for (let dx = -2; dx <= 2 && !planted; dx += 1) {
+              for (let dz = -2; dz <= 2; dz += 1) {
+                if (dx === 0 && dz === 0) continue; // the bot's own cell
+                const below = bot.blockAt(fp3.offset(dx, -1, dz));
+                const cell = bot.blockAt(fp3.offset(dx, 0, dz));
+                const above = bot.blockAt(fp3.offset(dx, 1, dz));
+                if (!below || !cell || !above) continue;
+                if (below.boundingBox !== "block" || cell.name !== "air" || above.name !== "air") continue;
+                try {
+                  await bot.equip(dirt, "hand");
+                  await pt(bot.placeBlock(below, new Vec3(0, 1, 0)), 5000, "farmdirt");
+                  const newDirt = bot.blockAt(fp3.offset(dx, 0, dz));
+                  if (!/dirt|farmland/.test(newDirt?.name || "")) continue;
+                  planted = await tillAndPlant(newDirt, fp3.offset(dx, 1, dz));
+                  break outer2;
+                } catch {
+                  /* placement failed — next cell */
+                }
               }
-              if (!hoe) continue;
-              try {
-                await bot.equip(hoe, "hand");
-                await pt(bot.activateBlock(soilCell), 4000, "till");
-              } catch {
-                continue;
-              }
-            }
-            const tilledNow = bot.blockAt(soilCell.position);
-            if (tilledNow?.name !== "farmland") continue;
-            try {
-              await bot.equip(seeds2, "hand");
-              await pt(bot.activateBlock(tilledNow), 4000, "plant");
-              state.pocketFarm = true;
-              log?.(`[burrow] pocket farm planted @${soilCell.position.x},${soilCell.position.z}`);
-              break outer;
-            } catch {
-              /* plant best-effort */
             }
           }
         }
