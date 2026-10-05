@@ -4437,6 +4437,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       !tunnelEscape &&
       !camper &&
       !nightDigDone &&
+      // a naked bot digs the soft top then stalls on stone ("cannot harvest
+      // stone with dirt") — hands get no drop and ~10x slower. No pickaxe
+      // means the sealed night is just a wait: don't start the descent
+      hasPickaxe(bot) &&
       Date.now() - nightDigAt > 25000
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
