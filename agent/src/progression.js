@@ -6107,9 +6107,12 @@ async function phaseWood(bot, mcData, state, log) {
     const now = countItem(bot, CRAFTABLE_LOG);
     // site visit actually produced logs — it stays a live target
     if (now > logs && state) state.lastSiteCell = null;
-    if (rr.ok && now <= logs) {
-      // zero-gain streak: collect keeps resolving ok while grabbing nothing —
-      // escalate a real wander after a few rounds or the run churns forever
+    if (now <= logs) {
+      // zero-gain streak — escalated on ANY failure to produce a log, not
+      // just a collect that resolved ok: on a barren basin punchNearbyLogs
+      // returns "no log block nearby" (rr.ok false) every round, which used
+      // to skip this counter entirely, so the committed trek never armed and
+      // the bot looped no-log/gather(0) in the same dead ground forever.
       state.woodZeroGain = (state.woodZeroGain || 0) + 1;
       // a remembered site we were just walked to produced nothing — it is
       // chopped ground; mark the cell dead now instead of streak-waiting
