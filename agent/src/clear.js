@@ -1015,6 +1015,10 @@ export class ClearRunner {
               bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name)) ||
               bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 12 }) ||
               woolHere >= 3;
+            const canCarve =
+              diggable(groundB) ||
+              hasShelterMat ||
+              bot.inventory.items().some((i) => /pickaxe/.test(i.name));
             try {
               if (bedNear && !stillClose) {
                 const slept = await ensureBedAndSleep(bot, this.mcData, this.log, this.state);
@@ -1024,6 +1028,13 @@ export class ClearRunner {
                   this.log(`[clear] no bed: ${slept.message}`);
                   await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
                 }
+              } else if (!canCarve && stillClose) {
+                // naked on undiggable stone with a pack inside 40m: "burrow
+                // anyway" is the guaranteed carve-mid-seal death the flee
+                // comment warns about — there's no shelter to build anyway.
+                // Keep sprinting; opening the gap is the only working exit.
+                this.log(`[clear] can't shelter here — keep fleeing, not carving into the pack`);
+                await fleeUntilClear(legDir[0], legDir[1], 8).catch(() => {});
               } else {
                 if (!bedNear && stillClose) this.log(`[clear] pack within 40m — burrow immediately`);
                 await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
