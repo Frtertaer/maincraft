@@ -81,8 +81,11 @@ const NEVER_ATTACK = new Set([
 
 /** Mobs that kill an undergeared bot — never auto-engage without iron+
  * weaponry. Enderman especially: engaging it means looking at it, which
- * is exactly how a wooden-sword bot turns a neutral mob into a killer. */
-const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian", "pillager"]);
+ * is exactly how a wooden-sword bot turns a neutral mob into a killer.
+ * Silverfish/endermite are worse: every hit wakes the swarm out of the
+ * infested stone around it, so a stone-sword "win" is a pack death.
+ * Cave spiders envenom, phantoms can't be reached by a weak weapon. */
+const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian", "pillager", "silverfish", "endermite", "cave_spider", "phantom"]);
 
 /** Higher = kill first */
 const THREAT_WEIGHT = {
@@ -394,6 +397,17 @@ export class CombatReflex {
     // any real weapon — a stone sword still wins a knockback trade vs a
     // creeper; bare hands lose it (underground deaths)
     return items.some((i) => /_sword|_axe|trident|bow|crossbow/.test(i.name));
+  }
+
+  // iron+ weaponry or real armor — the line where an overmatched mob stops
+  // being a death sentence: an iron sword clears a silverfish swarm faster
+  // than the call-out replenishes it, armor makes cave-spider poison
+  // survivable. A wooden/stone kit loses the same trade every time.
+  _wellArmed() {
+    const items = this.bot?.inventory?.items?.() || [];
+    const ironWeapon = items.some((i) => /^(iron|diamond|netherite)_(sword|axe|shovel|pickaxe)$|trident|bow|crossbow/.test(i.name));
+    const ironArmor = items.filter((i) => /^(iron|diamond|netherite|golden)_(helmet|chestplate|leggings|boots)$/.test(i.name)).length >= 2;
+    return ironWeapon || ironArmor;
   }
 
   _clearMotion() {
@@ -781,6 +795,22 @@ export class CombatReflex {
     if (!this._isArmed() && !isBossMobName(name)) {
       this._lockedId = null;
       const kiteRange = RANGED.has(name) ? 30 : 14;
+      if (dist < kiteRange) {
+        this._engagedUntil = Math.max(this._engagedUntil, now + 1200);
+        this._kiteAway(target);
+      } else {
+        this._engagedUntil = 0;
+      }
+      return;
+    }
+
+    // Overmatched without iron+: a wooden-sword swing at a silverfish calls
+    // more out of the stone than it removes, and a cave spider's poison
+    // outlasts the fight. Kite to distance exactly like the unarmed case —
+    // the win is leaving, not a fight the swarm can join.
+    if (OVERMATCHED.has(name) && !this._wellArmed() && !isBossMobName(name)) {
+      this._lockedId = null;
+      const kiteRange = RANGED.has(name) ? 30 : 16;
       if (dist < kiteRange) {
         this._engagedUntil = Math.max(this._engagedUntil, now + 1200);
         this._kiteAway(target);
