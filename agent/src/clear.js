@@ -1792,7 +1792,7 @@ export class ClearRunner {
         if (
           surfacePhase &&
           !nightSoon &&
-          !hostileNear &&
+          !hardThreat() &&
           Date.now() - (this._lastSpider || 0) > 90000 &&
           !bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))
         ) {
@@ -1828,7 +1828,7 @@ export class ClearRunner {
         if (
           surfacePhase &&
           !nightSoon &&
-          !hostileNear &&
+          !hardThreat() &&
           Date.now() - (this._lastSheep || 0) > 150000 &&
           !bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))
         ) {
