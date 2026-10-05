@@ -5020,8 +5020,31 @@ export async function ensureFed(bot, mcData, log, state = null) {
     const d = e.position.distanceTo(meForZombie);
     return d < 28 && Math.abs(e.position.y - meForZombie.y) < 10;
   });
+  // a wooden sword is the food-independence unlock on a mob-dense seed:
+  // rotten_flesh from the zombies that stalk us is the one food source
+  // guaranteed nearby — fleeing livestock burns the whole window. Arm up:
+  // grab a trunk if the bag is short, then table → planks → sticks → sword.
+  const hasMeleeWeapon = () => bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+  const swordMat = () =>
+    countItem(bot, CRAFTABLE_LOG) >= 1 || countItem(bot, (i) => i.name.includes("planks")) >= 6;
+  if (starving && !fragile && zombieReachable && !hasMeleeWeapon()) {
+    if (!swordMat()) {
+      const trunk0 = bot.findBlock({ matching: (b) => b && /_log$|_stem$/.test(b.name || ""), maxDistance: 26 });
+      if (trunk0) {
+        log?.("[food] zombie stalker + a trunk in reach — punching wood to arm up");
+        await punchNearbyLogs(bot, mcData, 2, state).catch(() => {});
+      }
+    }
+    if (swordMat()) {
+      log?.("[food] zombie near + sword material — arming up for rotten_flesh");
+      await ensurePlanks(bot, mcData, 6).catch(() => {});
+      await ensureTable(bot, mcData).catch(() => {});
+      if (countItem(bot, "stick") < 1) await ensureCraft(bot, mcData, "stick", 4).catch(() => {});
+      await ensureCraft(bot, mcData, "wooden_sword", 1).catch(() => {});
+    }
+  }
   const armedForZombie =
-    zombieReachable && bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
+    zombieReachable && hasMeleeWeapon();
   // sprint needs food>6, so a starving bot can only walk-chase. Livestock
   // panic-flees in bursts then pauses — the walk closes during pauses, so a
   // single bounded chase is worth it when nothing else is huntable. Rabbits
