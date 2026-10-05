@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -1362,6 +1362,27 @@ export class ClearRunner {
           // until the server kicks for keepalive timeout (seen 11:49:18)
           await sleep(800);
           continue;
+        }
+        // Cornered by a melee mob it can't out-fight or out-run: a zombie in
+        // melee reach on a fragile or starving bot is the seed's #1 killer
+        // (20 of 39 deaths). The reflex's kite can't separate a mob that's
+        // already adjacent, so tower up on spare blocks — unreachable three
+        // up, and the swing down is free. Skips armed healthy bots (they
+        // fight) and always checks for a placeable cube first.
+        const meleeInReach = Object.values(bot.entities || {}).some((e) => {
+          if (!e?.position || e === bot.entity) return false;
+          const n = String(e.name || e.displayName || "").toLowerCase();
+          return (
+            /zombie|husk|drowned|vindicator|silverfish|cave_spider|enderman|wolf|hoglin|zoglin|piglin_brute|spider/.test(n) &&
+            e.position.distanceTo(bot.entity.position) < 3.4
+          );
+        });
+        const hasBlocks = bot.inventory.items().some(
+          (i) => this.mcData.blocksByName[i.name]?.boundingBox === "block" && !/sand$|gravel|concrete_powder|anvil|snow$|tnt|_bed$|_fence|_pane|_wall$|_door$|_bars$|chest|furnace|table/.test(i.name)
+        );
+        const fragile = (bot.health ?? 20) <= 12 || (bot.food ?? 20) <= 6;
+        if (meleeInReach && hasBlocks && fragile && !bot._inShelter && !bot._burrowActive && !bot._phaseMove) {
+          await panicPillar(bot, this.mcData, this.log, 3);
         }
         if (this.combat?.shouldYield?.() && yieldCount < 50) {
           yieldCount += 1;

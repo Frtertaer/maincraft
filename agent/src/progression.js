@@ -6198,6 +6198,56 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   return { ok: false, message: s.message || "sleep failed" };
 }
 
+// Cornered by a melee mob with nowhere to go: tower up on spare blocks and
+// take the high ground — a zombie/skeleton/horseman can't reach a bot three
+// blocks up, and from the top the swing down is free. speedrun6's #1 killer
+// is exactly this (20 of 39 deaths to a chasing melee mob while unarmed or
+// starving and unable to out-sprint it). Needs ~3 placeable cubes — dirt is
+// everywhere so it nearly always qualifies. Returns the blocks raised.
+export async function panicPillar(bot, mcData, log, maxRise = 3) {
+  const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+  const solid = () =>
+    bot.inventory
+      .items()
+      .find((i) => isCube(i) && !/sand$|gravel|concrete_powder|anvil|scaffold|snow$|snow_layer|tnt|_bed$|_fence|_pane|_wall$|_door$|_bars$|chest|furnace|table/.test(i.name));
+  let raised = 0;
+  // _inShelter parks the combat reflex for the climb — its melee kite would
+  // otherwise shove the bot off the rising column into the mob below
+  const wasShelter = bot._inShelter;
+  bot._inShelter = true;
+  try {
+    for (let n = 0; n < maxRise; n++) {
+      const it = solid();
+      if (!it) break;
+      const ref = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+      if (!ref || ref.boundingBox !== "block") break;
+      await pt(bot.equip(it, "hand"), 4000, "equip").catch(() => {});
+      bot.setControlState("jump", true);
+      let placed = false;
+      const t0 = Date.now();
+      while (Date.now() - t0 < 1400 && !placed) {
+        const vy = bot.entity.velocity?.y ?? 0;
+        const feetNow = bot.entity.position.y;
+        // offer the place only once the body has cleared the destination cell
+        if (vy > 0.05 && feetNow >= ref.position.y + 2.0) {
+          await pt(bot.placeBlock(ref, new Vec3(0, 1, 0)), 5000, "panicPillar").catch(() => {});
+          placed = true;
+          break;
+        }
+        await sleep(40);
+      }
+      bot.setControlState("jump", false);
+      if (!placed) break;
+      raised++;
+    }
+  } finally {
+    bot.setControlState("jump", false);
+    bot._inShelter = wasShelter;
+  }
+  if (raised) log?.(`[panic] towered ${raised} up over a melee mob`);
+  return raised;
+}
+
 export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   const logNames = [
     "oak_log",
