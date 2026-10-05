@@ -3440,14 +3440,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // retry — a gap here is exactly the on-pillar spider death.
           {
             const colNow = hasTop();
-            const spiderNear = Object.values(bot.entities || {}).some(
-              (e) =>
-                e?.position &&
-                e !== bot.entity &&
-                /spider/.test(String(e.name || "").toLowerCase()) &&
-                e.position.distanceTo(bot.entity.position) < 40
-            );
-            if (colNow && spiderNear) {
+            // always brim a column top, not only when a spider is already
+            // near: climbers are a guaranteed threat on any mob-bearing seed,
+            // and the one that kills is the one that shows up mid-wait —
+            // the brim has to be UP before it arrives, not after
+            if (colNow) {
               for (let pass = 0; pass < 3; pass++) {
                 let open = 0;
                 for (const [bx, bz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
