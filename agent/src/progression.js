@@ -3668,9 +3668,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           // the dawn release forever without stepping into melee (the pocket
           // lockdown mirrors this). In real daylight dig down through our own
           // column — the tower is already the shaft — then strip a 1x2 away
-          // from the camper and stair up clear of the kill ring
+          // from the camper and stair up clear of the kill ring. The scan
+          // must match safe()'s radius — a mob parked 29-40m keeps safe()
+          // false yet sat outside the old 28m trigger, so the hold ran the
+          // whole day-budget and released into dusk instead of escaping
           const todP = bot.time?.timeOfDay ?? -1;
-          const ldMob = findHostile(bot, 28);
+          const ldMob = findHostile(bot, 40);
           if (
             !pillarTunnelTried &&
             ldMob &&
@@ -4627,10 +4630,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // to the surface ~10m off. The cap/seal stays intact above, so the
     // camper can't follow through the shaft it is camping.
     const todNow = bot.time?.timeOfDay ?? -1;
-    // the safe() release checks <28m — a camper parked 15-27m blocks the dawn
-    // exit forever yet never came inside the old 14m tunnel radius, so the
-    // hold ran to the 20min ceiling and released at night on top of it
-    const lockdownMob = findHostile(bot, 28);
+    // the safe() release checks <40m — a camper parked 15-40m blocks the dawn
+    // exit forever yet never came inside the old tunnel radius (14, then 28),
+    // so the hold ran to the 20min ceiling and released at night on top of it
+    const lockdownMob = findHostile(bot, 40);
     if (
       pocketDeep &&
       !lockdownTried &&
