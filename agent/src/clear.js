@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -862,7 +862,7 @@ export class ClearRunner {
               const n = Math.max(Math.abs(ax), Math.abs(az)) || 1;
               return [[Math.round((ax / n) * 200), Math.round((az / n) * 200)]];
             };
-            let [fdx, fdz] = pickDryDir(bot, awayFromCamp(pf, fleeDirs));
+            let [fdx, fdz] = pickDryDir(bot, awayFromCamp(pf, fleeDirs), fertileDir(bot, this.state));
             if (siteDir) {
               const sx = siteDir.x - pf.x;
               const sz = siteDir.z - pf.z;
@@ -1193,7 +1193,7 @@ export class ClearRunner {
               // swimming into tridents (drowned kills #9-12)
               const dryPick =
                 dirsOk.length > 0
-                  ? pickDryDir(bot, dirsOk)
+                  ? pickDryDir(bot, dirsOk, fertileDir(bot, this.state))
                   : (() => {
                       const ax = pf.x - czD.x;
                       const az = pf.z - czD.z;
@@ -1685,7 +1685,7 @@ export class ClearRunner {
                 const nD = Math.hypot(axD, azD) || 1;
                 dawnDirs = [[Math.round((axD / nD) * 210), Math.round((azD / nD) * 210)], ...dawnDirs];
               }
-              const [fdx2, fdz2] = pickDryDir(bot, dawnDirs);
+              const [fdx2, fdz2] = pickDryDir(bot, dawnDirs, fertileDir(bot, this.state));
               this.log(`[clear] day-flee ${fdx2},${fdz2} — ${inCampDawn ? "inside camp zone" : "camper survived the hide"}`);
               // sustained sprint until the camper is beyond ~52m — a burst+goto
               // walks at ~4.3m/s and a tracking creeper stays in fuse range

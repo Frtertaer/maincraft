@@ -604,6 +604,39 @@ export function posInCamp(pos, zones, r = 120) {
   return zones.some((c) => Math.hypot(c.x - pos.x, c.z - pos.z) < r);
 }
 
+// unit vector toward the nearest remembered productive anchor — a log site,
+// the home burrow, or a stash chest — that sits outside every kill ring.
+// Used to steer escapes and treks toward ground that actually feeds, not
+// just "away from the mob". Returns null when nothing qualifies.
+export function fertileDir(bot, state) {
+  const p = bot.entity.position;
+  const anchors = [];
+  if (state?.home) anchors.push(state.home);
+  for (const s of state?.logSites || []) anchors.push(s);
+  if (state?.stash) anchors.push(state.stash);
+  for (const s of stashLoadFile(bot) || []) anchors.push(s);
+  const dead = state?.deadLogCells || {};
+  const cellKey = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
+  const near = anchors
+    .filter((a) => a && Number.isFinite(a.x))
+    .map((a) => ({ a, d: Math.hypot(a.x - p.x, a.z - p.z) }))
+    .filter(
+      (e) =>
+        e.d > 40 &&
+        !dead[cellKey(e.a.x, e.a.z)] &&
+        !(state?.campZone && Math.hypot(e.a.x - state.campZone.x, e.a.z - state.campZone.z) < 150) &&
+        !(
+          state?.deadZone &&
+          Date.now() < state.deadZone.until &&
+          Math.hypot(e.a.x - state.deadZone.x, e.a.z - state.deadZone.z) < state.deadZone.r
+        )
+    )
+    .sort((a, b) => a.d - b.d)[0]?.a;
+  if (!near) return null;
+  const n = Math.hypot(near.x - p.x, near.z - p.z) || 1;
+  return [(near.x - p.x) / n, (near.z - p.z) / n];
+}
+
 export function deathZonesSaveFile(bot, pts, camp) {
   try {
     const sp = bot?.spawnPoint;
@@ -1970,7 +2003,7 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
 // back out. Returns true when it burrowed.
 // pick the flee direction with the least water and jungle canopy along the
 // path — drowned rivers and tree trunks are where flee-and-burrow dies
-export function pickDryDir(bot, dirs) {
+export function pickDryDir(bot, dirs, bias = null) {
   const feet = bot.entity.position.floored();
   let best = dirs[0];
   let bestScore = Infinity;
@@ -2039,7 +2072,15 @@ export function pickDryDir(bot, dirs) {
       if (perp > 7) continue;
       if (proj < runway) runway = Math.max(1, Math.floor(proj));
     }
-    const score = -runway * 10 + trees;
+    let score = -runway * 10 + trees;
+    // optional directional pull (e.g. toward fertile ground): a small bonus so
+    // an escape that also heads somewhere useful beats an equally-dry corridor
+    // that runs the wrong way. ~40m of runway worth — never overrides a much
+    // longer dry corridor into the water/a wall for the sake of the heading.
+    if (bias) {
+      const bn = Math.hypot(dx, dz) || 1;
+      score -= ((dx / bn) * bias[0] + (dz / bn) * bias[1]) * 400;
+    }
     if (score < bestScore) {
       bestScore = score;
       best = [dx, dz];
@@ -6058,28 +6099,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           // real signal of where trees live. Distance is uncapped (unlike
           // gotoLogSite's 400m) since a far fertile cluster still says which
           // way the forest is.
-          const deadSet = state?.deadLogCells || {};
-          const cellKey = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
-          const fertile = (state?.logSites || [])
-            .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
-            .filter(
-              (e) =>
-                e.d > 40 &&
-                !deadSet[cellKey(e.s.x, e.s.z)] &&
-                !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150) &&
-                !(
-                  state?.deadZone &&
-                  Date.now() < state.deadZone.until &&
-                  Math.hypot(e.s.x - state.deadZone.x, e.s.z - state.deadZone.z) < state.deadZone.r
-                )
-            )
-            .sort((a, b) => a.d - b.d)[0]?.s;
-          const fertDir = fertile
-            ? (() => {
-                const n = Math.hypot(fertile.x - p.x, fertile.z - p.z) || 1;
-                return [(fertile.x - p.x) / n, (fertile.z - p.z) / n];
-              })()
-            : null;
+          const fertDir = fertileDir(bot, state);
           const bearings = [
             [1, 0], [-1, 0], [0, 1], [0, -1],
             [1, 1], [-1, 1], [1, -1], [-1, -1],
