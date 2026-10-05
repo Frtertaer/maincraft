@@ -5889,6 +5889,75 @@ export async function ensureFed(bot, mcData, log, state = null) {
   return { ok: bot.food > 4, ate };
 }
 
+// A claimed surface bed is collateral for every creeper blast that lands near
+// it — the respawn keeps falling back to the camped world-spawn because the
+// bed block itself keeps being destroyed (speedrun6 claimed @512,-99 and
+// @649,173 and both respawn lines reverted to world spawn). Wall the bed's
+// open faces and roof it in, leaving the cell past the foot open as the
+// 2-air spawn porch so the point stays valid — mobs don't break beds, only
+// explosions do, and they can't reach a walled bed.
+async function protectBed(bot, mcData, log, headB) {
+  try {
+    const isCube = (i) => mcData.blocksByName[i.name]?.boundingBox === "block";
+    const solid = () =>
+      bot.inventory
+        .items()
+        .find((i) => isCube(i) && !/sand$|gravel|concrete_powder|anvil|scaffold|snow|tnt|bedrock/.test(i.name));
+    const head = headB.position;
+    let foot = null;
+    let facing = [0, 1];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nb = bot.blockAt(head.offset(dx, 0, dz));
+      if (nb && /_bed$/.test(nb.name)) {
+        foot = nb.position;
+        facing = [dx, dz];
+        break;
+      }
+    }
+    const cells = foot ? [head, foot] : [head];
+    const inBed = (x, z) => cells.some((c) => c.x === x && c.z === z);
+    // the spawn porch: the cell past the foot stays open — floor below and
+    // two air above is the guaranteed valid stand. Every other open face of
+    // the bed gets walled + roofed.
+    const px = foot ? foot.x + facing[0] : head.x + 1;
+    const pz = foot ? foot.z + facing[1] : head.z;
+    const isPorch = (x, z) => x === px && z === pz;
+    const put = async (x, y, z) => {
+      const it = solid();
+      if (!it) return false;
+      for (const [ox, oy, oz, fx, fy, fz] of [
+        [0, -1, 0, 0, 1, 0],
+        [1, 0, 0, -1, 0, 0],
+        [-1, 0, 0, 1, 0, 0],
+        [0, 0, 1, 0, 0, -1],
+        [0, 0, -1, 0, 0, 1],
+      ]) {
+        const ref = bot.blockAt(new Vec3(x + ox, y + oy, z + oz));
+        if (!ref || !/block/.test(String(ref.boundingBox || ""))) continue;
+        if (ref.position.distanceTo(bot.entity.position) > 4.2) continue;
+        await pt(bot.equip(it, "hand"), 4000, "equip").catch(() => {});
+        await pt(bot.placeBlock(ref, new Vec3(fx, fy, fz)), 5000, "bedfort").catch(() => {});
+        if (bot.blockAt(new Vec3(x, y, z))?.name !== "air") return true;
+      }
+      return false;
+    };
+    let placed = 0;
+    for (const cell of cells) {
+      if (bot.blockAt(cell.offset(0, 1, 0))?.name === "air" && (await put(cell.x, cell.y + 1, cell.z))) placed++;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const tx = cell.x + dx;
+        const tz = cell.z + dz;
+        if (inBed(tx, tz) || isPorch(tx, tz)) continue;
+        if (bot.blockAt(new Vec3(tx, cell.y, tz))?.name !== "air") continue;
+        if (await put(tx, cell.y, tz)) placed++;
+      }
+    }
+    if (placed) log?.(`[bed] fortified the spawn bed (+${placed} walls) — blast-shielded`);
+  } catch {
+    /* fortify is best-effort */
+  }
+}
+
 // Bed-first night survival: a placed bed + sleep skips the whole night in
 // seconds instead of ~9 minutes sealed in a pocket. Order: sleep in a bed
 // already placed → craft one from hunted wool + planks → caller falls back
@@ -6086,6 +6155,18 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   try {
     await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "activate bed");
     log?.(`[bed] spawn point claimed @${bb.position.x},${bb.position.y},${bb.position.z}`);
+    // wall the claim in while it's safe: a hostile inside ~12m makes standing
+    // still to build deadlier than a bare bed. The porch keeps the spawn
+    // point valid even fully skirted.
+    const hostileNow = Object.values(bot.entities || {}).some((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      const n = String(e.name || "");
+      return (
+        (e.kind === "Hostile mobs" && n !== "enderman") ||
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n)
+      ) && e.position.distanceTo(bot.entity.position) < 12;
+    });
+    if (!hostileNow) await protectBed(bot, mcData, log, bb);
   } catch {
     /* claim is best-effort */
   }
