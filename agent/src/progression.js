@@ -4329,13 +4329,22 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     let nightDigDone = false;
     while (
       Date.now() - t0 < waitCap ||
-      // deep mining: a staircase ~9 below the seal with a pickaxe and food is
+      // deep mining: a staircase ~9 below the seal with a SUSTAINABLE kit is
       // its own safe room — keep the hold (and descent) running past the cap
-      // and through the day instead of releasing back to the lethal surface
+      // and through the day instead of releasing back to the lethal surface.
+      // Requires a stone+ pick (a wooden one breaks mid-descent and strands
+      // it with no wood to recraft — the y60 strand), food, and a wood
+      // reserve (~8 planks-eq) for the stick/pick recrafts a long descent
+      // burns through; without those it stays shallow and exits at dawn to
+      // gather instead of committing to a descent it can't finish.
       (nightDigFloorY != null &&
         bot.entity.position.y < nightDigFloorY - 8 &&
-        hasPickaxe(bot) &&
-        (bot.food ?? 0) > 3) ||
+        bot.inventory.items().some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) &&
+        (bot.food ?? 0) > 3 &&
+        countItem(bot, CRAFTABLE_LOG) * 4 +
+            countItem(bot, (i) => i.name.includes("planks")) +
+            countItem(bot, "stick") * 2 >=
+          6) ||
       (!safe() &&
         (bot.time?.timeOfDay ?? 0) >= 9500 &&
         // the 20min ceiling must never release into night proper: a zombie
@@ -4355,8 +4364,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const deepMining =
         nightDigFloorY != null &&
         bot.entity.position.y < nightDigFloorY - 8 &&
-        hasPickaxe(bot) &&
-        (bot.food ?? 0) > 3;
+        bot.inventory.items().some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) &&
+        (bot.food ?? 0) > 3 &&
+        countItem(bot, CRAFTABLE_LOG) * 4 +
+            countItem(bot, (i) => i.name.includes("planks")) +
+            countItem(bot, "stick") * 2 >=
+          6;
       if (!deepMining && safe()) {
         safeStreak += 1;
         if (safeStreak >= 2) break;
