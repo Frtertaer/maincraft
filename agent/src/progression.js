@@ -5603,7 +5603,26 @@ export async function ensureFed(bot, mcData, log, state = null) {
         return { ok: true, ate, message: "starvation climb to surface" };
       }
     }
-    if (state?.foodHoldStreak >= 5 && headSky > 4 && !findHostile(bot, 24)) {
+    // A slow melee mob can't catch a walking bot (zombie/drowned ~2.3 vs
+    // 4.3 m/s) — on a mob-dense seed there is ALWAYS a hostile within 24m,
+    // so the old `!findHostile(24)` guard meant a starving bot held at hp=1
+    // until something killed it instead of out-walking a zombie to food.
+    // Only a threat that can actually intercept a walker blocks the march:
+    // ranged fire within ~28m, a creeper inside fuse range, or a phantom.
+    const marchBlocker = Object.values(bot.entities || {}).some((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      const n = String(e.name || e.displayName || "").toLowerCase();
+      const hostile =
+        (e.kind === "Hostile mobs" && e.name !== "enderman") ||
+        /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish/.test(n);
+      if (!hostile) return false;
+      const d = e.position.distanceTo(bot.entity.position);
+      if (/skeleton|stray|witch|pillager|blaze|ghast|shulker|drowned/.test(n)) return d < 28;
+      if (/creeper|phantom/.test(n)) return d < 12;
+      if (/silverfish|cave_spider|vex/.test(n)) return d < 8;
+      return false; // slow melee — a walker out-distances it
+    });
+    if (state?.foodHoldStreak >= 5 && headSky > 4 && !marchBlocker) {
       const p = bot.entity.position;
       const anchors = [];
       if (state?.home) anchors.push(state.home);
