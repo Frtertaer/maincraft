@@ -7235,6 +7235,29 @@ async function phaseIron(bot, mcData, state, log) {
     };
   }
 
+  // Shield FIRST — one ingot + planks is the single biggest survivability
+  // buy this run can make: raised, it zeroes every frontal arrow and melee
+  // swing, and nearly every killer mob on this run attacks from the front.
+  // The pickaxe can wait on the next ingots; the body can't wait on the
+  // shield — every ingot spent on tools before the shield is an exposure
+  // window where a skeleton or zombie ends the cycle.
+  if (ingots >= 1 && !hasAny(bot, ["shield"])) {
+    await ensureTable(bot, mcData);
+    if (countItem(bot, (i) => /_planks$/.test(i.name)) < 6) {
+      await ensurePlanks(bot, mcData, 6).catch(() => {});
+    }
+    const cr = await ensureCraft(bot, mcData, "shield", 1);
+    if (cr.ok) {
+      try {
+        const sh = bot.inventory.items().find((i) => i.name === "shield");
+        if (sh) await pt(bot.equip(sh, "off-hand"), 8000, "equip shield");
+      } catch {
+        /* off-hand lands next tick */
+      }
+      return { ok: true, phase: "iron", message: "shield up" };
+    }
+  }
+
   if (ingots < 3) {
     // smelt gate above should have caught this — surface it instead of
     // spinning on an uncraftable pick every step
