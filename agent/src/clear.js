@@ -456,6 +456,32 @@ export class ClearRunner {
         const c = bot.blockAt(f.offset(ox, 0, oz)) || bot.blockAt(f.offset(ox, -1, oz));
         return c && /water|kelp|seagrass|bubble/.test(c.name);
       };
+      // creeper steer: a creeper inside the sprint's forward cone is a bomb
+      // the heading drives straight into — creepers are the #1 spawn-camp
+      // killer and they close silently from the flank the ±zigzag wanders
+      // toward. Veer the heading off the nearest one inside ~18m before it
+      // reaches fuse range; chasing zombies behind can be outrun, a creeper
+      // ahead cannot.
+      const creeperAhead = () => {
+        const f = bot.entity.position;
+        const hx = -Math.sin(yaw);
+        const hz = -Math.cos(yaw);
+        let nearest = null;
+        for (const e of Object.values(bot.entities || {})) {
+          if (!e?.position || e === bot.entity) continue;
+          if (!/creeper/.test(String(e.name || ""))) continue;
+          const dx = e.position.x - f.x;
+          const dz = e.position.z - f.z;
+          const d = Math.hypot(dx, dz);
+          if (d > 18 || d < 0.5) continue;
+          // only steer off creepers roughly AHEAD of the heading — one behind
+          // is already losing the footrace
+          const ahead = (dx * hx + dz * hz) / d;
+          if (ahead < 0.25) continue;
+          if (!nearest || d < nearest.d) nearest = { dx, dz, d };
+        }
+        return nearest;
+      };
       while (Date.now() - t0 < ms) {
         const ax = Math.round(-Math.sin(yaw) * 3);
         const az = Math.round(-Math.cos(yaw) * 3);
@@ -469,6 +495,13 @@ export class ClearRunner {
           if (!lWet && rWet) yaw -= 0.9;
           else if (!rWet && lWet) yaw += 0.9;
           else yaw += flip ? 0.9 : -0.9; // shoreline both ways — zigzag along it
+        }
+        const cp = creeperAhead();
+        if (cp) {
+          // rotate the heading away from the creeper: pick the side that puts
+          // the bomb on the outside of the turn, snap to a clean dodge angle
+          const side = cp.dx * -Math.cos(yaw) - cp.dz * -Math.sin(yaw) > 0 ? -1 : 1;
+          yaw += side * 1.1;
         }
         flip = !flip;
         bot.look(yaw + (flip ? 0.5 : -0.5), 0, true);
