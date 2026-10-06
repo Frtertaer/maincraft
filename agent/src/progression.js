@@ -5772,13 +5772,26 @@ export async function ensureFed(bot, mcData, log, state = null) {
       });
       if (safe.length) {
         let dir;
+        // the fertile anchor (remembered log sites / home / stash, all outside
+        // kill rings) is the only live signal on a barren basin — every driest
+        // direction is equally dead, but the anchor direction is where ground
+        // actually produced before. Steer the trek toward it so a food trek
+        // also advances the wood trek instead of wandering off-axis
+        const fd = fertileDir(bot, state);
         if (villBio) {
           // a village-bearing biome edge is live data — run the bearing most
           // aligned with it rather than the driest (dry ≠ fed)
           let best = -1e9;
           for (const [bx, bz] of safe) {
             const bn = Math.hypot(bx, bz) || 1;
-            const sc = (bx / bn) * villBio[0] + (bz / bn) * villBio[1];
+            const sc = (bx / bn) * villBio[0] + (bz / bn) * villBio[1] + (fd ? ((bx / bn) * fd[0] + (bz / bn) * fd[1]) * 0.6 : 0);
+            if (sc > best) { best = sc; dir = [bx, bz]; }
+          }
+        } else if (fd) {
+          let best = -1e9;
+          for (const [bx, bz] of safe) {
+            const bn = Math.hypot(bx, bz) || 1;
+            const sc = (bx / bn) * fd[0] + (bz / bn) * fd[1];
             if (sc > best) { best = sc; dir = [bx, bz]; }
           }
         } else {
