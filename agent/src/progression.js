@@ -206,7 +206,7 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
           const t = bot.findBlock({
             matching: (b) => {
               const bp = b?.position ?? b;
-              return b && b.name.endsWith("_log") && bp && !posInCamp(bp, cz);
+              return b && WOOD_SRC.test(b.name) && bp && !posInCamp(bp, cz);
             },
             maxDistance: 48,
           });
@@ -284,6 +284,15 @@ const CRAFTABLE_LOG = (i) =>
   (i.name.endsWith("_log") || i.name.endsWith("_stem") || i.name.endsWith("_wood")) &&
   !i.name.startsWith("stripped_");
 
+// Punchable wood sources in the world: logs + stems + all-bark variants +
+// bamboo. On 1.21 a `_log|_stem` matcher is a blind edge — bamboo, `*_wood`
+// and `*_hyphae` all craft to planks, so a bamboo jungle scanned as "no
+// trees" and starved the whole bootstrap (this seed's nearest cover IS
+// jungle). Bamboo plants give bamboo → bamboo_block → planks.
+const WOOD_SRC = /(_log|_stem|_wood|_hyphae)$|^bamboo$|^bamboo_block$/;
+// a forest/canopy read — wood sources plus leaf cover (bamboo jungle too)
+const TREE = /(_log|_stem|_wood|_hyphae|leaves)$|^bamboo$|^bamboo_block$/;
+
 function plankNameFromLog(logName) {
   const n = String(logName || "");
   if (n.includes("spruce")) return "spruce_planks";
@@ -317,7 +326,7 @@ function canRecraftPickHere(bot) {
   const stickSource =
     items.some((i) => i.name === "stick" && i.count >= 2) ||
     items.some((i) => /_planks$/.test(i.name) && i.count >= 2) ||
-    items.some((i) => /_log$|_stem$/.test(i.name));
+    items.some((i) => WOOD_SRC.test(i.name));
   return table && cobble && stickSource;
 }
 
@@ -521,7 +530,7 @@ const STASH_KEEP_COUNT = [
   [/_shovel$/, 1],
   [/^(crafting_table|furnace|chest|shield|torch|bucket|water_bucket|compass)$/, 1],
   [/^(stick|bone|arrow|string|feather|flint)$/, 4],
-  [/_log$|_stem$/, 8],
+  [WOOD_SRC, 8],
   [/_planks$/, 8],
   [/^(cobblestone|cobbled_deepslate|dirt|sand|gravel|netherrack|blackstone)$/, 24],
   [/^(raw_iron|iron_ingot|raw_gold|gold_ingot|coal|charcoal|raw_copper|copper_ingot)$/, 4],
@@ -798,7 +807,7 @@ export async function stashDeposit(bot, mcData, log, state) {
     const kitDue =
       state &&
       !state.stashKitDone &&
-      countOf(/_planks$/) + countOf(/_log$|_stem$/) * 4 >= 16 &&
+      countOf(/_planks$/) + countOf(WOOD_SRC) * 4 >= 16 &&
       countOf(/^stick$/) >= 4 &&
       items.some((i) => i.name === "crafting_table");
     if (!surplus.length && !kitDue) return { ok: true, message: "nothing to stash" };
@@ -2070,7 +2079,7 @@ export function pickDryDir(bot, dirs, bias = null) {
     let trees = 0;
     for (const step of [8, 16, 24]) {
       const b = bot.blockAt(feet.offset(sx * step, -1, sz * step));
-      if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
+      if (b && TREE.test(b.name)) trees += 1;
     }
     // a dry leg that runs through a mob cluster re-aggros mid-sprint — the
     // zombie waiting at (111,-50) scored zero on water but killed anyway.
@@ -2690,7 +2699,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         ).catch(() => {});
       } else {
         const trunk = bot.findBlock({
-          matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
+          matching: (b) => b && WOOD_SRC.test(b.name || ""),
           // one log is the whole recovery ladder (table→planks→sticks→pick), so
           // scan far — a 90m walk beats sealing forever naked when the basin
           // around spawn has been logged out
@@ -2770,7 +2779,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     for (let dy = -1; dy >= -4; dy--) {
       const b = bot.blockAt(p.offset(0, dy, 0));
       const ok = dy >= -3 ? diggable(b) : b && b.name !== "air" && !danger(b);
-      if (!ok || /_log$|_stem$|leaves$/.test(b?.name || "")) {
+      if (!ok || TREE.test(b?.name || "")) {
         solidCol = false;
         break;
       }
@@ -4924,10 +4933,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
       bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name)) ||
       bot.inventory.items().find((i) => SAFE_RAW.test(i.name)) ||
       (bot.food <= 8 ? bot.inventory.items().find((i) => /chicken/.test(i.name)) : null) ||
-      // last resort: rotten flesh restores 4 — the 80% hunger effect still nets
-      // positive when the alternative is food=0 at 1hp (it was counted edible
-      // for stock/scavenge but the eat loop never touched the carried stack)
-      (bot.food <= 8 ? bot.inventory.items().find((i) => i.name === "rotten_flesh") : null);
+      // rotten flesh only at a literally empty bar: its 80% hunger effect
+      // strips sprint — the bot's only out-spacing from a creeper. Eating it
+      // at food<=8 trades the survive-tool for 4 food, a losing swap on a mob
+      // field. It's a desperation food, not a ration.
+      (bot.food <= 0 ? bot.inventory.items().find((i) => i.name === "rotten_flesh") : null);
     if (!f) break;
     const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch((e) => ({
       ok: false,
@@ -5079,7 +5089,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
     countItem(bot, CRAFTABLE_LOG) >= 1 || countItem(bot, (i) => i.name.includes("planks")) >= 6;
   if (starving && !fragile && zombieReachable && !hasMeleeWeapon()) {
     if (!swordMat()) {
-      const trunk0 = bot.findBlock({ matching: (b) => b && /_log$|_stem$/.test(b.name || ""), maxDistance: 26 });
+      const trunk0 = bot.findBlock({ matching: (b) => b && WOOD_SRC.test(b.name || ""), maxDistance: 26 });
       if (trunk0) {
         log?.("[food] zombie stalker + a trunk in reach — punching wood to arm up");
         await punchNearbyLogs(bot, mcData, 2, state).catch(() => {});
@@ -6348,6 +6358,24 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     "cherry_log",
     "mangrove_log",
     "pale_oak_log",
+    // 1.21 blind edge: bamboo jungle's plank source is the bamboo itself (and
+    // its block), and all-bark variants are valid trunks — a `_log`-only list
+    // scanned the nearest cover on this seed as "no trees"
+    "bamboo_block",
+    "bamboo",
+    "oak_wood",
+    "spruce_wood",
+    "birch_wood",
+    "jungle_wood",
+    "dark_oak_wood",
+    "acacia_wood",
+    "cherry_wood",
+    "mangrove_wood",
+    "pale_oak_wood",
+    "warped_hyphae",
+    "crimson_hyphae",
+    "warped_stem",
+    "crimson_stem",
   ];
   // Prefer small collect batches (less pathfinder thrash / OOM). A lone death
   // point is ONE mob that has most likely wandered off — blanking a 120m ring
@@ -6407,7 +6435,7 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     : bot.findBlock({
         matching: (b) => {
           const blk = b && b.position ? b : b && bot.blockAt(b);
-          if (!blk || !(blk.name.endsWith("_log") || blk.name.endsWith("_stem"))) return false;
+          if (!blk || !WOOD_SRC.test(blk.name)) return false;
           if (blk.position.y <= feet.y - 12) return false;
           if (!campFree(blk)) return false;
           return (state?.badDig?.get?.(`${blk.position.x},${blk.position.y},${blk.position.z}`) || 0) < 3;
@@ -6654,7 +6682,7 @@ async function phaseWood(bot, mcData, state, log) {
       const t = bot.findBlock({
         matching: (b) => {
           const bp = b?.position ?? b;
-          return b && b.name.endsWith("_log") && bp && !posInCamp(bp, cz);
+          return b && WOOD_SRC.test(b.name) && bp && !posInCamp(bp, cz);
         },
         maxDistance: 48,
       });
@@ -6691,7 +6719,7 @@ async function phaseWood(bot, mcData, state, log) {
         const feet2 = bot.entity.position;
         const stumps = bot
           .findBlocks({
-            matching: (b) => b && typeof b.name === "string" && b.name.endsWith("_log"),
+            matching: (b) => b && typeof b.name === "string" && WOOD_SRC.test(b.name),
             maxDistance: 24,
             count: 4,
           })
@@ -6768,7 +6796,7 @@ async function phaseWood(bot, mcData, state, log) {
           let wet = false;
           for (const step of [10, 25, 40]) {
             const b = bot.blockAt(p.offset(dx * step, -1, dz * step));
-            if (b && /_log$|_stem$|leaves$/.test(b.name)) trees += 1;
+            if (b && TREE.test(b.name)) trees += 1;
             const w = bot.blockAt(p.offset(dx * step, -1, dz * step));
             if (w && /water|kelp|ice|bubble/.test(w.name)) wet = true;
           }
@@ -7078,7 +7106,7 @@ async function phaseIron(bot, mcData, state, log) {
         }
         const w = await punchNearbyLogs(bot, mcData, 10, state);
         if (!w.ok) {
-          const t = bot.findBlock({ matching: (b) => b && b.name.endsWith("_log"), maxDistance: 48 });
+          const t = bot.findBlock({ matching: (b) => b && WOOD_SRC.test(b.name), maxDistance: 48 });
           if (t) {
             await executeAction(
               bot,
@@ -7114,7 +7142,7 @@ async function phaseIron(bot, mcData, state, log) {
               // no site and nothing in scan: trek out of the basin — the same
               // deforested-band problem the wood-phase trek solves
               const tr = bot.findBlock({
-                matching: (b) => b && /_log$|_stem$/.test(b.name || ""),
+                matching: (b) => b && WOOD_SRC.test(b.name || ""),
                 maxDistance: 96,
               });
               const pp2 = bot.entity.position.floored();
