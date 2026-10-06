@@ -2858,7 +2858,14 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // night shift ever trusts it with the staircase (the y=58 break)
   const woodenHeld = bot.inventory.items().some((i) => /^(wooden|golden)_pickaxe$/.test(i.name));
   const cobbleForStone = bot.inventory.items().some((i) => /^(cobblestone|cobbled_deepslate|blackstone)$/.test(i.name) && i.count >= 3);
-  if (!hasPickaxe(bot) || (woodenHeld && cobbleForStone)) {
+  // fast-bail on a naked respawn: a pickaxe needs a table (4 planks) which
+  // needs a log — with zero logs/planks/table reach there is nothing to
+  // recraft from, so skip the sure-fail attempt instead of burning the window
+  const canMakePick =
+    countItem(bot, CRAFTABLE_LOG) >= 1 ||
+    countItem(bot, (i) => i.name.includes("planks")) >= 4 ||
+    !!bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table", maxDistance: 6 });
+  if ((!hasPickaxe(bot) || (woodenHeld && cobbleForStone)) && (cobbleForStone || canMakePick)) {
     const pk = await ensurePickaxe(bot, mcData).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (pk?.ok) log?.("[burrow] recrafted pickaxe — stone diggable again");
     else log?.(`[burrow] pickaxe recraft failed: ${pk?.message || "?"}`);
