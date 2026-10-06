@@ -7277,16 +7277,41 @@ async function phaseIron(bot, mcData, state, log) {
       const os = state ? nearestSite(bot, state, "ore", 56) : null;
       const oreTried = state && (state.oreTried = state.oreTried || new Set());
       if (os && os.y >= 50 && oreTried && !oreTried.has(`${os.x},${os.z}`)) {
-        const d0 = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
-        await executeAction(
-          bot,
-          { type: "goto", x: os.x, y: os.y, z: os.z, range: 4, timeoutMs: 18000 },
-          mcData
-        ).catch(() => {});
-        const d1 = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
-        if (d1 < 14) return { ok: true, phase: "iron", message: "exposed ore site — mining" };
-        if (d1 >= d0 - 2) oreTried.add(`${os.x},${os.z}`);
-        return { ok: true, phase: "iron", message: `route to surface ore (${Math.round(d1)}m)` };
+        let d = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
+        if (d > 12) {
+          const d0 = d;
+          await executeAction(
+            bot,
+            { type: "goto", x: os.x, y: os.y, z: os.z, range: 4, timeoutMs: 18000 },
+            mcData
+          ).catch(() => {});
+          d = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
+          if (d >= d0 - 2) {
+            oreTried.add(`${os.x},${os.z}`);
+            d = 1e9;
+          } else if (d > 12) {
+            return { ok: true, phase: "iron", message: `route to surface ore (${Math.round(d)}m)` };
+          }
+        }
+        if (d <= 12) {
+          // near the site — actually mine the exposed iron ore (the old code
+          // returned "mining" without ever digging, so the step looped forever)
+          const oreBlk = bot.findBlock({
+            matching: (b) => b != null && /^(iron_ore|deepslate_iron_ore)$/.test(b.name),
+            maxDistance: 22,
+          });
+          if (!oreBlk) {
+            oreTried.add(`${os.x},${os.z}`);
+          } else {
+            const r = await executeAction(
+              bot,
+              { type: "collect", block: oreBlk.name, count: 6, maxDistance: 22, timeoutMs: 20000 },
+              mcData
+            ).catch(() => null);
+            if (r && r.ok) return { ok: true, phase: "iron", message: "mined exposed iron" };
+            oreTried.add(`${os.x},${os.z}`);
+          }
+        }
       }
     }
     // get to iron depth first — surface collect wanders into open caves and
