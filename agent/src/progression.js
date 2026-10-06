@@ -7267,6 +7267,28 @@ async function phaseIron(bot, mcData, state, log) {
 
   // Need enough iron material for pick (3) + sword (2) + shield (1) ≈ 6; aim 8
   if (ingots < 8 && raw < 8) {
+    // exposed-ore edge: a remembered ore block sitting at surface height is
+    // free iron on a cliff face (mountain/stony seeds expose veins at y>50) —
+    // walk to it and let the tight-collect mine it, instead of descending
+    // blind into barren stone. Sites that stay out of reach get marked tried
+    // so one unreachable cliff doesn't loop the whole phase.
+    const surfY = Math.floor(bot.entity.position.y);
+    if (surfY > 16) {
+      const os = state ? nearestSite(bot, state, "ore", 56) : null;
+      const oreTried = state && (state.oreTried = state.oreTried || new Set());
+      if (os && os.y >= 50 && oreTried && !oreTried.has(`${os.x},${os.z}`)) {
+        const d0 = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
+        await executeAction(
+          bot,
+          { type: "goto", x: os.x, y: os.y, z: os.z, range: 4, timeoutMs: 18000 },
+          mcData
+        ).catch(() => {});
+        const d1 = Math.hypot(os.x - bot.entity.position.x, os.z - bot.entity.position.z);
+        if (d1 < 14) return { ok: true, phase: "iron", message: "exposed ore site — mining" };
+        if (d1 >= d0 - 2) oreTried.add(`${os.x},${os.z}`);
+        return { ok: true, phase: "iron", message: `route to surface ore (${Math.round(d1)}m)` };
+      }
+    }
     // get to iron depth first — surface collect wanders into open caves and
     // that's been the death loop all night
     const y = Math.floor(bot.entity.position.y);
