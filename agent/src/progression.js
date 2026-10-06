@@ -5597,15 +5597,26 @@ export async function ensureFed(bot, mcData, log, state = null) {
           try {
             const cw = await pt(bot.openChest(cb), 8000, "village chest");
             let took = 0;
+            let lootIron = 0;
             for (const it of cw.containerItems()) {
-              if (!EDIBLE_FOOD.test(it.name) && it.name !== "rotten_flesh") continue;
+              // take food AND the strategy-doc iron edge — armorer/smeltery/
+              // weaponsmith chests carry free ingots/gear that beat a whole
+              // staircase of mining (cauldron-class loot in the doc's terms)
+              const useful =
+                EDIBLE_FOOD.test(it.name) ||
+                it.name === "rotten_flesh" ||
+                /^(iron_ingot|iron_ore|raw_iron|iron_pickaxe|iron_sword|iron_axe|iron_shovel|iron_helmet|iron_chestplate|iron_leggings|iron_boots|obsidian|diamond|diamond_pickaxe|saddle|flint_and_steel|bucket|bread|apple|oak_sapling|emerald|stick)$/.test(
+                  it.name
+                );
+              if (!useful) continue;
               await pt(cw.withdraw(it.type, it.metadata, it.count), 8000, "loot").catch(() => {});
               took += it.count;
+              if (/iron/.test(it.name)) lootIron += it.count;
             }
             cw.close();
             if (took) {
               chestFood += took;
-              log?.(`[food] village raid: looted ${took} food from a house chest`);
+              log?.(`[food] village raid: looted ${took} items from a house chest${lootIron ? ` (iron=${lootIron})` : ""}`);
             }
           } catch {
             /* unopenable — skip */
