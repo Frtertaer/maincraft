@@ -1488,7 +1488,10 @@ async function stairDown(bot, mcData, levels = 9, log = null, path = null) {
     [0, -1],
     [-1, 0],
   ];
-  const dangerous = (b) => b && /lava|water|magma_block|bedrock/.test(b.name);
+  // infested_* blocks are monster eggs — digging one releases a silverfish,
+  // and a weak bot mid-staircase loses the swarm trade. Route the doorway
+  // around them instead of breaking them (the y40 infested-stone death)
+  const dangerous = (b) => b && /lava|water|magma_block|bedrock|^infested_/.test(b.name);
   let dug = 0;
   let supersededRetries = 0;
   let fluidStuck = false;
