@@ -119,6 +119,11 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
   state.phase = phase;
   state.steps = (state.steps || 0) + 1;
 
+  // passive edge-scan: record whatever the scout can already see (surface
+  // lava, ravines, exposed ore, village blocks, ruined-portal obsidian) so
+  // later nodes route to found coords instead of re-discovering. Self-throttled
+  edgeScan(bot, state);
+
   // Always tick boss if present
   const boss = Object.values(bot.entities).find((e) => e && e !== bot.entity && isBossMobName(mobName(e)));
   if (boss) {
@@ -712,6 +717,51 @@ export function scoutBiomes(bot, state, kind = "trees") {
   if (!found) return null;
   const n = Math.hypot(vx, vz) || 1;
   return [vx / n, vz / n];
+}
+
+// === Edge memory — strategy-graph's "remember what the scout found" ===
+// Every structure the bot physically sees is recorded with coords so a later
+// node routes to it instead of re-discovering: village (food/beds/iron),
+// lavaPool (obsidian without mining to -54), ravine/cave (iron descent),
+// ore (exposed veins), portal (ruined — free obsidian frame). Coordinates of
+// found things are legal memory; hardcoded "east 470m" is not — the record
+// only exists because something was actually seen.
+const SITE_KINDS = ["village", "lava", "cave", "ore", "portal", "ship", "stronghold", "fortress", "bastion", "ruin"];
+export function siteRecord(bot, state, kind, pos, meta = null) {
+  if (!state || !pos || !Number.isFinite(pos.x)) return;
+  state.sites = state.sites || {};
+  const list = (state.sites[kind] = state.sites[kind] || []);
+  if (list.some((s) => Math.hypot(s.x - pos.x, s.z - pos.z) < 24)) return;
+  list.push({ x: Math.round(pos.x), y: Math.round(pos.y ?? 64), z: Math.round(pos.z), t: Date.now(), ...(meta ? { m: meta } : {}) });
+  if (list.length > 16) list.shift();
+}
+export function nearestSite(bot, state, kind, maxD = 1e9, minD = 0) {
+  const p = bot.entity.position;
+  return (state?.sites?.[kind] || [])
+    .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
+    .filter((e) => e.d >= minD && e.d <= maxD)
+    .sort((a, b) => a.d - b.d)[0]?.s || null;
+}
+// passive scan — every few steps the bot records what's already rendered:
+// surface lava (portal edge), open ravines/caves (iron edge), exposed ore,
+// village blocks, ruined-portal crying obsidian. Cheap: findBlocks on loaded
+// chunks only.
+export function edgeScan(bot, state) {
+  try {
+    const p = bot.entity.position.floored();
+    if (state._edgeScanAt && Date.now() - state._edgeScanAt < 12000) return;
+    state._edgeScanAt = Date.now();
+    const scan = (re, kind, maxD = 48) => {
+      try {
+        const hits = bot.findBlocks?.({ matching: (b) => b && re.test(b.name || ""), maxDistance: maxD, count: 3 }) || [];
+        for (const pos of hits.slice(0, 3)) siteRecord(bot, state, kind, pos);
+      } catch {}
+    };
+    scan(/^lava$|^flowing_lava$/, "lava", 48);
+    scan(/crying_obsidian|gilded_blackstone|^gold_block$/, "portal", 48);
+    scan(/^(iron_ore|deepslate_iron_ore|gold_ore|deepslate_gold_ore|coal_ore|deepslate_coal_ore)$/, "ore", 40);
+    scan(/^hay_block$|^composter$|^bell$|^lectern$|_table$/, "village", 96);
+  } catch {}
 }
 
 // unit vector toward the nearest remembered productive anchor — a log site,
