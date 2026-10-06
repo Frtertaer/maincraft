@@ -5685,6 +5685,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
       const camps = campZonesFor(bot, state);
       const deadVills = state.villageDead || [];
       const failedDirs = state.foodTrekFailed || {};
+      // scout village-bearing biomes (plains/desert/savanna) — a village edge
+      // detected at the chunk ring beats blind bearings for food + a bed
+      const villBio = scoutBiomes(bot, state, "village");
       const bearings = [
         [1, 0], [-1, 0], [0, 1], [0, -1],
         [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -5700,14 +5703,27 @@ export async function ensureFed(bot, mcData, log, state = null) {
         return true;
       });
       if (safe.length) {
-        const pick = pickDryDir(
-          bot,
-          safe.map(([bx, bz]) => [bx * 300, bz * 300])
-        );
-        state.foodTrekDir = [Math.sign(pick[0]), Math.sign(pick[1])];
+        let dir;
+        if (villBio) {
+          // a village-bearing biome edge is live data — run the bearing most
+          // aligned with it rather than the driest (dry ≠ fed)
+          let best = -1e9;
+          for (const [bx, bz] of safe) {
+            const bn = Math.hypot(bx, bz) || 1;
+            const sc = (bx / bn) * villBio[0] + (bz / bn) * villBio[1];
+            if (sc > best) { best = sc; dir = [bx, bz]; }
+          }
+        } else {
+          const pick = pickDryDir(
+            bot,
+            safe.map(([bx, bz]) => [bx * 300, bz * 300])
+          );
+          dir = [Math.sign(pick[0]), Math.sign(pick[1])];
+        }
+        state.foodTrekDir = dir;
         state.foodTrekLegs = 5;
         state.foodWanderDir = null;
-        log?.(`[food] basin stripped — trekking ${state.foodTrekDir} for ~300m`);
+        log?.(`[food] basin stripped — trekking ${state.foodTrekDir} for ~300m${villBio ? " (village biome)" : ""}`);
       } else {
         log?.("[food] every trek bearing dead — staying on wander");
       }
