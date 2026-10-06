@@ -1974,6 +1974,29 @@ export class ClearRunner {
         const phaseAfter = detectPhase(bot);
         state.phase = step.phase || phaseAfter;
 
+        // strategy-graph world log: one line per world shows the spawn biome
+        // and which EDGE completed each node + its seconds, so after ~20
+        // worlds the dead edges are visible at a glance (strategy-doc spec).
+        if (!state._graphStart) {
+          state._graphStart = Date.now();
+          try {
+            const bm = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0))?.biome;
+            const bid = bm?.id ?? bm;
+            const reg = bot.registry?.biomes || {};
+            state._graph = {
+              spawn: (Object.values(reg).find((b) => b && b.id === bid)?.name) || "?",
+              nodes: [],
+            };
+          } catch { state._graph = { spawn: "?", nodes: [] }; }
+        }
+        if (phaseAfter !== lastPhase && lastPhase != null) {
+          // a node just completed — record which edge (the last step's method)
+          const sec = Math.round((Date.now() - (state._nodeAt || state._graphStart)) / 1000);
+          state._graph.nodes.push({ n: lastPhase, e: String(step.message || "?").slice(0, 40), s: sec });
+          this.log(`[graph] ${lastPhase} → ${phaseAfter} via "${step.message}" in ${sec}s`);
+        }
+        if (phaseAfter !== lastPhase) state._nodeAt = Date.now();
+
         if (step.milestone && step.milestone !== lastMilestone) {
           lastMilestone = step.milestone;
           state.milestones.push({ t: Date.now() - state.t0, milestone: step.milestone, phase: phaseAfter });
@@ -2011,6 +2034,12 @@ export class ClearRunner {
           if (epilogueLeft.length) {
             this._note(`Эпилог: ${epilogueLeft.join(", ")}`);
           }
+          // one-line world summary — spawn biome + every node's edge+seconds
+          try {
+            const g = state._graph || { spawn: "?", nodes: [] };
+            const ns = g.nodes.map((x) => `${x.n}:${x.e}@${x.s}s`).join(" ");
+            this.log(`[world] spawn=${g.spawn} ${ns} deaths=${this.deaths} result=CREDITS`);
+          } catch {}
         }
         if (this.objectives.every((o) => state.objectivesDone.includes(o))) {
           this._note("ВСЕ ЦЕЛИ ВЫПОЛНЕНЫ — полное прохождение!");
