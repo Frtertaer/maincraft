@@ -527,6 +527,14 @@ export class ClearRunner {
     let lastPhase = null;
     let samePhaseSteps = 0;
     let yieldCount = 0;
+    // a step that awaits a never-resolving promise (a pathfinder stall, a dead
+    // event) froze the whole loop — the stuck counter only counts steps that
+    // RETURN, so a fully hung step was invisible for a whole night. Race each
+    // step against a wall clock: past the bound, log the hang and treat it as
+    // a no-progress step so the loop keeps turning and the normal stuck
+    // escalation can still recover.
+    const STEP_MS = 300000;
+    const stepTO = (p) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), STEP_MS))]);
 
     try {
       while (this.running && bot.entity && Date.now() - state.t0 < this.maxMs) {
@@ -1941,7 +1949,9 @@ export class ClearRunner {
           // Epilogue boss objectives (wither/warden): self-contained prep + fight.
           state.objective = nextObj;
           try {
-            step = await bossObjectiveStep(bot, this.mcData, state, nextObj, this.log);
+            step = (await stepTO(bossObjectiveStep(bot, this.mcData, state, nextObj, this.log))) ||
+              { ok: false, phase: phaseBefore, message: "boss step hung" };
+            if (step.message === "boss step hung") this.log("[clear] STEP_HUNG boss — watchdog fired");
           } catch (err) {
             step = { ok: false, phase: phaseBefore, message: `boss crash: ${err?.message || err}` };
             this.log(`[clear] BOSS_STEP_CRASH ${step.message}`);
@@ -1957,14 +1967,23 @@ export class ClearRunner {
           // stalls at 1hp between them (the y~52 stall). The food run IS the
           // productive step until hunger clears.
           try {
-            const fed = await ensureFed(bot, this.mcData, this.log, state);
-            step = { ok: fed?.ok !== false, phase: phaseBefore, message: `food: ${fed?.message || "hunger"}` };
+            const fed = await stepTO(ensureFed(bot, this.mcData, this.log, state));
+            if (fed == null) {
+              step = { ok: false, phase: phaseBefore, message: "food: hung" };
+              this.log("[clear] STEP_HUNG ensureFed — watchdog fired");
+            } else {
+              step = { ok: fed?.ok !== false, phase: phaseBefore, message: `food: ${fed?.message || "hunger"}` };
+            }
           } catch (err) {
             step = { ok: false, phase: phaseBefore, message: `food: ${err?.message || err}` };
           }
         } else {
           try {
-            step = await progressionStep(bot, this.mcData, state, this.log);
+            step = await stepTO(progressionStep(bot, this.mcData, state, this.log));
+            if (step == null) {
+              step = { ok: false, phase: phaseBefore, message: "step hung" };
+              this.log(`[clear] STEP_HUNG ${phaseBefore} — watchdog fired`);
+            }
           } catch (err) {
             step = { ok: false, phase: phaseBefore, message: `crash: ${err?.message || err}` };
             this.log(`[clear] STEP_CRASH ${step.message}`);
