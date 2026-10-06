@@ -6566,6 +6566,21 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           state.noLogStreak = 1;
           return { ok: true, message: msg };
         }
+        // a live forest-biome edge outranks a remembered site — the site may
+        // be drained (the "zero-gain — back to log site" loop re-walked dead
+        // sites), while the biome edge is where trees actually STILL are.
+        const bioForest = scoutBiomes(bot, state, "trees");
+        if (bioForest) {
+          const tx = Math.floor(p.x + bioForest[0] * 110);
+          const tz = Math.floor(p.z + bioForest[1] * 110);
+          await executeAction(
+            bot,
+            { type: "goto", x: tx, y: p.y, z: tz, range: 10, timeoutMs: 30000 },
+            mcData
+          ).catch(() => {});
+          state.noLogStreak = 1;
+          return { ok: true, message: `trek to forest biome (${Math.round(bioForest[0] * 10) / 10},${Math.round(bioForest[1] * 10) / 10})` };
+        }
         // ground that produced logs before beats a blind heading
         if (await gotoLogSite(bot, mcData, state, p)) {
           state.noLogStreak = 1;
