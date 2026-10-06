@@ -633,6 +633,87 @@ export function posInCamp(pos, zones, r = 120) {
   return zones.some((c) => Math.hypot(c.x - pos.x, c.z - pos.z) < r);
 }
 
+// === Scout — chunk-biome map (strategy-doc edge layer) ===
+// The scout reads chunk BIOMES, not blocks: a forest/jungle biome is visible
+// from the chunk edge even when no trunk is in view, so "wood is that way" is
+// known ~100m before a single log renders. A `_log|_stem` block scan alone is
+// a blind edge — a bamboo jungle (plank source is the bamboo itself) reads as
+// "no trees". Probes sit ~96-128m out, inside loaded-chunk range (~±128).
+
+let _biomeById = null;
+export function biomeNameAt(bot, x, y, z) {
+  try {
+    const reg = bot?.registry?.biomes;
+    if (!reg) return null;
+    if (!_biomeById) {
+      _biomeById = {};
+      for (const [k, v] of Object.entries(reg)) {
+        if (v && v.id != null) _biomeById[v.id] = v.name || k;
+        else if (typeof v === "number") _biomeById[v] = k;
+      }
+    }
+    for (const yy of [y, 64, 80, 48]) {
+      const blk = bot.blockAt(new Vec3(x, yy, z));
+      const bid = blk?.biome?.id ?? blk?.biome;
+      if (bid != null && _biomeById[bid]) return _biomeById[bid];
+      if (blk?.biome?.name) return blk.biome.name;
+    }
+  } catch {}
+  return null;
+}
+
+// biome → what the strategy graph can pull from it
+export function biomeKind(name) {
+  const n = String(name || "").toLowerCase();
+  if (!n) return "unknown";
+  if (/forest|jungle|taiga|grove|swamp|wooded|birch|bamboo|cherry|mangrove|old_growth|dark|savanna/.test(n)) return "trees";
+  if (/plains|meadow|sunflower/.test(n)) return "village"; // villages + sparse oaks
+  if (/desert|badlands|mesa/.test(n)) return "village";   // villages + badlands gold — no wood
+  if (/ocean|beach|river|shore|deep_/.test(n)) return "water";
+  if (/ice|frozen|snowy(?!_taiga)|peaks?|stony|gravelly|dripstone|deep_dark|basalt|nether|end|void|mushroom/.test(n)) return "barren";
+  return "unknown";
+}
+
+// ring probe: sample the biome 8 ways at ~96m and ~128m, classify each sector,
+// and fold into one direction vector toward the nearest sector of `kind`.
+// Records each observation in state.biomeMap (32m-sector → kind) so repeated
+// scouts build a coverage map and a dead sector stops getting re-probed.
+export function scoutBiomes(bot, state, kind = "trees") {
+  const p = bot.entity.position.floored();
+  state.biomeMap = state.biomeMap || {};
+  const sector = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
+  const bearings = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    bearings.push([Math.cos(a), Math.sin(a)]);
+  }
+  let vx = 0,
+    vz = 0,
+    found = false;
+  for (const [bx, bz] of bearings) {
+    for (const r of [96, 128]) {
+      const x = p.x + bx * r;
+      const z = p.z + bz * r;
+      const biome = biomeNameAt(bot, x, p.y, z);
+      const k = biomeKind(biome);
+      state.biomeMap[sector(x, z)] = { kind: k, biome: biome || null, t: Date.now() };
+      if (k === kind) {
+        const w = r === 96 ? 1.4 : 1.0; // nearer sector weighs more
+        vx += bx * w;
+        vz += bz * w;
+        found = true;
+      } else if (k !== "unknown") {
+        // known-barren sector pushes the vector away a touch
+        vx -= bx * 0.3;
+        vz -= bz * 0.3;
+      }
+    }
+  }
+  if (!found) return null;
+  const n = Math.hypot(vx, vz) || 1;
+  return [vx / n, vz / n];
+}
+
 // unit vector toward the nearest remembered productive anchor — a log site,
 // the home burrow, or a stash chest — that sits outside every kill ring.
 // Used to steer escapes and treks toward ground that actually feeds, not
@@ -6480,6 +6561,10 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
           // gotoLogSite's 400m) since a far fertile cluster still says which
           // way the forest is.
           const fertDir = fertileDir(bot, state);
+          // the scout's live biome read outranks remembered sites — a forest/
+          // jungle edge detected at the chunk ring is fresher signal than a
+          // site that may sit 400m away across a barren basin.
+          const bioDir = scoutBiomes(bot, state, "trees");
           const bearings = [
             [1, 0], [-1, 0], [0, 1], [0, -1],
             [1, 1], [-1, 1], [1, -1], [-1, -1],
@@ -6506,6 +6591,12 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
             if (fertDir) {
               const bn = Math.hypot(bx, bz) || 1;
               score += ((bx / bn) * fertDir[0] + (bz / bn) * fertDir[1]) * 10;
+            }
+            // the scout's live biome read is a stronger signal than memory —
+            // it detects a forest edge before any trunk renders
+            if (bioDir) {
+              const bn = Math.hypot(bx, bz) || 1;
+              score += ((bx / bn) * bioDir[0] + (bz / bn) * bioDir[1]) * 14;
             }
             if (score > bestScore) {
               bestScore = score;
