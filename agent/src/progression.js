@@ -7304,8 +7304,14 @@ async function phaseIron(bot, mcData, state, log) {
   const ingots = countItem(bot, "iron_ingot");
   const raw = countItem(bot, "raw_iron") + countItem(bot, "iron_ore") + countItem(bot, "deepslate_iron_ore");
 
-  // Need enough iron material for pick (3) + sword (2) + shield (1) ≈ 6; aim 8
-  if (ingots < 8 && raw < 8) {
+  // Smelt in batches, not a hold-out for a full kit: the old `raw < 8` gate
+  // meant the phase kept mining until EIGHT raw iron sat in the pack at once —
+  // on a death-heavy seed the stash trims iron to 4 and resets empty anyway,
+  // so the smelt branch below never once ran across the whole marathon and no
+  // iron tool was ever made. ≥4 raw covers shield(1)+pick(3) — the unlock that
+  // opens diamond. ingots<3 keeps it mining only until it can afford the pick,
+  // never for an extra ingot it already holds.
+  if (ingots < 3 && raw < 4) {
     // exposed-ore edge: a remembered ore block sitting at surface height is
     // free iron on a cliff face (mountain/stony seeds expose veins at y>50) —
     // walk to it and let the tight-collect mine it, instead of descending
