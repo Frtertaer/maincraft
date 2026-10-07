@@ -4746,8 +4746,13 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
       nightDigAt = Date.now();
       // deep mining removes the 15-below-seal climb-out cap and aims for the
-      // iron band — that's the whole point of staying down past dawn
-      if (bot.entity.position.y > (deepMining ? 28 : nightDigFloorY - 15)) {
+      // iron band — that's the whole point of staying down past dawn. Even
+      // WITHOUT the sustain kit, a 15-below cap on a high surface (~y57) is
+      // too shallow for iron (~0.5% vs ~2% at y36): the strip-mine that runs
+      // once the descent bottoms out is what finds ore, so bottom out inside
+      // the band. min() keeps a low surface's shallower cap — don't dig a y45
+      // seal's basement deeper than the seal intends.
+      if (bot.entity.position.y > (deepMining ? 28 : Math.min(nightDigFloorY - 15, 36))) {
         const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
         if (!shifted?.digs) {
           // every stair dir stayed blocked — mob-projected doors on a dense
