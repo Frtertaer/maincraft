@@ -1871,10 +1871,26 @@ export class ClearRunner {
               e.position.distanceTo(bot.entity.position) < 25
             );
           });
-          const loneSpider =
-            mobsHere.length === 1 && /spider/.test(String(mobsHere[0].name || "")) ? mobsHere[0] : null;
+          // the old loneSpider "exactly one hostile within 25m" almost never
+          // held on a mob-saturated seed — every extra distant mob was
+          // blocking the only wool source that isn't a sheep. A 15m crowd gap
+          // keeps the fight 1v1: a second hostile beyond that can't reach the
+          // bot before the ~5s kill lands and it disengages, so only a
+          // genuinely crowded spot still cancels the hunt.
+          const spiderNear = Object.values(bot.entities || {})
+            .filter(
+              (e) =>
+                e?.position &&
+                e !== bot.entity &&
+                String(e.name || "") === "spider" &&
+                e.position.distanceTo(bot.entity.position) < 28
+            )
+            .sort((a, b) => a.position.distanceTo(bot.entity.position) - b.position.distanceTo(bot.entity.position))[0];
+          const crowdNear = mobsHere.filter(
+            (e) => e !== spiderNear && e.position.distanceTo(bot.entity.position) < 15
+          ).length;
           const armed = bot.inventory.items().some((i) => /_(sword|axe)$/.test(i.name));
-          if (woolish < 3 && loneSpider && armed && (bot.health ?? 20) > 12) {
+          if (woolish < 3 && spiderNear && crowdNear === 0 && armed && (bot.health ?? 20) > 12) {
             this._lastSpider = Date.now();
             this.log(`[clear] spider hunt — string is wool (${woolish}/3)`);
             await executeAction(
