@@ -6304,7 +6304,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
     }
     const bi = bedItem();
     if (bi && !bedBlock()) {
-      const p = bot.entity.position.floored();
+      let p = bot.entity.position.floored();
       // a bed placed inside the death camp anchors every future respawn to
       // the kill ring — the (50,-194) claim put respawns ~50m from two
       // recorded deaths and the night loop kept landing in the same bowl.
@@ -6333,7 +6333,11 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
             mcData
           ).catch(() => {});
         }
-        if (posInCamp(bot.entity.position.floored(), bedZones, 100)) {
+        // re-anchor the placement scan at the cell we actually landed on —
+        // the goto moved us, and claiming at the stale pre-walk position puts
+        // the bed right back inside the camp ring
+        p = bot.entity.position.floored();
+        if (posInCamp(p, bedZones, 100)) {
           log?.(`[bed] still inside the camp ring — holding the bed`);
           return { ok: false, message: "bed carried out of camp" };
         }
