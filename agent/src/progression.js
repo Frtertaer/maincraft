@@ -6311,8 +6311,32 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // Carrying the bed out of the zone beats claiming it here
       const bedZones = campZonesFor(bot, state);
       if (posInCamp(p, bedZones, 100)) {
-        log?.(`[bed] inside a death camp — carrying the bed out instead of claiming`);
-        return { ok: false, message: "bed carried out of camp" };
+        // "carrying the bed out" must actually CARRY — the old bare refusal
+        // left the bot standing in the kill ring with the bed in the bag
+        // forever. Walk to a cell just outside the nearest camp's radius,
+        // then fall through to the normal claim — place+activate+wall as one
+        // atomic action (the only claim that survives a mob-dense night).
+        const cz = bedZones
+          .map((c) => ({ c, d: Math.hypot(c.x - p.x, c.z - p.z) }))
+          .sort((a, b) => a.d - b.d)[0]?.c;
+        if (cz) {
+          const dx = p.x - cz.x;
+          const dz = p.z - cz.z;
+          const dl = Math.hypot(dx, dz) || 1;
+          const hop = Math.max(24, 125 - dl); // clear the ~100m camp radius
+          const ox = p.x + (dx / dl) * hop;
+          const oz = p.z + (dz / dl) * hop;
+          log?.(`[bed] inside a death camp — carrying the bed out ~${Math.round(hop)}m`);
+          await executeAction(
+            bot,
+            { type: "goto", x: Math.floor(ox), y: p.y, z: Math.floor(oz), range: 7, timeoutMs: 30000 },
+            mcData
+          ).catch(() => {});
+        }
+        if (posInCamp(bot.entity.position.floored(), bedZones, 100)) {
+          log?.(`[bed] still inside the camp ring — holding the bed`);
+          return { ok: false, message: "bed carried out of camp" };
+        }
       }
       for (const [px, pz] of [
         [1, 0],
@@ -6365,9 +6389,16 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
         /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
       if (!hostile) return false;
       const d = e.position.distanceTo(bot.entity.position);
-      // melee inside ~7m interrupts the build; a mob 8-12m out leaves a
-      // ~4s window that's still worth a fast wall. Ranged always blocks it.
-      return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast/.test(n) ? d < 26 : d < 7;
+      // a claimed bed left bare dies to the next creeper — and "no shooter
+      // within 26m" never holds on a mob-dense seed, so the old gate meant the
+      // wall NEVER went up (the bed stayed bare and every respawn reverted).
+      // Wall under light fire instead: only a mob close enough to actually
+      // interrupt or kill during the ~25s build blocks it. Light ranged
+      // (skeleton/pillager arrows ~2-4dmg) get tanked for the wall; tridents
+      // and fireballs (~8dmg+) are still lethal mid-build and count far out.
+      if (/drowned|ghast|blaze|guardian|shulker/.test(n)) return d < 22;
+      if (/skeleton|stray|witch|pillager|phantom/.test(n)) return d < 13;
+      return d < 7;
     });
     if (!hostileNow) {
       await protectBed(bot, mcData, log, bb);

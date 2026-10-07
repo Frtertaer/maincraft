@@ -1413,7 +1413,13 @@ export class ClearRunner {
                 /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
               if (!hostile) return false;
               const d = e.position.distanceTo(me);
-              return /skeleton|stray|witch|pillager|drowned|phantom|blaze|ghast/.test(n) ? d < 26 : d < 7;
+              // same gate as the initial claim: "no shooter within 26m" never
+              // holds on a mob-dense seed — the deferred wall never fired and
+              // the bare bed died to the next creeper. Wall under light fire:
+              // only close/heavy ranged still blocks the ~25s build.
+              if (/drowned|ghast|blaze|guardian|shulker/.test(n)) return d < 22;
+              if (/skeleton|stray|witch|pillager|phantom/.test(n)) return d < 13;
+              return d < 7;
             });
             if (quiet) {
               const bb = bot.blockAt(new Vec3(bf.x, bf.y, bf.z));
