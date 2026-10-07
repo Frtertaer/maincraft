@@ -5236,7 +5236,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
   const hasMeleeWeapon = () => bot.inventory.items().some((i) => /sword|_axe/.test(i.name));
   const swordMat = () =>
     countItem(bot, CRAFTABLE_LOG) >= 1 || countItem(bot, (i) => i.name.includes("planks")) >= 6;
-  if (starving && !fragile && zombieReachable && !hasMeleeWeapon()) {
+  // arm proactively whenever starving+unarmed — not only once a zombie is
+  // already in 28m. A wooden sword costs ~1 log and is the food-independence
+  // unlock on a mob-dense seed: without it the bot starved chasing fleeing
+  // chickens it could never catch, while the zombies that stalk it (the one
+  // guaranteed food source nearby) went un-hunted for lack of a weapon.
+  if (starving && !fragile && !hasMeleeWeapon()) {
     if (!swordMat()) {
       const trunk0 = bot.findBlock({ matching: (b) => b && WOOD_SRC.test(b.name || ""), maxDistance: 26 });
       if (trunk0) {
