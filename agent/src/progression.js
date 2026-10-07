@@ -5556,7 +5556,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
           try {
             const vb2 = bot.findBlock?.({
               matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
-              maxDistance: 48,
+              // a village spans ~60-80m — a bed at the edge sits past a
+              // 48m scan from the signature block, so widen to the raid reach
+              maxDistance: 72,
             });
             if (vb2) {
               await executeAction(
@@ -6176,7 +6178,9 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       try {
         const steal = bot.findBlock({
           matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
-          maxDistance: 48,
+          // village beds sit up to ~70m from a central signature — a 48m
+          // scan from the bot misses an edge house that a raid walk finds
+          maxDistance: 72,
         });
         if (steal) {
           await executeAction(
