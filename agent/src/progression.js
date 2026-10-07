@@ -4627,6 +4627,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // burns through; without those it stays shallow and exits at dawn to
       // gather instead of committing to a descent it can't finish.
       (nightDigFloorY != null &&
+        // a stalled shaft is not a safe room: once every stair/strip dir
+        // stays blocked (nightDigDone) this clause sealed the bot in a mob
+        // field forever doing nothing — drop it so normal timing frees the
+        // exit instead of holding silent past dawn.
+        !nightDigDone &&
         bot.entity.position.y < nightDigFloorY - 8 &&
         bot.inventory.items().some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) &&
         (bot.food ?? 0) > 3 &&
@@ -4652,6 +4657,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // keep the hold (and the descent) running across the day boundary.
       const deepMining =
         nightDigFloorY != null &&
+        !nightDigDone &&
         bot.entity.position.y < nightDigFloorY - 8 &&
         bot.inventory.items().some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) &&
         (bot.food ?? 0) > 3 &&
@@ -4743,7 +4749,24 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // iron band — that's the whole point of staying down past dawn
       if (bot.entity.position.y > (deepMining ? 28 : nightDigFloorY - 15)) {
         const shifted = await stairDown(bot, mcData, 2, log).catch(() => null);
-        if (!shifted?.digs) nightDigDone = true;
+        if (!shifted?.digs) {
+          // every stair dir stayed blocked — mob-projected doors on a dense
+          // field, or fluid/drop. stripMine seals and fights through cells
+          // stairDown refuses outright, so try sideways before calling the
+          // shaft done: it can still reach ore or a better pocket, and a
+          // cleared dir lets a later pass descend again. Only mark the hold
+          // done when the strip also moves nothing.
+          const sd = state._nightStripDir || [Math.random() < 0.5 ? 1 : -1, 0];
+          state._nightStripDir = sd;
+          const sm = await stripMine(bot, mcData, 4, log, sd).catch(() => null);
+          if (!sm || !(sm.mined > 0)) {
+            nightDigDone = true;
+          } else {
+            const np = bot.entity.position.floored();
+            pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
+            log?.(`[burrow] night shift: down blocked — strip-mined ${sm.mined} at y=${np.y}`);
+          }
+        }
         if (shifted?.digs > 0) {
           const np = bot.entity.position.floored();
           pocketDeep = { x: np.x + 0.5, y: np.y, z: np.z + 0.5 };
