@@ -931,11 +931,19 @@ const STASH_FOOD = /^(bread|cooked_beef|cooked_porkchop|cooked_chicken|cooked_mu
 export async function stashDeposit(bot, mcData, log, state) {
   try {
     // bed materials are not surplus while no bed is claimed anywhere — a
-    // stashed wool stack can never become tonight's bed, and a stashed bed
-    // item never reaches the pocket
+    // stashed bed item never reaches the pocket. But on a kill field the
+    // wool→bed chain almost never completes in one life: hand-held wool dies
+    // with the bot, so a 2-fleece run loses the whole hunt to the corpse.
+    // Bank the wool below the 3-stack bed craft instead — stashRecover brings
+    // it back on respawn, so partial fleece accumulates across lives until a
+    // 3rd sheep + planks lands the bed claim that frees the respawn for good.
+    // Once ≥3 wool is held it stays in hand for the imminent craft.
     const bedless = !(state?.home?.claimed);
+    const woolHeld = bedless ? countItem(bot, (i) => /(?:^|_)wool$/.test(i.name)) : 0;
     const surplus = bot.inventory.items().filter((i) => {
-      if (bedless && (/(?:^|_)wool$/.test(i.name) || (/_bed$/.test(i.name) && !/bedrock/.test(i.name)))) return false;
+      if (!bedless) return i.count > stashKeepCount(i.name);
+      if (/_bed$/.test(i.name) && !/bedrock/.test(i.name)) return false;
+      if (/(?:^|_)wool$/.test(i.name) && woolHeld >= 3) return false;
       return i.count > stashKeepCount(i.name);
     });
     // one-time "restart kit" per world: planks+sticks+table+food in the chest
