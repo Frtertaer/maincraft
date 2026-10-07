@@ -539,7 +539,15 @@ const STASH_KEEP_COUNT = [
   [/_planks$/, 8],
   [/^(cobblestone|cobbled_deepslate|dirt|sand|gravel|netherrack|blackstone)$/, 24],
   [/^(raw_iron|iron_ingot|raw_gold|gold_ingot|coal|charcoal|raw_copper|copper_ingot)$/, 4],
-  [/^(diamond|emerald|lapis_lazuli|redstone|quartz|obsidian|ender_pearl|blaze_rod|blaze_powder)$/, 1],
+  // Progression items must stay in hand at their craft batch — a keep of 1
+  // buried every diamond/obsidian/pearl/rod in the chest, so countItem could
+  // never reach the craft gates (diamond<5, obsidian<10, eyes) and the run
+  // could never advance past iron no matter how much it had banked
+  [/^diamond$/, 5],
+  [/^(emerald|lapis_lazuli|redstone|quartz)$/, 8],
+  [/^obsidian$/, 14],
+  [/^ender_pearl$/, 16],
+  [/^(blaze_rod|blaze_powder)$/, 16],
   [/^(bread|cooked_beef|cooked_porkchop|cooked_chicken|cooked_mutton|cooked_cod|cooked_salmon|baked_potato|golden_carrot)$/, 6],
 ];
 
@@ -8463,7 +8471,10 @@ async function phaseDiamond(bot, mcData, state, log) {
     await executeAction(bot, { type: "eat" }, mcData);
   }
 
-  if (countItem(bot, "diamond") < 5 && !hasAny(bot, ["diamond_pickaxe"])) {
+  // craft the pick at the unlock (3), not a hold-out for pick+sword(5): the
+  // same raw<8 failure as iron — a run that dies below five never once made
+  // a diamond pick. Sword follows on the next batch if more drops in.
+  if (countItem(bot, "diamond") < 3 && !hasAny(bot, ["diamond_pickaxe"])) {
     const y = Math.floor(bot.entity.position.y);
 
     // First: any diamond already in range?
