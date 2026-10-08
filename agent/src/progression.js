@@ -2377,6 +2377,17 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
         const cell = bot.blockAt(new Vec3(deep.x, deep.y, deep.z));
         if (floor && floor.name !== "air" && !/lava|water/.test(floor.name) && cell?.name === "air") {
           await executeAction(bot, { type: "dig", x: deep.x, y: deep.y - 1, z: deep.z, timeoutMs: 10000 }, mcData).catch(() => {});
+          // the dig was usually under the bot's own feet at the corridor's
+          // deep end — it drops into the hole and the server refuses a block
+          // placed inside its hitbox. Step one cell back toward the mouth.
+          const feetNow = bot.entity.position.floored();
+          if (feetNow.x === deep.x && feetNow.z === deep.z && feetNow.y <= deep.y) {
+            await executeAction(
+              bot,
+              { type: "goto", x: deep.x - px + 0.5, y: deep.y, z: deep.z - pz + 0.5, range: 0.5, timeoutMs: 5000 },
+              mcData
+            ).catch(() => {});
+          }
           const p = await executeAction(
             bot,
             { type: "place", item: "chest", x: deep.x, y: deep.y - 1, z: deep.z, face: "top", timeoutMs: 8000 },
