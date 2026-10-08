@@ -862,7 +862,9 @@ export async function executeAction(bot, action, mcData) {
         }
         const ref = bot.blockAt(target.minus(direction));
         if (!ref) return { ok: false, message: "no reference block" };
-        if (ref.name === "air") return { ok: false, message: "reference block is air" };
+        if (["air", "cave_air", "void_air"].includes(ref.name)) {
+          return { ok: false, message: "reference block is air" };
+        }
         if (ref.position.distanceTo(bot.entity.position) > 4.2) {
           await goto(bot, new goals.GoalNear(ref.position.x, ref.position.y, ref.position.z, 3), 30000);
         }
@@ -1395,7 +1397,13 @@ function placementTarget(bot, action, direction) {
     const target = base.offset(dx, 0, dz);
     const at = bot.blockAt(target);
     const below = bot.blockAt(target.offset(0, -1, 0));
-    if (["air", "cave_air", "void_air"].includes(at?.name) && below && below.name !== "air") return target;
+    if (
+      ["air", "cave_air", "void_air"].includes(at?.name) &&
+      below &&
+      !["air", "cave_air", "void_air"].includes(below.name)
+    ) {
+      return target;
+    }
   }
   return null;
 }
