@@ -5102,12 +5102,41 @@ async function stockFood(bot, mcData, state, log, want = 6) {
       mcData
     ).catch(() => ({ ok: false }));
   }
+  // village hay edge: a bale uncrafts to 9 wheat = 3 bread — the single
+  // densest food source on any seed that has one, and it costs a dig not a
+  // chase. Sweep every visible bale, then bake the lot.
+  let swept = 0;
+  for (let i = 0; i < 6 && carried() < want; i++) {
+    let hay = null;
+    try {
+      hay = bot.findBlock?.({ matching: (b) => b && b.name === "hay_block", maxDistance: 56 });
+    } catch {
+      /* none visible */
+    }
+    if (!hay) break;
+    const d = await executeAction(
+      bot,
+      { type: "dig", x: hay.position.x, y: hay.position.y, z: hay.position.z, timeoutMs: 12000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (!d.ok) break;
+    swept++;
+  }
+  if (swept > 0) {
+    const hayHeld = countItem(bot, (i) => i.name === "hay_block");
+    if (hayHeld > 0) await ensureCraft(bot, mcData, "wheat", hayHeld).catch(() => ({ ok: false }));
+    if (countItem(bot, "wheat") >= 3) {
+      const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
+      if (bc.ok) log?.(`[food] stock hay→bread x${swept} (carried=${carried()})`);
+    }
+    if (carried() >= want) return { ok: true, stocked: carried() };
+  }
   // raw chicken carries the hunger effect and isn't counted edible — skip it.
   // Same walk-chase ceiling as the hunt: food<=6 can't sprint, and fleeing
   // livestock outruns a walk — only the chicken is catchable on foot.
   const stockPrey = bot.food > 6 ? ["cow", "pig", "sheep", "rabbit"] : ["chicken"];
   for (const prey of stockPrey) {
-    for (let i = 0; i < 2 && carried() < want; i++) {
+    for (let i = 0; i < 3 && carried() < want; i++) {
       const r = await executeAction(
         bot,
         { type: "attack", name: prey, maxDurationMs: 14000, maxDistance: 48 },
@@ -7431,11 +7460,11 @@ async function phaseIron(bot, mcData, state, log) {
       }
       // never descend on an empty pack either: the meter refills above ground
       // but the ~10min strip mine drains it with nothing edible below — bank
-      // ~6 raw meals while prey still renders, or the mine ends in the
+      // ~12 meals while prey/village hay still render, or the mine ends in the
       // starving-staircase loop at 0.5hp
       const foodStock = stockFoodCount(bot);
-      if (foodStock < 6) {
-        const sf = await stockFood(bot, mcData, state, log, 6);
+      if (foodStock < 12) {
+        const sf = await stockFood(bot, mcData, state, log, 12);
         if (sf.stocked > foodStock) return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
       }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
