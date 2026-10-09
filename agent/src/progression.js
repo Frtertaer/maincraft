@@ -4892,8 +4892,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // the wait is dead time unless it digs. Strip a short 1x2 in the
     // direction AWAY from the nearest remembered hostile (their positions
     // are known), so the tunnel grows toward clean ground and whatever ore
-    // the face exposes gets mined. Same food-kit floor as a descent: a
-    // hungry hold waits, it does not dig.
+    // the face exposes gets mined.
+    // The 32-kit gate covers the deliberate trip TO the mine — a sealed
+    // hold digs whenever it has a pickaxe (the user wants a burrowed bot
+    // working, not idling: "замурованный то может дальше копать").
     if (
       !tunnelEscape &&
       !camper &&
@@ -4901,7 +4903,6 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       !sideDigDone &&
       !deepMining &&
       hasPickaxe(bot) &&
-      stockFoodCount(bot) >= FOOD_KIT_MIN &&
       (bot.time?.timeOfDay ?? 0) < 12541 &&
       Date.now() - sideDigAt > 20000
     ) {
