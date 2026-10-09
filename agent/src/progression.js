@@ -5147,9 +5147,10 @@ async function stockFood(bot, mcData, state, log, want = 12) {
     }
   }
   // cooked meat is ~2.5x the calories of raw for the same bank count — once
-  // the hunt has gathered a batch, fire a furnace (craft+place if needed,
-  // then dig it back up so the iron smelter can reuse it below ground)
-  if (bot.inventory.items().some((i) => SAFE_RAW.test(i.name))) {
+  // the hunt has gathered a real batch (~8+), fire a furnace (craft+place if
+  // needed, then dig it back up so the iron smelter can reuse it underground)
+  const rawTotal = bot.inventory.items().reduce((n, i) => n + (SAFE_RAW.test(i.name) ? i.count : 0), 0);
+  if (rawTotal >= 8) {
     await cookFoodStock(bot, mcData, log);
   }
   return { ok: carried() >= want, stocked: carried() };
