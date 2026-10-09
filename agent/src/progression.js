@@ -7759,7 +7759,33 @@ async function phaseIron(bot, mcData, state, log) {
       const foodStock = stockFoodCount(bot);
       if (foodStock < 32) {
         const sf = await stockFood(bot, mcData, state, log, 32);
-        if (sf.stocked > foodStock) return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
+        if (sf.stocked > foodStock) {
+          if (state) state.stockStall = 0;
+          return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
+        }
+        // zero gain this round — the surface around here is empty, but the
+        // 32-kit is required before the trip down (a starving strip mine is
+        // how the last runs died). Roam a fresh bearing and hunt again next
+        // step instead of falling through to the descent; after several
+        // dead rounds the biome is genuinely empty and it goes down with
+        // what it has rather than freeze here forever.
+        const stalls = state ? (state.stockStall = (state.stockStall || 0) + 1) : 1;
+        if (stalls < 5) {
+          const pp = bot.entity.position.floored();
+          const brg = [
+            [40, 0],
+            [-40, 0],
+            [0, 40],
+            [0, -40],
+            [28, 28],
+          ][stalls % 5];
+          await executeAction(
+            bot,
+            { type: "goto", x: pp.x + brg[0], y: pp.y, z: pp.z + brg[1], range: 4, timeoutMs: 20000 },
+            mcData
+          ).catch(() => {});
+          return { ok: true, phase: "iron", message: `pre-descend food hunt (${sf.stocked}/32)` };
+        }
       }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
       // tools and table/table-fuel must come down with us
