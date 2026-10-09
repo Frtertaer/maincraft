@@ -2289,18 +2289,38 @@ export async function swimToLand(bot, mcData, log, ms = 40000, state = null) {
       !/kelp|seagrass|bubble/.test(underCell.name)
     )
       return true;
+    // The shoreline scan must pick a cell the bot can actually climb onto
+    // from water: its top face ≤ ~1 above the surface plane AND water beside
+    // it at the same level. The old 5m grid skipped the near shore entirely
+    // and ignored height — on speedrun7 it kept aiming at a 2-block
+    // snow+grass cliff and treaded water forever ("still submerged").
+    let surfY = p.y;
+    for (let dy = 0; dy <= 10; dy++) {
+      const c = bot.blockAt(p.offset(0, dy, 0));
+      if (c && /water|kelp|seagrass|bubble/.test(c.name)) surfY = p.y + dy;
+      else break;
+    }
+    const isWet = (b) => b && /water|kelp|seagrass|bubble/.test(String(b.name));
     let best = null;
     let bestD = 1e9;
-    for (let dx = -12; dx <= 12; dx += 1) {
-      for (let dz = -12; dz <= 12; dz += 1) {
+    for (let dx = -15; dx <= 15; dx += 1) {
+      for (let dz = -15; dz <= 15; dz += 1) {
         if (!dx && !dz) continue;
-        for (let dy = -4; dy <= 6; dy += 1) {
-          const b = bot.blockAt(p.offset(dx * 5, dy, dz * 5));
-          if (!b || b.boundingBox !== "block" || /water|kelp|seagrass|bubble/.test(b.name)) continue;
+        for (let dy = -2; dy <= 1; dy += 1) {
+          const b = bot.blockAt(new Vec3(p.x + dx * 2, surfY + dy, p.z + dz * 2));
+          if (!b || b.boundingBox !== "block" || isWet(b)) continue;
           const a1 = bot.blockAt(b.position.offset(0, 1, 0));
           const a2 = bot.blockAt(b.position.offset(0, 2, 0));
           if (!a1 || !a2 || !/air|cave_air|void_air|snow|grass|fern|tall_grass|short_grass/.test(a1.name)) continue;
-          const d = Math.hypot(dx * 5, dz * 5);
+          if (b.position.y > surfY + 1) continue;
+          const waterSide = [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ].some(([ox, oz]) => isWet(bot.blockAt(b.position.offset(ox, 0, oz))));
+          if (!waterSide) continue;
+          const d = Math.hypot(dx * 2, dz * 2) + (b.position.y - surfY) * 6;
           if (d < bestD) {
             bestD = d;
             best = b.position;
