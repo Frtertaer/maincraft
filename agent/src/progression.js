@@ -2694,6 +2694,33 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     state = state || {};
     state._camperHops = state._camperHops || 0;
     const camperNow = findHostile(bot, 12);
+    // stand-and-fight: an armed bot at sane hp turns the tables instead of
+    // hopping forever — a melee camper inside ~6m is a 2-crit kill with a
+    // stone axe, and every naked flee-to-death on a mob-dense seed came from
+    // running this exact situation. Shooters excluded: trading arrows with a
+    // skeleton loses. One shot per site — a failed fight still hops/flees.
+    if (
+      camperNow &&
+      !state._camperFought &&
+      Number(bot.health) > 10 &&
+      bot.inventory.items().some((i) => /sword|_axe/.test(i.name)) &&
+      /zombie|spider|husk|zombie_villager|drowned|silverfish|creeper|enderman|piglin|wolf|bee/.test(String(camperNow.name || "").toLowerCase()) &&
+      camperNow.position.distanceTo(bot.entity.position) < 7
+    ) {
+      state._camperFought = true;
+      log?.(`[burrow] camper ${camperNow.name} in reach — counter-attacking instead of hopping`);
+      const f = await executeAction(
+        bot,
+        { type: "combat", mob: camperNow.name, maxDistance: 10, timeoutMs: 14000, fleeAtHealth: 6 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (f.ok) {
+        log?.(`[burrow] camper down — burrowing on its spot`);
+        state._camperHops = 0;
+      } else {
+        log?.(`[burrow] counter-attack failed (${f.message || "?"}) — back to hopping`);
+      }
+    }
     if (camperNow && state._camperHops < 3) {
       state._camperHops += 1;
       log?.("[burrow] camper followed — keep hopping");

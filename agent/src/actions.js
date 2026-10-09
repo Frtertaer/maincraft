@@ -1056,6 +1056,15 @@ async function boundedCombat(bot, action) {
       bot.pathfinder.setGoal(null);
       const aim = target.position.offset(0, Math.max(0.5, (target.height || 1.6) * 0.7), 0);
       await bot.lookAt(aim, true);
+      // hostile swing: land the hit while falling for the +50% crit bonus —
+      // a stone axe crit two-shots a zombie/skeleton where flat swings need
+      // 4-5. Jump ~400ms before the hit so we're descending when it lands.
+      if (!isPrey) {
+        bot.setControlState("jump", true);
+        await sleep(240);
+        bot.setControlState("jump", false);
+        await sleep(160);
+      }
       await Promise.resolve(bot.attack(target));
       hits += 1;
       await sleep(cooldownMs);
@@ -1380,7 +1389,10 @@ export function pickBestFood(bot) {
 
 function weaponScore(name, materialScore) {
   const material = Object.keys(materialScore).find((key) => name.startsWith(`${key}_`));
-  return (materialScore[material] || 0) + (name.endsWith("_sword") ? 5 : 0);
+  // an axe out-damages a sword of the same material per swing (Java: stone
+  // axe 9 vs sword 5) and our attacks are cooldown-throttled anyway, so the
+  // slower axe recharge never binds — axe wins on damage per hit
+  return (materialScore[material] || 0) + (name.endsWith("_axe") ? 8 : 0);
 }
 
 function placementTarget(bot, action, direction) {
