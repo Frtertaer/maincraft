@@ -30,7 +30,7 @@ const DEFAULTS = {
   holdMsAfterHit: 8000,
   equipEveryMs: 2500,
   shieldVsProjectile: true,
-  kiteCreeperDistance: 5.5,
+  kiteCreeperDistance: 7.5,
   prioritizeExploders: true,
   strafe: true,
   jumpCrit: true,
@@ -78,6 +78,14 @@ const NEVER_ATTACK = new Set([
   "item_display",
   "interaction",
 ]);
+
+/** Mobs that kill an undergeared bot — never auto-engage without iron+
+ * weaponry. Enderman especially: engaging it means looking at it, which
+ * is exactly how a wooden-sword bot turns a neutral mob into a killer.
+ * Silverfish/endermite are worse: every hit wakes the swarm out of the
+ * infested stone around it, so a stone-sword "win" is a pack death.
+ * Cave spiders envenom, phantoms can't be reached by a weak weapon. */
+const OVERMATCHED = new Set(["enderman", "ravager", "vindicator", "evoker", "piglin_brute", "elder_guardian", "pillager", "silverfish", "endermite", "cave_spider", "phantom"]);
 
 /** Higher = kill first */
 const THREAT_WEIGHT = {
@@ -164,11 +172,37 @@ export class CombatReflex {
     this.mode = this.cfg.mode || "auto";
     this._onEntityGone = null;
     this._onHurt = null;
-    this._bossState = {};
+    this._bossState = { allowStickTp: false };
   }
 
   getBossState() {
     return { ...this._bossState };
+  }
+
+  // True while the reflex owns movement fighting a normal mob — long-running
+  // phase actions (staircases, collects) should yield instead of fighting the
+  // reflex for the pathfinder. Boss mobs are excluded: boss phases drive the
+  // fight themselves.
+  shouldYield() {
+    if (this.mode === "off" || !this.cfg.enabled) return false;
+    const t = this._lockedId != null ? this.bot.entities[this._lockedId] : null;
+    if (t && t.isValid !== false) return !isBossMobName(this._mobName(t));
+    // Recently-engaged window: the reflex may be re-acquiring the same mob
+    // between ticks — keep yielding so phase actions don't win the race.
+    if (Date.now() < this._engagedUntil) return !isBossMobName(this._stats.lastTarget);
+    return false;
+  }
+
+  // Approach-chase goal — skipped while a phase action owns the pathfinder
+  // (_phaseMove), so reflex chasing can't stomp staircases/collects. Melee
+  // hits, creeper kiting and low-hp flees still run: they don't chase.
+  _chaseGoal(goal) {
+    if (this.bot._phaseMove) return;
+    try {
+      this.bot.pathfinder.setGoal(goal, true);
+    } catch {
+      /* pathfinder not ready */
+    }
   }
 
   getStats() {
@@ -257,7 +291,7 @@ export class CombatReflex {
     this._stopBlock();
     this._clearMotion();
     try {
-      this.bot.pathfinder?.setGoal(null);
+      if (!this.bot._phaseMove) this.bot.pathfinder?.setGoal(null);
     } catch {
       /* ignore */
     }
@@ -277,6 +311,14 @@ export class CombatReflex {
     const name = this._mobName(entity);
     if (NEVER_ATTACK.has(name)) return false;
     if (isBossMobName(name)) return true;
+    // piglin neutral until provoked — treat brute as hostile always.
+    // Must run BEFORE the kind check: minecraft-data files zombified_piglin
+    // under "Hostile mobs", so the kind test alone engaged every ZP on
+    // sight — the world-spawn portal kept a pack angry and 13 respawns in
+    // a row died to "zombified_piglin" the bot itself was provoking
+    if (name === "piglin" || name === "zombified_piglin") {
+      return this.cfg.attackAllLiving === true;
+    }
     if (entity.kind === "Hostile mobs") return true;
     // berserk: cows, sheep, villagers, iron golems — anything living/mob
     if (this.cfg.attackAllLiving === true) {
@@ -324,6 +366,23 @@ export class CombatReflex {
       if (options.name && this._mobName(e) !== String(options.name).toLowerCase()) continue;
       const d = e.position.distanceTo(bot.entity.position);
       if (!Number.isFinite(d) || d > maxD) continue;
+      // Ignore hostiles hidden underground/behind walls — chasing an unreachable
+      // mob resets the pathfinder and starves every dig/collect in flight.
+      // Very close threats still count (a creeper can blow through a wall).
+      if (d >= 5 && !isBossMobName(this._mobName(e))) {
+        try {
+          const feet = bot.blockAt(e.position);
+          const head = bot.blockAt(e.position.offset(0, Math.min(e.height || 1.8, 1.7), 0));
+          if (!bot.canSeeBlock(feet) && !bot.canSeeBlock(head)) continue;
+        } catch {
+          /* if LOS check unsupported, keep the target */
+        }
+      }
+      const eName = this._mobName(e);
+      // Enderman: never engage even armed — looking at it is the aggro
+      // trigger itself, and teleports+40hp beat any non-iron kit anyway.
+      // It still counts hostile for safe()/burrow, which pockets beat.
+      if (eName === "enderman") continue;
       const score = this._threatScore(e, d);
       if (score > bestScore) {
         bestScore = score;
@@ -331,6 +390,24 @@ export class CombatReflex {
       }
     }
     return best;
+  }
+
+  _isArmed() {
+    const items = this.bot?.inventory?.items?.() || [];
+    // any real weapon — a stone sword still wins a knockback trade vs a
+    // creeper; bare hands lose it (underground deaths)
+    return items.some((i) => /_sword|_axe|trident|bow|crossbow/.test(i.name));
+  }
+
+  // iron+ weaponry or real armor — the line where an overmatched mob stops
+  // being a death sentence: an iron sword clears a silverfish swarm faster
+  // than the call-out replenishes it, armor makes cave-spider poison
+  // survivable. A wooden/stone kit loses the same trade every time.
+  _wellArmed() {
+    const items = this.bot?.inventory?.items?.() || [];
+    const ironWeapon = items.some((i) => /^(iron|diamond|netherite)_(sword|axe|shovel|pickaxe)$|trident|bow|crossbow/.test(i.name));
+    const ironArmor = items.filter((i) => /^(iron|diamond|netherite|golden)_(helmet|chestplate|leggings|boots)$/.test(i.name)).length >= 2;
+    return ironWeapon || ironArmor;
   }
 
   _clearMotion() {
@@ -356,6 +433,7 @@ export class CombatReflex {
 
   async _ensureGear(force = false, target = null) {
     const now = Date.now();
+    if (this.bot._placingTower) return; // tower hop+place owns the hand
     if (!force && now - this._lastEquipAt < this.cfg.equipEveryMs) return;
     this._lastEquipAt = now;
     try {
@@ -393,6 +471,7 @@ export class CombatReflex {
   async _tryEat(force = false) {
     const bot = this.bot;
     const now = Date.now();
+    if (bot._placingTower) return false; // tower hop+place owns the hand
     if (now - this._lastEatAt < 2500 && !force) return false;
     const hp = Number(bot.health);
     const food = Number(bot.food);
@@ -403,11 +482,16 @@ export class CombatReflex {
     this._stopBlock();
     this._clearMotion();
     try {
-      bot.pathfinder?.setGoal(null);
+      if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
       await bot.equip(item, "hand");
       await bot.consume();
       this._stats.eats += 1;
-      await equipBestWeapon(bot);
+      // Don't restore the weapon while a boss owns the hotbar — it
+      // re-equips whatever its current step needs anyway.
+      const locked = this._lockedId != null ? bot.entities[this._lockedId] : null;
+      if (!locked || !isBossMobName(this._mobName(locked))) {
+        await equipBestWeapon(bot);
+      }
       return true;
     } catch {
       return false;
@@ -457,23 +541,24 @@ export class CombatReflex {
   _kiteAway(fromEntity) {
     const bot = this.bot;
     try {
-      bot.pathfinder?.setGoal(null);
+      if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
       const dx = bot.entity.position.x - fromEntity.position.x;
       const dz = bot.entity.position.z - fromEntity.position.z;
       const yaw = Math.atan2(-dx, -dz);
       bot.entity.yaw = yaw;
-      bot.setControlState("back", true);
+      // yaw already faces AWAY from the threat — press forward, not back:
+      // facing away + back walked the bot into the creeper it was fleeing
+      bot.setControlState("forward", true);
       bot.setControlState("sprint", true);
-      bot.setControlState("jump", true);
+      bot.setControlState("jump", false);
       this._stats.kites += 1;
       setTimeout(() => {
         try {
-          bot.setControlState("back", false);
-          bot.setControlState("jump", false);
+          bot.setControlState("forward", false);
         } catch {
           /* ignore */
         }
-      }, 350);
+      }, 450);
     } catch {
       /* ignore */
     }
@@ -578,6 +663,22 @@ export class CombatReflex {
     const bot = this.bot;
     if (!bot?.entity || bot.health == null) return;
 
+    // A boss tick is mid-await (climb/eat/shoot take seconds) — let it own
+    // the bot exclusively or we'd stomp its gear and control states.
+    if (this._bossState?._tickBusy) return;
+
+    // Sheltered (sealed burrow pocket / night pillar): hostiles are behind
+    // walls we can't path to — engaging only pathfinds against the seal or
+    // walks us off the edge. The shelter's own wait-loop handles campers.
+    if (bot._inShelter || bot._burrowActive) {
+      // _burrowActive: mid-burrow the reflex's engage-gotos supersede every
+      // relocate/carve hop — the bot hot-loops standing still next to the
+      // mob it can't outrun anyway. Parked until the burrow resolves.
+      this._lockedId = null;
+      this._stopBlock();
+      return;
+    }
+
     const now = Date.now();
     const hp = Number(bot.health);
 
@@ -590,7 +691,7 @@ export class CombatReflex {
         this._engagedUntil = 0;
         this._stopBlock();
         try {
-          bot.pathfinder?.setGoal(null);
+          if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
           bot.clearControlStates();
           bot.setControlState("back", true);
           bot.setControlState("sprint", true);
@@ -617,7 +718,11 @@ export class CombatReflex {
 
     // gear refresh uses current lock for pumpkin/shield choice
     const lockedPreview = this._lockedId != null ? bot.entities[this._lockedId] : null;
-    void this._ensureGear(false, lockedPreview);
+    const previewName = lockedPreview ? this._mobName(lockedPreview) : "";
+    // While a boss is engaged the boss tick owns the hotbar — a
+    // void-launched gear swap from this gap window lands mid-place
+    // and stomps the held block (the "diamond_sword place" fails).
+    if (!isBossMobName(previewName)) void this._ensureGear(false, lockedPreview);
 
     let target = this._lockedId != null ? bot.entities[this._lockedId] : null;
     if (!target || target.isValid === false) {
@@ -682,12 +787,70 @@ export class CombatReflex {
 
     const name = tName;
 
-    // Creeper kite
-    if (EXPLODER.has(name) && dist < this.cfg.kiteCreeperDistance) {
+    // Bare hands lose every trade — never engage unarmed, just create
+    // distance (the respawn-camp death spiral lesson: punching a zombie
+    // bare-handed is a guaranteed loss). Ranged plinks from ~30 though —
+    // kiting only under 14m lets a skeleton shoot the working bot in the
+    // back. Hold the lock while fleeing so phase steps yield to the flee.
+    if (!this._isArmed() && !isBossMobName(name)) {
+      this._lockedId = null;
+      const kiteRange = RANGED.has(name) ? 30 : 14;
+      if (dist < kiteRange) {
+        this._engagedUntil = Math.max(this._engagedUntil, now + 1200);
+        this._kiteAway(target);
+      } else {
+        this._engagedUntil = 0;
+      }
+      return;
+    }
+
+    // Overmatched without iron+: a wooden-sword swing at a silverfish calls
+    // more out of the stone than it removes, and a cave spider's poison
+    // outlasts the fight. Kite to distance exactly like the unarmed case —
+    // the win is leaving, not a fight the swarm can join.
+    if (OVERMATCHED.has(name) && !this._wellArmed() && !isBossMobName(name)) {
+      this._lockedId = null;
+      const kiteRange = RANGED.has(name) ? 30 : 16;
+      if (dist < kiteRange) {
+        this._engagedUntil = Math.max(this._engagedUntil, now + 1200);
+        this._kiteAway(target);
+      } else {
+        this._engagedUntil = 0;
+      }
+      return;
+    }
+
+    // Creeper kite — and bare hands never close on a bomb: no swing at
+    // all, just keep >4m until it de-aggros
+    if (EXPLODER.has(name) && !this._isArmed()) {
+      this._lockedId = null;
+      this._engagedUntil = 0;
+      if (dist < 12) this._kiteAway(target);
+      return;
+    }
+    if (EXPLODER.has(name)) {
       this._stopBlock();
-      this._kiteAway(target);
-      // still hit if slightly outside explosion sweet spot
-      if (dist > 3.0 && dist < 4.8 && now - this._lastHitAt >= this.cfg.cooldownMs) {
+      // never chase a bomb: GoalFollow walks us into the blast radius before
+      // the kite band kicks in. Kite under 5.5, hold range outside — the
+      // hit window exists only while armed and slightly outside the hiss
+      if (dist < this.cfg.kiteCreeperDistance) this._kiteAway(target);
+      else {
+        try {
+          if (!bot._phaseMove) bot.pathfinder?.setGoal(null);
+          bot.clearControlStates();
+        } catch {
+          /* ignore */
+        }
+      }
+      // the hit-window gamble only pays at healthy hp — a whiffed swing at
+      // low hp is how most marathon creeper deaths happened
+      if (
+        this._isArmed() &&
+        dist > 3.0 &&
+        dist < 4.8 &&
+        (bot.health == null || bot.health > 14) &&
+        now - this._lastHitAt >= this.cfg.cooldownMs
+      ) {
         void this._meleeHit(target);
       }
       return;
@@ -698,11 +861,7 @@ export class CombatReflex {
     if (this._shouldBlock(target, dist) || (heavyMelee && dist < 4.5 && now - this._lastHitAt < 200)) {
       void this._startBlock();
       if (dist > this.cfg.meleeDistance) {
-        try {
-          bot.pathfinder.setGoal(new goals.GoalFollow(target, heavyMelee ? 2.4 : 2.0), true);
-        } catch {
-          /* ignore */
-        }
+        this._chaseGoal(new goals.GoalFollow(target, heavyMelee ? 2.4 : 2.0));
       }
     } else if (!(heavyMelee && dist <= this.cfg.meleeDistance)) {
       this._stopBlock();
@@ -713,17 +872,11 @@ export class CombatReflex {
       this._engagedUntil = Math.max(this._engagedUntil, now + 15000);
       if (dist <= 5) void this._splashWaterNear(target);
       if (dist > this.cfg.meleeDistance) {
-        try {
-          bot.pathfinder.setGoal(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 1), true);
+        this._chaseGoal(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 1));
+        if (!bot._phaseMove) {
           bot.setControlState("sprint", true);
           bot.setControlState("forward", true);
           bot.setControlState("jump", true);
-        } catch {
-          try {
-            bot.pathfinder.setGoal(new goals.GoalFollow(target, 0.8), true);
-          } catch {
-            /* ignore */
-          }
         }
         // swing if slightly out of range but line of sight
         if (dist < 4.2 && now - this._lastHitAt >= this.cfg.cooldownMs) {
@@ -745,25 +898,26 @@ export class CombatReflex {
     }
 
     if (dist > this.cfg.meleeDistance) {
-      try {
-        // ranged: close gap aggressively
-        const range = RANGED.has(name) ? 1.8 : 2.2;
-        bot.pathfinder.setGoal(new goals.GoalFollow(target, range), true);
-        bot.setControlState("sprint", true);
-      } catch {
-        /* pathfinder not ready */
-      }
+      // ranged: close gap aggressively
+      const range = RANGED.has(name) ? 1.8 : 2.2;
+      this._chaseGoal(new goals.GoalFollow(target, range));
+      if (!bot._phaseMove) bot.setControlState("sprint", true);
       return;
     }
 
-    // Melee range
-    try {
-      bot.pathfinder.setGoal(null);
-    } catch {
-      /* ignore */
+    // Melee range. A phase-owned move in flight (migration/goto) keeps it:
+    // clearing the goal to strafe in place aborts the escape leg every time
+    // a mob wanders into reach — the migration through a kill field dies to
+    // "goal superseded" one mob at a time. Outrunning a melee mob IS the
+    // escape; we still swing back defensively without owning the position.
+    if (!bot._phaseMove) {
+      try {
+        bot.pathfinder.setGoal(null);
+      } catch {
+        /* ignore */
+      }
+      this._strafeAround(target);
     }
-
-    this._strafeAround(target);
     void this._meleeHit(target);
   }
 }

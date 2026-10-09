@@ -122,6 +122,91 @@ npm run check-api
 
 В `agent\config.json` установлены ограничения на запросы, частоту и суммарные токены одной сессии.
 
+## Двухмодульный режим (Opus + быстрый контроллер)
+
+По умолчанию Opus 5 вызывается на **каждом** тике (`agent.tickMs`), поэтому реакция на мир ограничена латентностью LLM. В `agent\config.controller.json` включён стек «два разума»:
+
+- **Планировщик (медленный разум).** Opus 5 вызывается раз в `controller.plannerEveryTicks` тиков в фоне и сразу при приказе игрока. Возвращает те же `say/goal/plan/action` плюс `targets` (minecraft id целей на ~30 сек) и `waypoint`.
+- **Контроллер (быстрый разум).** На каждом тике выбирает **один глагол из ограниченного набора** (`wait/eat/sleep/flee/attack/equip/pickup/collect/dig/goto_target/goto_waypoint/craft/place/smelt/follow/come/container_*`). Координаты и аргументы вычисляет код из состояния мира — модель не может выдумать позицию или произвольную команду.
+- **Гейты.** Решение контроллера пропускается только если `safe` (noul ≥ 0.5) и `confidence ≥ controller.minConfidence`; иначе — `flee`/`wait`. При ошибке контроллера срабатывает `fallbackToLocal` — детерминированные эвристики без сети.
+- **Рефлексы.** Локальный combat-reflex (~40 мс) продолжает работать независимо и обрабатывает немедленные угрозы без любой модели.
+
+Запуск:
+
+```powershell
+cd D:\maincraft
+.\start-bot-controller.ps1 -Controller jev    # TypeSafe System One (API)
+.\start-bot-controller.ps1 -Controller laya   # локальная модель (сайдкар)
+.\start-bot-controller.ps1 -Controller local  # только эвристики, без модели
+```
+
+Либо вручную: `node agent/src/index.js --config agent/config.controller.json`.
+
+### Jev (api.typesafe.ai)
+
+Ключ кладётся в `agent\.env` (файл уже в `.gitignore`) или в переменную окружения `TYPESAFE_API_KEY` — см. `agent\.env.example`. На каждый тик уходит один POST `/v1/systemone` с тремя типизированными вопросами (choice/noul/score); типичный ответ — ~150 мс.
+
+### Laya (convaiinnovations/laya, локально)
+
+Полностью локальный контроллер на открытой модели решений (~421M параметров, Apache-2.0). Сайдкар на Python-stdlib:
+
+```powershell
+pip install laya
+python agent\tools\laya_server.py   # LAYA_PORT=8091 LAYA_DEVICE=cpu
+```
+
+Затем `-Controller laya`. На CPU решение занимает ~0,4-0,9 c на все три вопроса; на GPU — десятки миллисекунд. URL сайдкара принимается только loopback (`controller.laya.url`).
+
+### Совместимость
+
+Без блока `controller` в конфиге бот работает ровно как раньше — Opus каждый тик. При `controller.type` = `off`/`jev`/`laya`/`local` поведение меняется только между вызовами планировщика; приказы игрока по-прежнему получают полную мощь Opus (свободный `action`).
+
+## «Нейроскайрим»-режим (разговорный спутник)
+
+В `agent\config.companion.json` включён режим живого NPC-компаньона (по мотивам SkyrimNet/Mantella):
+
+- **Свободный диалог.** Любая строка в игровом чате от разрешённых ников (`agent.chatUsers`) идёт не в планировщик, а в диалоговый пайплайн: один вызов LLM возвращает `{say, action, task, mood}`. `say` — реплика в чат; `action` — жест/действие тела (`wave`, `sit`, `follow`, `give:предмет`, `attack`, `look`…); `task` — реальная работа («добудь дерево» → приказ мозгу); `mood` — настроение.
+- **Персонаж и память.** `agent.persona` задаёт характер; модуль `mantella` хранит историю чата в `logs/mantella-memory/<world>/<bot>/chat.jsonl` и периодически конденсирует её в summary, который подаётся в контекст диалога.
+- **Автономность.** Бот слушает события мира (смерть, зашёл/вышел игрок, начался дождь, майлстоуны прохождения) и редко — не чаще `mantella.ambientEveryMs` — комментирует их репликой от своего имени.
+- **Голос (опционально).** `mantella.tts`: `none` | `sapi` | `edge` | `silero` | `voice` (внешний сервер `mantella.voiceUrl`); `mantella.stt: whisper` — распознавание голоса через voice-сервер.
+
+Запуск:
+
+```powershell
+cd D:\maincraft
+.\start-bot-companion.ps1 -PlayerName Steve -Controller local   # или jev / laya / off
+```
+
+### Другой ИИ вместо Opus
+
+Диалог и планировщик работают на любом OpenAI-совместимом API (OpenRouter, VseGPT, NanoGPT, локальный vLLM/Ollama). В конфиге:
+
+```json
+"api": {
+  "protocol": "openai",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "allowedHosts": ["openrouter.ai"],
+  "allowCustomHost": true,
+  "keyEnv": "OPENAI_API_KEY",
+  "model": "qwen/qwen-2.5-72b-instruct",
+  "requireExactModel": false
+}
+```
+
+`protocol: "anthropic"` (по умолчанию) — `/v1/messages` + `x-api-key`; `protocol: "openai"` — `POST /chat/completions` + `Bearer`-ключ, preflight через `GET /models` (мягкий: если у прокси нет `/models`, бот стартует с предупреждением). Ключ — только через env/.env, не в конфиге.
+
+### Пройти игру до дракона (+ визер и варден)
+
+`!clear` (или попросить в чате: «пройди игру») запускает `ClearRunner` — детерминированный движок фаз (дерево → камень → железо → броня/еда → алмазы → портал → незер → стержни → жемчуг → очи → стронгхолд → энд → дракон). После смерти дракона бот идёт к выходному порталу фонтана, прыгает в него и проходит титры — цель считается выполненной только когда он воскрес в обычном мире (смерть в энде не засчитывается: бот вернётся за титрами). Майлстоуны бот озвучивает в чат; статус — `!clear status`, остановка — `!clear stop`. Отдельный самостоятельный скрипт `agent\src\clear-run.js` продолжает работать как раньше.
+
+Эпилог-боссы (опционально, после дракона или отдельно):
+
+- `!clear all` / `!clear боссы` — дракон → визер → варден подряд.
+- `!clear визер` — охота на визер-скелетов в крепости (3 черепа) → soul sand ×4 → возврат в обычный мир → постройка Т-образного призыва → бой (`witherTick` из boss-combat).
+- `!clear варден` — поиск sculk-блоков в deep dark (спуск ниже y≈0) → провокация шрикера шумом до спавна → бой (`wardenTick`: duck/kite/hit).
+
+В чате то же самое: «убей визера», «сразись с варденом» — диалоговый `task` маршрутизируется в соответствующую цель. Честные ограничения: черепа падают ~2,5% — сбор занимает десятки минут; варден очень опасен (500 hp, sonic boom) — бой best-effort, бот может погибнуть и вернуться.
+
 ## Vision (Opus 5)
 
 Есть два режима:

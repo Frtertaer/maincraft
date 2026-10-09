@@ -2,6 +2,8 @@ import { extractJsonObject } from "./llm.js";
 import { buildWorldState, stateToText } from "./world.js";
 import { executeAction } from "./actions.js";
 import { MantellaConversation } from "./mantella/conversation.js";
+import { legalVerbs, resolveVerb, parseInventory, gateDecision } from "./controller/index.js";
+import { createLocalController } from "./controller/local.js";
 
 const SYSTEM_RU = `Ты — Opus, автономный персонаж в Minecraft Java.
 Ты управляешь ботом через JSON-действие (одно за шаг).
@@ -154,6 +156,7 @@ export class Brain {
     this.lastThink = null;
     this.visionEnabled = Boolean(cfg.vision?.enabled);
     this.paused = false;
+    this.suspended = false;
     this.pendingCommand = null;
     this.pendingFrom = null;
     this.commandTurns = 0;
@@ -174,8 +177,20 @@ export class Brain {
     this._timer = null;
     this.combat = null;
     this.mantella = null;
+    // Fast per-tick controller (Jev/Laya/local). When set, Opus becomes an
+    // async planner and the controller fills the ticks between calls.
+    this.controller = null;
+    this._localController = null;
+    this.controllerTargets = [];
+    this.controllerConsecutiveFails = 0;
+    this.plannerConsecutiveFails = 0;
+    this._verbCooldowns = new Map();
+    this.waypoint = null;
+    this.container = null;
+    this.lastPlannerTick = -999;
+    this._plannerBusy = false;
     if (cfg.mantella?.enabled || cfg.agent?.companionMode) {
-      this.mantella = new MantellaConversation({ bot, cfg, log: this.log, llm: this.llm });
+      this.mantella = new MantellaConversation({ bot, cfg, log: this.log, llm: this.llm, mcData: this.mcData });
       this.log(
         `[mantella] memory world=${cfg.mantella?.worldId || "local"} char=${cfg.agent?.botName || "Opus"} tts=${cfg.mantella?.tts || "none"}`
       );
@@ -196,6 +211,15 @@ export class Brain {
       lastAction: this.lastAction,
       lastError: this.lastError,
       paused: this.paused,
+      controller: this.controller
+        ? {
+            type: this.controller.type,
+            targets: this.controllerTargets,
+            waypoint: this.waypoint,
+            lastPlannerTick: this.lastPlannerTick,
+            fails: this.controllerConsecutiveFails,
+          }
+        : null,
       budget: {
         requestsUsed: this.requestCount,
         requestLimit: Number.isFinite(this.requestLimit) ? this.requestLimit : null,
@@ -269,6 +293,11 @@ export class Brain {
     return true;
   }
 
+  setController(controller) {
+    this.controller = controller;
+    if (controller) this.log(`[controller] enabled type=${controller.type}`);
+  }
+
   pause() {
     this.paused = true;
     try {
@@ -281,6 +310,20 @@ export class Brain {
 
   resume() {
     this.paused = false;
+  }
+
+  suspend() {
+    this.suspended = true;
+    try {
+      this.bot.pathfinder?.setGoal(null);
+      this.bot.clearControlStates();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  unsuspend() {
+    this.suspended = false;
   }
 
   _budgetError() {
@@ -330,7 +373,7 @@ export class Brain {
 
   async step() {
     this.tick += 1;
-    if (this.paused) return;
+    if (this.paused || this.suspended) return;
     if (!this.bot.entity) return;
     const budgetError = this._budgetError();
     if (budgetError) {
@@ -368,6 +411,43 @@ export class Brain {
         /* ignore */
       }
     }
+
+    if (this.controller) {
+      const every = this.cfg.controller?.plannerEveryTicks || 8;
+      const plannerDue = this.tick === 1 || this.tick - this.lastPlannerTick >= every;
+      if (hasCommand && !this._plannerBusy && this.plannerConsecutiveFails < 3) {
+        // Player commands need the full planner (free-form action space).
+        // After 3 straight planner failures let the controller keep driving
+        // instead of stalling on a dead API; a later background run resets it.
+        this.lastPlannerTick = this.tick;
+        return this._plannerStep(world);
+      }
+      if (plannerDue && !this._plannerBusy) {
+        this.lastPlannerTick = this.tick;
+        this._plannerBusy = true;
+        this._plannerStep(world)
+          .catch((err) => {
+            this.lastError = `planner error: ${err?.message || err}`;
+            this.log(`[brain] ${this.lastError}`);
+          })
+          .finally(() => {
+            this._plannerBusy = false;
+          });
+      }
+      return this._controllerStep(world);
+    }
+
+    return this._plannerStep(world);
+  }
+
+  /**
+   * The slow mind: one Opus call producing say/goal/plan/targets/waypoint
+   * plus a full-power action. Runs on command ticks and every Nth tick
+   * when a controller is enabled (then it may also run in the background).
+   */
+  async _plannerStep(world) {
+    const hasCommand = Boolean(this.pendingCommand);
+    const activeCommandText = this.pendingCommand;
     const useVision =
       this.visionEnabled &&
       this.cfg.vision?.enabled !== false &&
@@ -416,6 +496,13 @@ export class Brain {
     let system = SYSTEM_RU;
     if (companion) system = SYSTEM_RU + "\n" + COMPANION_EXTRA;
     if (persona) system += `\n\nPersona / характер:\n${persona.slice(0, 800)}`;
+    if (this.controller) {
+      system +=
+        "\n\nКонтроллер: между твоими вызовами быстрый локальный контроллер исполняет " +
+        "ограниченный набор действий (collect/dig/craft/place/goto/flee/eat/attack/...). " +
+        'Дополнительно верни "targets": [minecraft id предметов/блоков, над которыми работать ' +
+        'ближайшие ~30 сек] и "waypoint": {x,y,z} или null.';
+    }
 
     // Mantella-style long-term memory + world context block
     let mantellaBlock = "";
@@ -435,30 +522,53 @@ export class Brain {
     const fullUserText = promptText + mantellaBlock;
 
     this.requestCount += 1;
-    const result = imageBase64
-      ? await this.llm.messagesWithImage({
-          system,
-          text: fullUserText,
-          imageBase64,
-          mediaType: "image/jpeg",
-        })
-      : await this.llm.messages({
-          system,
-          messages: [{ role: "user", content: fullUserText }],
-        });
+    let result;
+    try {
+      result = imageBase64
+        ? await this.llm.messagesWithImage({
+            system,
+            text: fullUserText,
+            imageBase64,
+            mediaType: "image/jpeg",
+          })
+        : await this.llm.messages({
+            system,
+            messages: [{ role: "user", content: fullUserText }],
+          });
+    } catch (err) {
+      this.plannerConsecutiveFails += 1;
+      this.lastError = `planner llm failed: ${err?.message || err}`;
+      this.log(`[brain] ${this.lastError} (streak=${this.plannerConsecutiveFails})`);
+      return;
+    }
     this.totalTokens += usageTokenCount(result.usage);
 
     const parsed = extractJsonObject(result.text);
     if (!parsed) {
+      this.plannerConsecutiveFails += 1;
       this.lastError = "LLM returned non-JSON";
-      this.log(`[brain] bad JSON: ${result.text.slice(0, 200)}`);
+      this.log(`[brain] bad JSON (streak=${this.plannerConsecutiveFails}): ${result.text.slice(0, 200)}`);
       return;
     }
+    this.plannerConsecutiveFails = 0;
 
     if (parsed.goal) this.goal = String(parsed.goal).slice(0, 300);
     const nextPlan = sanitizePlan(parsed.plan);
     if (nextPlan) this.plan = nextPlan;
     if (parsed.think) this.lastThink = String(parsed.think).slice(0, 500);
+    if (this.controller && Array.isArray(parsed.targets)) {
+      this.controllerTargets = parsed.targets
+        .map((t) => String(t || "").toLowerCase().trim().slice(0, 60))
+        .filter(Boolean)
+        .slice(0, 12);
+    }
+    if (this.controller && parsed.waypoint !== undefined) {
+      const w = parsed.waypoint;
+      this.waypoint =
+        w && typeof w === "object" && [w.x, w.y, w.z].every((v) => Number.isFinite(Number(v)))
+          ? { x: Number(w.x), y: Number(w.y), z: Number(w.z) }
+          : null;
+    }
 
     // Only the first tick of a new command/chat may speak freely.
     // Later ticks (follow loop, multi-step) go through rate-limit + dedup.
@@ -552,6 +662,101 @@ export class Brain {
         this.lastError = `command safety limit reached: ${activeCommandText}`;
         this.completeActiveCommand();
       }
+    }
+  }
+
+  /**
+   * The fast mind: ask the controller for ONE bounded verb, gate it
+   * (safe + confidence), resolve it to a concrete executeAction action
+   * from world state only, run it. Never lets the model emit coordinates
+   * or free-form commands.
+   */
+  async _controllerStep(world) {
+    const c = this.cfg.controller || {};
+    const ctx = {
+      world,
+      goal: this.goal,
+      plan: this.plan,
+      targets: this.controllerTargets,
+      waypoint: this.waypoint,
+      inventory: parseInventory(world),
+      container: this.container,
+      passive: this.mode === "observe",
+      mcData: this.mcData,
+    };
+    ctx.legal = legalVerbs(ctx);
+    // Verbs that just failed cool down briefly so the controller does not
+    // re-issue the same failing action every tick (observed: failing craft
+    // retried ~15 ticks straight). wait/flee never cool down (safety).
+    const decideCtx = {
+      ...ctx,
+      legal: ctx.legal.filter((v) => {
+        if (v.id === "wait" || v.id === "flee") return true;
+        const until = this._verbCooldowns.get(v.id);
+        return !(Number.isFinite(until) && until > this.tick);
+      }),
+    };
+
+    let decision;
+    try {
+      decision = await this.controller.decide(decideCtx);
+      this.controllerConsecutiveFails = 0;
+    } catch (err) {
+      this.controllerConsecutiveFails += 1;
+      this.log(
+        `[controller] ${this.controller.type} failed (${this.controllerConsecutiveFails}): ` +
+          String(err?.message || err).slice(0, 120)
+      );
+      if (c.fallbackToLocal !== false) {
+        if (!this._localController) this._localController = createLocalController();
+        try {
+          decision = await this._localController.decide(decideCtx);
+        } catch {
+          decision = { choice: "wait", confidence: 1, safe: true, urgency: 0, source: "fallback-error" };
+        }
+      } else {
+        decision = { choice: "wait", confidence: 1, safe: true, urgency: 0, source: "controller-error" };
+      }
+    }
+
+    const gate = gateDecision(decision, c);
+    const verbId = gate.ok
+      ? decision.choice
+      : gate.override === "flee" && ctx.legal.some((v) => v.id === "flee")
+        ? "flee"
+        : "wait";
+    const action = resolveVerb(verbId, ctx);
+    this.log(
+      `[controller] t=${this.tick} verb=${verbId} conf=${Number(decision.confidence || 0).toFixed(2)} ` +
+        `urg=${decision.urgency} src=${decision.source}${gate.ok ? "" : ` gate=${gate.reason}`} ` +
+        `-> ${JSON.stringify(action).slice(0, 120)}`
+    );
+
+    const exec = await executeAction(this.bot, action, this.mcData);
+    this.lastAction = { action, result: exec, controller: decision.source };
+    this.lastError = exec.ok ? null : exec.message;
+    if (!exec?.ok && verbId !== "wait" && verbId !== "flee") {
+      this._verbCooldowns.set(verbId, this.tick + 10);
+    } else if (exec?.ok) {
+      this._verbCooldowns.delete(verbId);
+    }
+
+    if (exec?.ok && action.type === "container_list" && Array.isArray(exec.meta?.contents)) {
+      this.container = {
+        block: action.block || "container",
+        items: parseInventory({ inventory: exec.meta.contents }),
+      };
+    }
+
+    this.history.push({
+      t: this.tick,
+      src: decision.source,
+      action,
+      result: exec.message,
+      ok: exec.ok,
+    });
+    if (this.history.length > (this.cfg.agent.maxHistory || 16)) {
+      this.history.shift();
     }
   }
 }

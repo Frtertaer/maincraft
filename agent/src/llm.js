@@ -159,11 +159,20 @@ function estimateRequestTokens(system, messages, maxTokens) {
   return estimateContentTokens(system) + estimateContentTokens(messages) + maxTokens;
 }
 
-/** Anthropic-compatible client with bounded retries and local spending guards. */
+/**
+ * LLM client with bounded retries and local spending guards.
+ * protocol "anthropic": /v1/messages + /v1/whoami (x-api-key).
+ * protocol "openai": /chat/completions + GET /models (Bearer) —
+ * covers OpenAI, OpenRouter, VseGPT, NanoGPT and other compatible APIs.
+ */
 export class LlmClient {
   constructor(cfg, { fetchImpl = globalThis.fetch, sleepFn = sleep, randomFn = Math.random } = {}) {
     if (typeof fetchImpl !== "function") throw new Error("A fetch implementation is required");
     this.baseUrl = cfg.api.baseUrl.replace(/\/$/, "");
+    this.protocol = String(cfg.api.protocol || "anthropic").toLowerCase();
+    if (!["anthropic", "openai"].includes(this.protocol)) {
+      throw new Error(`api.protocol must be anthropic or openai (got ${this.protocol})`);
+    }
     Object.defineProperty(this, "apiKey", {
       value: cfg.api.apiKey,
       enumerable: false,
@@ -243,9 +252,39 @@ export class LlmClient {
   }
 
   /**
+   * Startup check. Anthropic → /v1/whoami (strict).
+   * OpenAI → GET /models; if the provider lacks the endpoint, skip silently.
+   */
+  async preflight() {
+    if (this.protocol === "anthropic") return this.whoami();
+    try {
+      const data = await this.#requestJson(
+        "models",
+        "/models",
+        { method: "GET", headers: this.#headers() },
+        { timeoutMs: this.whoamiTimeoutMs, idempotent: true }
+      );
+      const available = modelIds(Array.isArray(data?.data) ? data.data : data?.models);
+      if (available.length && !available.includes(this.model)) {
+        if (this.requireExactModel) {
+          throw new LlmError(`Configured model is unavailable: ${this.model}`, {
+            code: "model_unavailable",
+          });
+        }
+        return { ok: true, warning: `model ${this.model} not in /models list` };
+      }
+      return { ok: true, models: available.length || undefined };
+    } catch (err) {
+      if (err instanceof LlmError && err.code === "model_unavailable") throw err;
+      // Many OpenAI-compatible proxies (VseGPT, NanoGPT) lack /models — don't block on it.
+      return { ok: true, warning: `/models preflight skipped: ${err?.message || err}` };
+    }
+  }
+
+  /**
    * @param {object} opts
    * @param {string} opts.system
-   * @param {Array} opts.messages - Anthropic messages
+   * @param {Array} opts.messages - chat messages (Anthropic/OpenAI share the shape)
    * @param {number} [opts.maxTokens]
    */
   async messages({ system, messages, maxTokens }) {
@@ -258,15 +297,23 @@ export class LlmClient {
     if (!Number.isInteger(outputLimit) || outputLimit < 1 || outputLimit > 32768) {
       throw new LlmError("maxTokens is outside the allowed range", { code: "invalid_request" });
     }
+    const estimate = estimateRequestTokens(system, messages, outputLimit);
+    this.#reserveBudget(estimate);
+
+    if (this.protocol === "openai") {
+      return this.#openaiMessages({ system, messages, maxTokens: outputLimit, estimate });
+    }
+    return this.#anthropicMessages({ system, messages, maxTokens: outputLimit, estimate });
+  }
+
+  async #anthropicMessages({ system, messages, maxTokens, estimate }) {
     const body = {
       model: this.model,
-      max_tokens: outputLimit,
+      max_tokens: maxTokens,
       temperature: this.temperature,
       system,
       messages,
     };
-    const estimate = estimateRequestTokens(system, messages, outputLimit);
-    this.#reserveBudget(estimate);
 
     const data = await this.#requestJson(
       "messages",
@@ -309,6 +356,55 @@ export class LlmClient {
     };
   }
 
+  async #openaiMessages({ system, messages, maxTokens, estimate }) {
+    const wire = [{ role: "system", content: system }, ...messages].map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    const body = {
+      model: this.model,
+      max_tokens: maxTokens,
+      temperature: this.temperature,
+      messages: wire,
+    };
+    const data = await this.#requestJson(
+      "chat/completions",
+      "/chat/completions",
+      {
+        method: "POST",
+        headers: this.#headers({ "content-type": "application/json" }),
+        body: JSON.stringify(body),
+      },
+      { timeoutMs: this.requestTimeoutMs, idempotent: false }
+    );
+
+    const usage = data.usage && typeof data.usage === "object" ? data.usage : {};
+    const normalizedUsage = {
+      input_tokens: Number(usage.prompt_tokens) || 0,
+      output_tokens: Number(usage.completion_tokens) || 0,
+    };
+    const actualTokens = usageTokens(normalizedUsage);
+    this.tokensUsed += actualTokens > 0 ? actualTokens : estimate;
+
+    if (this.requireExactModel && data.model && data.model !== this.model) {
+      throw new LlmError(`API response model mismatch; expected ${this.model}`, {
+        code: "model_mismatch",
+      });
+    }
+    const choice = Array.isArray(data.choices) ? data.choices[0] : null;
+    const outText = String(choice?.message?.content ?? "").trim();
+    if (!outText) {
+      throw new LlmError("chat/completions response did not contain text", {
+        code: "invalid_api_schema",
+      });
+    }
+    return {
+      text: outText,
+      model: data.model || this.model,
+      usage: normalizedUsage,
+    };
+  }
+
   /** Multimodal: optional base64 JPEG + text. */
   async messagesWithImage({ system, text, imageBase64, mediaType = "image/jpeg", maxTokens }) {
     if (mediaType !== "image/jpeg") {
@@ -319,14 +415,21 @@ export class LlmClient {
       if (typeof imageBase64 !== "string" || imageBase64.length > 28 * 1024 * 1024) {
         throw new LlmError("Vision frame is invalid or too large", { code: "invalid_image" });
       }
-      content.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: mediaType,
-          data: imageBase64,
-        },
-      });
+      content.push(
+        this.protocol === "openai"
+          ? {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${imageBase64}` },
+            }
+          : {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mediaType,
+                data: imageBase64,
+              },
+            }
+      );
     }
     content.push({ type: "text", text: String(text ?? "") });
     return this.messages({
@@ -337,6 +440,13 @@ export class LlmClient {
   }
 
   #headers(extra = {}) {
+    if (this.protocol === "openai") {
+      return {
+        authorization: `Bearer ${this.apiKey}`,
+        accept: "application/json",
+        ...extra,
+      };
+    }
     return {
       "x-api-key": this.apiKey,
       "anthropic-version": "2023-06-01",

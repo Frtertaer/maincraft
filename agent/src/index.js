@@ -12,6 +12,8 @@ import { setupMovements, executeAction } from "./actions.js";
 import { createVisionProvider } from "./vision.js";
 import { startLocalViewer } from "./local-viewer.js";
 import { CombatReflex } from "./combat-reflex.js";
+import { createController } from "./controller/index.js";
+import { ClearRunner } from "./clear.js";
 
 const pathfinder = pkgPathfinder.pathfinder || pkgPathfinder.default?.pathfinder || pkgPathfinder;
 const collectPlugin = pkgCollect.plugin || pkgCollect.default?.plugin || pkgCollect.default || pkgCollect;
@@ -58,15 +60,19 @@ async function main() {
   log(
     `Vision default source=${cfg.vision.source} enabled=${cfg.vision.enabled} everyNTicks=${cfg.vision.everyNTicks}`
   );
-  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model}…`);
+  log(`Checking API host=${new URL(cfg.api.baseUrl).host} model=${cfg.api.model} protocol=${cfg.api.protocol || "anthropic"}…`);
   try {
-    await llm.whoami();
+    const pre = await llm.preflight();
     log(
-      `API ready | exact_model=${cfg.api.model} | session_requests=${cfg.api.budget.maxRequestsPerSession} | session_tokens=${cfg.api.budget.maxTokensPerSession}`
+      `API ready | exact_model=${cfg.api.model} | session_requests=${cfg.api.budget.maxRequestsPerSession} | session_tokens=${cfg.api.budget.maxTokensPerSession}` +
+        (pre?.warning ? ` | note=${pre.warning}` : "")
     );
   } catch (err) {
+    // Non-fatal: a down API must not kill a marathon run. Planner and
+    // dialogue calls degrade on their own (controller carries progression);
+    // if the API comes back later, requests just start succeeding again.
     const code = err?.code ? ` [${err.code}]` : "";
-    throw new Error(`API preflight failed${code}: ${sanitizeForLog(err?.message || err)}`);
+    log(`WARN API preflight failed${code}: ${sanitizeForLog(err?.message || err)} — continuing degraded`);
   }
 
   const runtime = {
@@ -90,6 +96,9 @@ async function main() {
   function stopSession(session) {
     session?.brain?.stop();
     session?.combat?.stop();
+    session?.clear?.stop();
+    if (session?.ambientTimer) clearInterval(session.ambientTimer);
+    if (session?.pruneTimer) clearInterval(session.pruneTimer);
     closeViewer(session?.bot);
   }
 
@@ -147,6 +156,7 @@ async function main() {
           host: cfg.viewer.host,
           port: cfg.viewer.port,
           firstPerson: cfg.viewer.firstPerson,
+          viewDistance: cfg.viewer.viewDistance,
         });
         log(`Viewer: ${viewer.url} (loopback only)`);
       } catch (err) {
@@ -174,7 +184,67 @@ async function main() {
     }
     session.combat.start();
     session.brain.combat = session.combat;
+
+    session.controller = createController({ cfg, log });
+    if (session.controller) session.brain.setController(session.controller);
     session.brain.start();
+
+    // AUTOCLEAR: resume the beat-the-game run after a process restart (OOM
+    // guard, crash, manual kill) without waiting for a console !clear —
+    // position/inventory persist server-side, so the marathon just continues
+    if (process.env.MAINCRAFT_AUTOCLEAR) {
+      setTimeout(() => {
+        if (session.ended || runtime.session !== session) return;
+        applyCommand(
+          session,
+          { type: "clear", op: "start", objectives: ["dragon"] },
+          "console",
+          "autoclear"
+        ).catch((err) => log(`[autoclear] ${err?.message || err}`));
+      }, 20000);
+    }
+
+    // NeuroSkyrim-style ambient NPC: world events feed memory; when chat is
+    // quiet the companion may comment on its own (mantella.ambientEveryMs).
+    if (session.brain.mantella) {
+      const note = (text) => {
+        try {
+          session.brain.mantella.noteWorldEvent(text);
+        } catch {
+          /* ignore */
+        }
+      };
+      bot.on("death", () => note("Я погиб и возродился — надо вернуться за вещами"));
+      bot.on("playerJoined", (player) => {
+        if (player?.username && player.username !== bot.username) note(`${player.username} зашёл в мир`);
+      });
+      bot.on("playerLeft", (player) => {
+        if (player?.username && player.username !== bot.username) note(`${player.username} вышел из мира`);
+      });
+      bot.on("rain", () => note("Пошёл дождь"));
+      const ambientMs = Math.max(20000, Number(cfg.mantella?.ambientEveryMs) || 0);
+      if (ambientMs > 0) {
+        session.ambientTimer = setInterval(() => {
+          void (async () => {
+            try {
+              const reply = await session.brain.mantella.maybeAmbient({
+                agentState: { mode: session.brain.mode, goal: session.brain.goal },
+                minGapMs: ambientMs,
+              });
+              if (reply?.say) session.brain._emitSay(reply.say);
+              if (reply?.action) {
+                await session.brain.mantella.runDialogueAction(reply.action, {
+                  playerName: session.brain.mantella.lastPlayerName,
+                });
+              }
+            } catch (err) {
+              log(`[ambient] ${sanitizeForLog(err?.message || err, 160)}`);
+            }
+          })();
+        }, ambientMs);
+        session.ambientTimer.unref?.();
+      }
+    }
 
     if (cfg.agent.announceOnSpawn) {
       if (cfg.agent.companionMode) {
@@ -183,7 +253,8 @@ async function main() {
         );
       } else {
         bot.chat(
-          `Opus 5 online | mode=${session.brain.mode} | combat=${session.combat.mode}@${cfg.combat?.intervalMs || 50}ms | vision=${session.brain.visionEnabled ? "on" : "off"}`
+          `Opus 5 online | mode=${session.brain.mode} | combat=${session.combat.mode}@${cfg.combat?.intervalMs || 50}ms | vision=${session.brain.visionEnabled ? "on" : "off"}` +
+            (session.controller ? ` | controller=${session.controller.type}` : "")
         );
       }
     }
@@ -232,7 +303,8 @@ async function main() {
     }
 
     if (plainChat && isChatAllowed(cfg, username)) {
-      // Companion / social: any chat line becomes a player message to the character
+      // Companion / social: a chat line goes through the fast dialogue
+      // pipeline (SkyrimNet-style), not the heavy planner command path.
       const text = String(message || "").trim().slice(0, 400);
       if (!text) return;
       session.brain.resume();
@@ -241,19 +313,63 @@ async function main() {
       } catch (err) {
         log(`[mantella] ${sanitizeForLog(err?.message || err)}`);
       }
-      session.brain.queueCommand(
-        `Игрок ${username} сказал в игровом чате: «${text}». ` +
-          `Ответь как персонаж в поле say (коротко по-русски). ` +
-          `Если просят действие — сделай action; если просто болтают — say + idle/look/come/follow по смыслу. ` +
-          `Учти Mantella-context (память и мир) в промпте.`,
-        username
-      );
       log(`[chat] from ${username}: ${sanitizeForLog(text, 120)}`);
+      void handleDialogue(session, username, text).catch((err) => {
+        log(`[dialogue] ${sanitizeForLog(err?.message || err)}`);
+      });
       return;
     }
 
     if (plainChat) {
       log(`[security] ignored chat from ${username} (not in chatUsers/controllers)`);
+    }
+  }
+
+  /**
+   * NeuroSkyrim dialogue turn: memory → one LLM reply → say + optional body
+   * action + optional task routed to the planner (or the clear runner).
+   */
+  async function handleDialogue(session, username, text) {
+    const brain = session.brain;
+    if (!brain) return;
+    if (!brain.mantella) {
+      brain.queueCommand(
+        `Игрок ${username} сказал в игровом чате: «${text}». Ответь в say по-русски и действуй если просят.`,
+        username
+      );
+      return;
+    }
+    let reply;
+    try {
+      reply = await brain.mantella.respond(username, text, {
+        agentState: { mode: brain.mode, goal: brain.goal },
+      });
+    } catch (err) {
+      // API hiccup → degrade to the planner path so the player is not ignored.
+      log(`[dialogue] llm fail, queueing: ${sanitizeForLog(err?.message || err, 160)}`);
+      brain.queueCommand(
+        `Игрок ${username} сказал в игровом чате: «${text}». Ответь в say по-русски и действуй если просят.`,
+        username
+      );
+      return;
+    }
+    if (!reply) return;
+    if (reply.say) brain._emitSay(reply.say);
+    if (reply.action) {
+      const r = await brain.mantella.runDialogueAction(reply.action, { playerName: username });
+      if (r && !r.ok) log(`[dialogue] action ${reply.action} fail: ${r.message}`);
+    }
+    if (reply.task) {
+      log(`[dialogue] task from ${username}: ${sanitizeForLog(reply.task, 120)}`);
+      if (/пройд|дракон|эндер|визер|варден|wither|warden|clear|beat the game|босс/i.test(reply.task)) {
+        const objectives = [];
+        if (/визер|wither/i.test(reply.task)) objectives.push("wither");
+        if (/варден|warden/i.test(reply.task)) objectives.push("warden");
+        if (!objectives.length || /пройд|дракон|эндер|clear|beat/i.test(reply.task)) objectives.unshift("dragon");
+        await applyCommand(session, { type: "clear", op: "start", objectives }, username, "chat");
+      } else {
+        brain.queueCommand(`Игрок ${username} просит: ${reply.task}. Выполни.`, username);
+      }
     }
   }
 
@@ -367,6 +483,52 @@ async function main() {
         brain.queueCommand(command.text, username);
         log(`[cmd] queued from ${username}`);
         break;
+      case "clear": {
+        if (!session.clear) {
+          session.clear = new ClearRunner({
+            bot,
+            cfg,
+            mcData: session.mcData,
+            brain,
+            combat: session.combat,
+            log,
+            onMilestone: (text) => {
+              try {
+                bot.chat(String(text).slice(0, 200));
+              } catch {
+                /* ignore */
+              }
+              brain.mantella?.noteWorldEvent(text);
+            },
+          });
+        }
+        if (command.op === "stop") {
+          const r = session.clear.stop();
+          if (source !== "console") bot.chat(r.ok ? "Останавливаю прохождение." : r.message);
+          log(`[clear] stop ${r.message}`);
+        } else if (command.op === "status") {
+          const s = session.clear.status();
+          log(`[clear] ${JSON.stringify(s)}`);
+          if (source !== "console") {
+            bot.chat(
+              `Прохождение: фаза ${s.phase}, цель ${s.objective}, шаг ${s.steps}, смертей ${s.deaths}${s.credits ? ", титры ✓" : ""}`.slice(0, 256)
+            );
+          }
+        } else {
+          const objectives = command.objectives?.length ? command.objectives : ["dragon"];
+          const r = await session.clear.start(objectives);
+          if (source !== "console") {
+            const names = { dragon: "дракон", wither: "визер", warden: "варден" };
+            bot.chat(
+              r.ok
+                ? `Погнали — цели: ${objectives.map((o) => names[o] || o).join(" → ")}!`
+                : String(r.message).slice(0, 100)
+            );
+          }
+          log(`[clear] start ${r.message} objectives=${objectives.join(",")}`);
+        }
+        break;
+      }
       case "listen": {
         // Whisper STT via voice sidecar
         brain.resume();
@@ -444,7 +606,54 @@ async function main() {
 
     const session = { bot, brain: null, mcData: null, ended: false };
     runtime.session = session;
+    // inspector/debug probes read live state through here
+    globalThis.__bot = bot;
+    globalThis.__session = session;
 
+    // Chunk columns accumulate forever — unload ones far from the bot so
+    // exploring/mining does not grow the heap until OOM.
+    session.pruneTimer = setInterval(() => {
+      try {
+        const p = bot.entity?.position;
+        if (!p || !bot.world?.async?.columns) return;
+        const cx = Math.floor(p.x / 16);
+        const cz = Math.floor(p.z / 16);
+        let pruned = 0;
+        for (const key of Object.keys(bot.world.async.columns)) {
+          const [x, z] = key.split(",").map(Number);
+          if (Math.abs(x - cx) + Math.abs(z - cz) > 24) {
+            bot.world.unloadColumn(x, z);
+            pruned += 1;
+          }
+        }
+        const heap = Math.round(process.memoryUsage().heapUsed / 1048576);
+        let blockUpdates = 0;
+        let totalListeners = 0;
+        for (const ev of bot.eventNames()) {
+          const n = bot.listenerCount(ev);
+          totalListeners += n;
+          if (String(ev).startsWith("blockUpdate")) blockUpdates += n;
+        }
+        log(`[mem] heap=${heap}MB cols=${Object.keys(bot.world.async.columns).length} listeners=${totalListeners} blockUpdate=${blockUpdates} handles=${process._getActiveHandles().length}`);
+        // spikes (giant pathfinder searches, flood of block updates) can add
+        // ~1GB/min — a hard OOM ends the run silently. Restart cleanly while
+        // the supervisor wrapper brings the bot back with inventory intact.
+        if (heap > 1500) {
+          log(`[mem] heap=${heap}MB critical — graceful restart before OOM`);
+          void shutdown(3);
+          return;
+        }
+        if (typeof global.gc === "function") global.gc();
+      } catch (err) {
+        log(`[mem] prune fail: ${err?.message || err}`);
+      }
+    }, 15000);
+
+    bot._client?.on?.("error", (e) => {
+      if (/PartialRead|Parse error/i.test(String(e?.message || ""))) {
+        log(`[pkt] ${e?.field || "?"}: ${String(e?.message || "").slice(0, 140)}`);
+      }
+    });
     bot.on("kicked", (reason) => log(`Kicked: ${JSON.stringify(reason).slice(0, 500)}`));
     bot.on("error", (err) => log(`Bot error: ${err?.message || "unknown error"}`));
     bot.on("end", (reason) => {

@@ -114,6 +114,10 @@ function normalizeApiConfig(cfg) {
   api.allowedHosts = [...new Set(allowedHosts)];
   api.allowCustomHost = allowCustomHost;
   api.model = stringAt(api.model, "api.model", { max: 120 });
+  api.protocol = stringAt(api.protocol ?? "anthropic", "api.protocol", { max: 20 }).toLowerCase();
+  if (!["anthropic", "openai"].includes(api.protocol)) {
+    throw new Error("api.protocol must be anthropic or openai");
+  }
   api.requireExactModel = boolAt(api.requireExactModel, true, "api.requireExactModel");
   api.maxTokens = numberAt(api.maxTokens, 1024, "api.maxTokens", {
     min: 16,
@@ -332,6 +336,18 @@ function normalizeAgentConfig(cfg) {
     integer: true,
   });
   mantella.llmSummary = boolAt(mantella.llmSummary, true, "mantella.llmSummary");
+  mantella.dialogueMaxTokens = numberAt(mantella.dialogueMaxTokens, 420, "mantella.dialogueMaxTokens", {
+    min: 32,
+    max: 4096,
+    integer: true,
+  });
+  // Ambient NPC lines: how often the companion may comment on world events
+  // when nobody is chatting. 0 disables spontaneous speech.
+  mantella.ambientEveryMs = numberAt(mantella.ambientEveryMs, 90000, "mantella.ambientEveryMs", {
+    min: 0,
+    max: 3600000,
+    integer: true,
+  });
   // Mantella default: only generate on player turn (pc_to_npc), not every brain tick
   mantella.turnBased = boolAt(
     mantella.turnBased,
@@ -395,6 +411,7 @@ function normalizeViewerConfig(cfg) {
   }
   viewer.port = numberAt(viewer.port, 3007, "viewer.port", { min: 1024, max: 65535, integer: true });
   viewer.firstPerson = boolAt(viewer.firstPerson, true, "viewer.firstPerson");
+  viewer.viewDistance = numberAt(viewer.viewDistance, 6, "viewer.viewDistance", { min: 2, max: 16, integer: true });
   cfg.viewer = viewer;
 }
 
@@ -465,6 +482,75 @@ function normalizeCombatConfig(cfg) {
   cfg.combat = combat;
 }
 
+function normalizeControllerConfig(cfg) {
+  if (cfg.controller == null) cfg.controller = {};
+  const c = objectAt(cfg.controller, "controller");
+  c.type = stringAt(c.type ?? "off", "controller.type", { max: 20 }).toLowerCase();
+  if (!["off", "jev", "laya", "local"].includes(c.type)) {
+    throw new Error("controller.type must be off, jev, laya, or local");
+  }
+  // ticks between Opus planner calls while the controller drives
+  c.plannerEveryTicks = numberAt(c.plannerEveryTicks, 8, "controller.plannerEveryTicks", {
+    min: 2,
+    max: 200,
+    integer: true,
+  });
+  c.minConfidence = numberAt(c.minConfidence, 0.45, "controller.minConfidence", { min: 0, max: 1 });
+  c.fallbackToLocal = boolAt(c.fallbackToLocal, true, "controller.fallbackToLocal");
+  c.decisionTimeoutMs = numberAt(c.decisionTimeoutMs, 2500, "controller.decisionTimeoutMs", {
+    min: 200,
+    max: 30000,
+    integer: true,
+  });
+
+  const jev = objectAt(c.jev ?? {}, "controller.jev");
+  jev.model = stringAt(jev.model ?? "jev-latest", "controller.jev.model", { max: 80 });
+  jev.timeoutMs = numberAt(jev.timeoutMs ?? c.decisionTimeoutMs, "controller.jev.timeoutMs", {
+    min: 200,
+    max: 30000,
+    integer: true,
+  });
+  jev.apiKeyEnv = stringAt(jev.apiKeyEnv ?? "TYPESAFE_API_KEY", "controller.jev.apiKeyEnv", { max: 80 });
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(jev.apiKeyEnv)) {
+    throw new Error("controller.jev.apiKeyEnv must be an environment variable name");
+  }
+  const jevUrl = stringAt(jev.baseUrl ?? "https://api.typesafe.ai/v1/systemone", "controller.jev.baseUrl", {
+    max: 300,
+  });
+  let parsedJev;
+  try {
+    parsedJev = new URL(jevUrl);
+  } catch {
+    throw new Error("controller.jev.baseUrl must be a valid URL");
+  }
+  if (parsedJev.protocol !== "https:") throw new Error("controller.jev.baseUrl must use HTTPS");
+  if (parsedJev.username || parsedJev.password || parsedJev.search || parsedJev.hash) {
+    throw new Error("controller.jev.baseUrl must not contain credentials, query, or fragment");
+  }
+  jev.baseUrl = parsedJev.toString();
+  c.jev = jev;
+
+  const laya = objectAt(c.laya ?? {}, "controller.laya");
+  const layaUrl = stringAt(laya.url ?? "http://127.0.0.1:8091/decide", "controller.laya.url", { max: 300 });
+  let parsedLaya;
+  try {
+    parsedLaya = new URL(layaUrl);
+  } catch {
+    throw new Error("controller.laya.url must be a valid URL");
+  }
+  if (!["127.0.0.1", "localhost", "::1"].includes(parsedLaya.hostname)) {
+    throw new Error("controller.laya.url must point to a loopback host");
+  }
+  laya.url = parsedLaya.toString();
+  laya.timeoutMs = numberAt(laya.timeoutMs ?? c.decisionTimeoutMs, "controller.laya.timeoutMs", {
+    min: 200,
+    max: 30000,
+    integer: true,
+  });
+  c.laya = laya;
+  cfg.controller = c;
+}
+
 export function validateConfig(cfg) {
   objectAt(cfg, "config");
   normalizeApiConfig(cfg);
@@ -473,6 +559,14 @@ export function validateConfig(cfg) {
   normalizeVisionConfig(cfg);
   normalizeViewerConfig(cfg);
   normalizeCombatConfig(cfg);
+  normalizeControllerConfig(cfg);
+  const clear = objectAt(cfg.clear ?? {}, "clear");
+  clear.maxMs = numberAt(clear.maxMs, 120 * 60 * 1000, "clear.maxMs", {
+    min: 60000,
+    max: 24 * 3600000,
+    integer: true,
+  });
+  cfg.clear = clear;
   return cfg;
 }
 
@@ -492,6 +586,30 @@ function loadApiKey(api) {
   return { value, source: "external key file" };
 }
 
+/**
+ * Minimal .env reader (KEY=VALUE lines, no interpolation). Values in the
+ * real environment always win over the file. File lives at agent/.env,
+ * which is already covered by .gitignore.
+ */
+export function loadDotenv(filePath = path.join(ROOT, ".env")) {
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  } catch {
+    return;
+  }
+  for (const line of raw.split(/\r?\n/)) {
+    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+    if (!m) continue;
+    const key = m[1];
+    let value = m[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
+}
+
 export function resolveConfigPath(explicitPath) {
   if (explicitPath) return path.resolve(explicitPath);
   if (process.env.MAINCRAFT_CONFIG) return path.resolve(process.env.MAINCRAFT_CONFIG);
@@ -505,6 +623,7 @@ export function resolveConfigPath(explicitPath) {
 }
 
 export function loadConfig(configPath = resolveConfigPath()) {
+  loadDotenv();
   const cfg = validateConfig(loadJson(configPath));
   cfg._configPath = configPath;
   const key = loadApiKey(cfg.api);

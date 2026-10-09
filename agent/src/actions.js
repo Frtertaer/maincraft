@@ -3,6 +3,187 @@ import { Vec3 } from "vec3";
 
 const { goals, Movements } = pkgPathfinder;
 
+// While a container window is open the server addresses slot updates to it,
+// not window 0 — bot.inventory drifts (crafted items look missing). The open
+// window's inventory range is the fresh view.
+function invItems(bot) {
+  const win = bot.currentWindow;
+  // the cursor-held item lives on window.selectedItem, outside slots — a
+  // crafted result sits there until its placement confirms, so count it or
+  // "did not increase inventory" false-negatives fire on every slow ack
+  const cursor = win?.selectedItem ? [win.selectedItem] : (bot.inventory?.selectedItem ? [bot.inventory.selectedItem] : []);
+  if (
+    win &&
+    win !== bot.inventory &&
+    typeof win.inventoryStart === "number" &&
+    win.inventoryStart < (win.slots?.length || 0)
+  ) {
+    return win.slots.slice(win.inventoryStart).filter(Boolean).concat(cursor);
+  }
+  return bot.inventory.items().concat(cursor);
+}
+
+// A craft aborted mid-click (timeout, thrown error) strands ingredients in
+// the grid slots and on the cursor — invisible to findInventoryItem and to
+// every later craft. Drag every grid slot and the cursor item back into the
+// inventory range before the next attempt.
+async function cleanCraftArea(bot) {
+  const win = bot.currentWindow || bot.inventory;
+  const gridEnd = win === bot.inventory ? 4 : Math.min(9, (win.inventoryStart || 10) - 1);
+  for (let s = 1; s <= gridEnd; s += 1) {
+    if (win.slots?.[s]) {
+      try {
+        // mineflayer's clickWindow awaits a server transaction ack — a
+        // dropped confirm hangs the whole run, so bound every click
+        await withTimeout(bot.clickWindow(s, 0, 1), 6000, "click timeout"); // shift-click → moves to inventory range
+      } catch {
+        /* slot already moved */
+      }
+    }
+  }
+  // cursor may still hold an item — drop it onto any inventory slot it fits in
+  for (let tries = 0; tries < 4 && win.selectedItem; tries += 1) {
+    const empty = win.firstEmptyInventorySlot?.() ?? win.slots.findIndex((s, i) => !s && i >= (win.inventoryStart || 0));
+    const target = empty >= 0 ? empty : win.slots.findIndex((s, i) => s && i >= (win.inventoryStart || 0) && s.type === win.selectedItem.type && s.count < 64);
+    if (target < 0) break;
+    try {
+      await withTimeout(bot.simpleClick.leftMouse(target), 6000, "click timeout");
+    } catch {
+      break;
+    }
+  }
+}
+
+// Zombie-free shaped craft. mineflayer's bot.craft parks forever inside
+// waitForWindowUpdate (no timeout) when a grid click is swallowed; an external
+// timeout then abandons a pending updateSlot:0 listener that resolves inside
+// the NEXT craft's window and corrupts it — the recurring "did not increase"
+// desync chain. Here every await is bounded, the window is opened fresh per
+// call and closed at the end, and the result slot is verified server-side
+// before it is taken.
+async function craftDirect(bot, recipe, count, craftingTable) {
+  const CLICK_MS = 8000;
+  let win = null;
+  try {
+    if (recipe.requiresTable) {
+      if (!craftingTable) throw new Error("recipe requires craftingTable");
+      win = await withTimeout(bot.openBlock(craftingTable), 10000, "open table");
+      if (!win || !String(win.type || "").startsWith("minecraft:crafting")) {
+        throw new Error(`non-crafting window: ${win?.type || "none"}`);
+      }
+      // re-anchor stateId: a stale counter makes the server silently drop
+      // every ingredient click — the whole craft then never happens
+      if (bot._syncWindow) await withTimeout(bot._syncWindow(win), 6000, "sync table").catch(() => {});
+    } else {
+      win = bot.inventory;
+    }
+    const w = recipe.requiresTable ? 3 : 2;
+    const slotAt = (x, y) => 1 + x + w * y;
+    const pick = async (ing) => {
+      if (
+        !win.selectedItem ||
+        win.selectedItem.type !== ing.id ||
+        (ing.metadata != null && win.selectedItem.metadata !== ing.metadata)
+      ) {
+        // ingredients stranded in the crafting grid/result slots by an
+        // aborted earlier craft count in inventory totals but sit outside
+        // findInventoryItem's range — check those cells too before failing
+        const src =
+          win.findInventoryItem(ing.id, ing.metadata) ||
+          win.findItemRange(0, win.inventoryStart, ing.id, ing.metadata);
+        if (!src) throw new Error("missing ingredient");
+        await withTimeout(bot.clickWindow(src.slot, 0, 0), CLICK_MS, "pick");
+      }
+    };
+    // place with verification: a stale stateId makes the server silently
+    // reject a grid click — the cell stays empty while the cursor keeps the
+    // stack, and the whole recipe then fails as an "empty grid". Confirm
+    // each cell actually fills; resync + re-pick once when it doesn't.
+    const placeAt = async (dest, ing) => {
+      for (let t = 0; t < 2; t++) {
+        await pick(ing);
+        await withTimeout(bot.clickWindow(dest, 1, 0), CLICK_MS, "place");
+        for (let w2 = 0; w2 < 8; w2++) {
+          await sleep(120);
+          const s = win.slots[dest];
+          if (s && (ing.id == null || ing.id === -1 || s.type === ing.id)) return;
+        }
+        if (bot._syncWindow) await withTimeout(bot._syncWindow(win), 6000, "sync").catch(() => {});
+      }
+      const got = win.slots[dest]?.name || "air";
+      throw new Error(`craft place rejected @${dest} want=${ing.id} got=${got}`);
+    };
+    for (let rep = 0; rep < count; rep += 1) {
+      if (recipe.inShape) {
+        for (let y = 0; y < recipe.inShape.length; y += 1) {
+          const row = recipe.inShape[y];
+          for (let x = 0; x < row.length; x += 1) {
+            const ing = row[x];
+            if (!ing || ing.id === -1) continue;
+            await placeAt(slotAt(x, y), ing);
+          }
+        }
+      } else if (recipe.ingredients) {
+        const free = [];
+        for (let y = 0; y < w; y += 1) for (let x = 0; x < w; x += 1) free.push(slotAt(x, y));
+        for (const ing of recipe.ingredients) {
+          const dest = free.pop();
+          if (dest == null) throw new Error("grid full");
+          await placeAt(dest, ing);
+        }
+      }
+      // verify the server really produced the result — never click empty air
+      for (let t = 0; t < 24 && !win.slots[0]; t += 1) await sleep(150);
+      if (!win.slots[0]) throw new Error("craft result slot empty — server rejected the recipe");
+      // take the result — but a stale stateId makes the server reject the
+      // click and send a full-window correction that restores slots[0].
+      // Confirm the item landed in the inventory section, resync+retry once.
+      const want = win.slots[0].name;
+      const secCount = () =>
+        win.slots.slice(win.inventoryStart).reduce((n, s) => n + (s && s.name === want ? s.count : 0), 0) +
+        (win.selectedItem?.name === want ? win.selectedItem.count : 0);
+      const baseSec = secCount();
+      let taken = false;
+      for (let tries = 0; tries < 2 && !taken; tries += 1) {
+        await withTimeout(bot.clickWindow(0, 0, 1), CLICK_MS, "result"); // shift-click → inventory
+        for (let t = 0; t < 10 && !taken; t += 1) {
+          await sleep(130);
+          // decide only after ~1 RTT: optimistic slot edits are indistinguishable
+          // from a confirmed take until the server's answer lands
+          if (t < 4) continue;
+          if (secCount() > baseSec) taken = true;                        // item really landed
+          else if (win.slots[0]?.name === want) break;                   // preview restored = rejected
+        }
+        if (!taken && bot._syncWindow) {
+          await withTimeout(bot._syncWindow(win), 6000, "sync").catch(() => {});
+        }
+      }
+      if (!taken) {
+        const desc = recipe.inShape ? "shape" : "shapeless";
+        const grid = win.slots
+          .slice(1, 1 + w * w)
+          .map((s) => (s ? s.name : null))
+          .join("|");
+        throw new Error(`craft take rejected: ${want} [${desc}${recipe.requiresTable ? "+table" : ""} grid=${grid}]`);
+      }
+    }
+    if (win.selectedItem) {
+      await bot.putSelectedItemRange(win.inventoryStart, win.inventoryEnd, win, null).catch(() => {});
+    }
+    if (win !== bot.inventory) {
+      await bot._syncWindow(win).catch(() => {});
+      bot.closeWindow(win);
+    }
+  } catch (err) {
+    try {
+      if (win && win !== bot.inventory) bot.closeWindow(win);
+    } catch {
+      /* already closed */
+    }
+    throw err;
+  }
+}
+
 const CONTAINER_BLOCKS = new Set([
   "chest",
   "trapped_chest",
@@ -66,6 +247,7 @@ export function selectNearestCombatTarget(entities, origin, options = {}) {
 
     const labels = [entity.username, entity.name, entity.displayName].map(normalizeEntityName).filter(Boolean);
     if (wanted && !labels.includes(wanted)) continue;
+    if (entity.id != null && options.skipIds?.has(entity.id)) continue;
     const distance = distanceBetween(origin, entity.position);
     if (!Number.isFinite(distance) || distance > maxDistance || distance >= bestDistance) continue;
     best = entity;
@@ -86,6 +268,29 @@ export async function executeAction(bot, action, mcData) {
     return { ok: false, message: "empty action" };
   }
   const type = String(action.type || "").toLowerCase();
+
+  // mineflayer-collectblock swaps in its own bare Movements for the duration
+  // of a collect — afterwards every pathfind runs with wrong config. Restore
+  // our configured movements whenever that happened (tagged via _ours).
+  if (mcData && bot.pathfinder && !bot.pathfinder.movements?._ours) {
+    try {
+      setupMovements(bot, mcData);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // a leaked container/craft window remaps slot numbering — equip/moveSlotItem
+  // then silently hit the WRONG slots (e.g. place keeps the pickaxe held and
+  // the server refuses every block). Close anything left open before acting.
+  if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+    try {
+      bot.closeWindow(bot.currentWindow);
+      await sleep(120);
+    } catch {
+      /* already closed */
+    }
+  }
 
   try {
     switch (type) {
@@ -116,6 +321,40 @@ export async function executeAction(bot, action, mcData) {
           await bot.lookAt(new Vec3(Number(action.x), Number(action.y), Number(action.z)));
         }
         return { ok: true, message: "looked" };
+      }
+
+      case "look_at_player": {
+        const name = action.player || action.username || action.name;
+        const player = name ? bot.players[name]?.entity : nearestPlayer(bot);
+        if (!player) return { ok: false, message: `player not found: ${name || "?"}` };
+        await bot.lookAt(player.position.offset(0, player.height ?? 1.6, 0));
+        return { ok: true, message: `looking at ${player.username || name}` };
+      }
+
+      case "emote": {
+        // Social gesture: wave/point/bow → arm swing; sit/crouch → brief sneak.
+        const kind = String(action.kind || "wave").toLowerCase();
+        const name = action.player || action.username;
+        const player = name ? bot.players[name]?.entity : nearestPlayer(bot);
+        if (player) {
+          try {
+            await bot.lookAt(player.position.offset(0, player.height ?? 1.6, 0));
+          } catch {
+            /* ignore */
+          }
+        }
+        if (kind === "sit" || kind === "crouch" || kind === "sneak") {
+          bot.setControlState("sneak", true);
+          await sleep(1200);
+          bot.setControlState("sneak", false);
+        } else if (kind === "jump") {
+          bot.setControlState("jump", true);
+          await sleep(350);
+          bot.setControlState("jump", false);
+        } else {
+          bot.swingArm("right");
+        }
+        return { ok: true, message: `emote ${kind}` };
       }
 
       case "goto":
@@ -162,7 +401,9 @@ export async function executeAction(bot, action, mcData) {
           });
         }
         if (!block) return { ok: false, message: `block not found: ${blockName || "coords"}` };
-        await equipBestTool(bot, block);
+        // equip can park forever on a dropped window-transaction ack — bound
+        // it; the harvest check below still gates digging with the wrong tool
+        await withTimeout(equipBestTool(bot, block), 9000, "equip tool timeout").catch(() => {});
         const dist = bot.entity.position.distanceTo(block.position.offset(0.5, 0.5, 0.5));
         if (dist > 4.2) {
           try {
@@ -178,8 +419,21 @@ export async function executeAction(bot, action, mcData) {
         }
         const beforeType = block.type;
         try {
-          await withTimeout(bot.dig(block), timeoutMs, `dig ${block.name} timeout`);
+          // submerged digging is ~5x slower — a caller budget sized for a dry
+          // dig aborts an in-progress underwater one (the flooded-basin dig
+          // timeouts all came from this)
+          const digBudget = bot.entity.isInWater
+            ? Math.min(timeoutMs * 5, 120000)
+            : timeoutMs;
+          await withTimeout(bot.dig(block), digBudget, `dig ${block.name} timeout`);
         } catch (err) {
+          // a timed-out dig leaves mineflayer's blockUpdate listener hanging —
+          // stopDigging cancels the abandoned dig and removes it
+          try {
+            bot.stopDigging();
+          } catch {
+            /* no dig in flight */
+          }
           try {
             bot.pathfinder.setGoal(null);
             bot.clearControlStates();
@@ -190,6 +444,13 @@ export async function executeAction(bot, action, mcData) {
         }
         const after = bot.blockAt(block.position);
         if (after?.type === beforeType) return { ok: false, message: `${block.name} was not broken` };
+        for (const target of dropVacuumTargets(bot, block.position)) {
+          try {
+            await goto(bot, new goals.GoalNear(target.x, target.y, target.z, 1), 5000);
+          } catch {
+            /* drop unreachable; leave it */
+          }
+        }
         return { ok: true, message: `dug ${block.name}` };
       }
 
@@ -204,10 +465,60 @@ export async function executeAction(bot, action, mcData) {
         const targets = bot.findBlocks({
           matching: (b) => b && (b.name === blockName || b.name.includes(blockName)),
           maxDistance,
-          count,
+          count: Math.max(count, 24),
         });
         if (!targets.length) return { ok: false, message: `no ${blockName} nearby` };
-        const blocks = targets.map((p) => bot.blockAt(p)).filter(Boolean);
+        const invTypes = [null, ...bot.inventory.items().map((i) => i.type)];
+        const canHarvest = (b) => {
+          try {
+            return invTypes.some((t) => b.canHarvest(t));
+          } catch {
+            return true;
+          }
+        };
+        const exposed = (b) => {
+          for (const [dx, dy, dz] of [
+            [1, 0, 0],
+            [-1, 0, 0],
+            [0, 1, 0],
+            [0, -1, 0],
+            [0, 0, 1],
+            [0, 0, -1],
+          ]) {
+            const nb = bot.blockAt(b.position.offset(dx, dy, dz));
+            if (nb && (nb.boundingBox === "empty" || /air|water|grass|fern|flower|sapling|snow|vine/.test(nb.name))) {
+              return true;
+            }
+          }
+          return false;
+        };
+        // targets that already returned ok with zero gain keep winning the
+        // scan — after two misses each is skipped so collect moves to
+        // genuinely different blocks instead of ping-ponging the same stump
+        const badK = (p) => `${p.x},${p.y},${p.z}`;
+        const blocks = targets
+          .map((p) => bot.blockAt(p))
+          .filter(
+            (b) =>
+              b &&
+              canHarvest(b) &&
+              exposed(b) &&
+              (bot._badCollect?.get(badK(b.position)) || 0) < 2 &&
+              (typeof action.filter !== "function" || action.filter(b))
+          );
+        if (!blocks.length) {
+          return { ok: false, message: `no reachable ${blockName} (buried or missing tool)` };
+        }
+        // Collect pathfinds internally — mark the window so the combat reflex
+        // can't steal the pathfinder to chase (it may still hit/kite/flee).
+        bot._phaseMove = true;
+        const nameRe = new RegExp(blockName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+        const countNamed = () =>
+          bot.inventory
+            .items()
+            .filter((i) => nameRe.test(i.name))
+            .reduce((n, i) => n + i.count, 0);
+        const before = countNamed();
         try {
           await withTimeout(bot.collectBlock.collect(blocks), timeoutMs, `collect ${blockName} timeout`);
         } catch (err) {
@@ -219,6 +530,15 @@ export async function executeAction(bot, action, mcData) {
             /* ignore */
           }
           return { ok: false, message: err.message || String(err) };
+        } finally {
+          if (bot._phaseMove === true) bot._phaseMove = null;
+        }
+        if (countNamed() <= before) {
+          bot._badCollect = bot._badCollect || new Map();
+          for (const b of blocks.slice(0, 6)) {
+            const k = badK(b.position);
+            bot._badCollect.set(k, (bot._badCollect.get(k) || 0) + 1);
+          }
         }
         return { ok: true, message: `collected ~${blocks.length} ${blockName}` };
       }
@@ -231,20 +551,62 @@ export async function executeAction(bot, action, mcData) {
         const item = mcData.itemsByName[itemName];
         if (!item) return { ok: false, message: `unknown item ${itemName}` };
 
-        // Prefer inventory 2x2 first; fall back to nearby crafting_table (3x3).
-        let craftingTable = null;
-        let recipes = bot.recipesFor(item.id, null, 1, null);
+        // Prefer a table within 6 for EVERY recipe — 2x2 crafts work in the
+        // 3x3 grid too, and the table gives us the resync-retry path (a
+        // reopened window forces the server to resend all slots). Inventory
+        // 2x2 is the fallback when no table is in reach.
+        let craftingTable =
+          typeof bot.findBlock === "function"
+            ? bot.findBlock({
+                matching: (b) => b && b.name === "crafting_table",
+                maxDistance: 6,
+              })
+            : null;
+        let recipes = craftingTable ? bot.recipesFor(item.id, null, 1, craftingTable) : [];
+        if (!recipes.length) {
+          craftingTable = null;
+          recipes = bot.recipesFor(item.id, null, 1, null);
+        }
         if (!recipes.length) {
           // Prefer closest table within 6, then 16 — avoid pathing across map to stale tables
+          bot._badTables = bot._badTables || new Set();
+          // the palette-level matcher gets a Block with position=null —
+          // guard it; the per-block matcher sees the real position
+          const reach = (b) =>
+            b && b.name === "crafting_table" &&
+            !(b.position && bot._badTables.has(`${b.position.x},${b.position.y},${b.position.z}`));
           craftingTable =
-            bot.findBlock({ matching: (b) => b && b.name === "crafting_table", maxDistance: 6 }) ||
-            bot.findBlock({ matching: (b) => b && b.name === "crafting_table", maxDistance: 16 });
+            bot.findBlock({ matching: reach, maxDistance: 6 }) ||
+            bot.findBlock({ matching: reach, maxDistance: 16 });
           if (!craftingTable) {
             return {
               ok: false,
               message: `no recipe for ${itemName} (need crafting_table in world for 3x3)`,
             };
           }
+          craftingTable = bot.blockAt(craftingTable.position) || craftingTable;
+          recipes = bot.recipesFor(item.id, null, 1, craftingTable);
+          if (!recipes.length) {
+            return {
+              ok: false,
+              message: `no craftable recipe for ${itemName} at table (missing materials?)`,
+            };
+          }
+        } else if (!craftingTable) {
+          // even for a 2x2 recipe, prefer a nearby real table: its window
+          // opens with server-authoritative slots, while the always-open
+          // player inventory can carry stale state (the desync class that
+          // produces phantom "missing ingredient" failures)
+          const nearby = bot.findBlock?.({ matching: (b) => b && b.name === "crafting_table" &&
+            !(b.position && (bot._badTables || new Set()).has(`${b.position.x},${b.position.y},${b.position.z}`)), maxDistance: 16 });
+          if (nearby) {
+            craftingTable = bot.blockAt(nearby.position) || nearby;
+            const tableRecipes = bot.recipesFor(item.id, null, 1, craftingTable);
+            if (tableRecipes.length) recipes = tableRecipes;
+          }
+        }
+
+        if (craftingTable) {
           const dist = bot.entity.position.distanceTo(craftingTable.position.offset(0.5, 0.5, 0.5));
           if (dist > 3.2) {
             try {
@@ -256,33 +618,152 @@ export async function executeAction(bot, action, mcData) {
             } catch (err) {
               // If already reasonably close, try craft anyway (open table range ~4)
               if (bot.entity.position.distanceTo(craftingTable.position) > 4.5) {
+                // unreachable table (sealed pocket, cliff): blacklist it so the
+                // next craft call walks to a different table instead of stalling
+                // on this same one forever
+                (bot._badTables = bot._badTables || new Set()).add(
+                  `${craftingTable.position.x},${craftingTable.position.y},${craftingTable.position.z}`
+                );
                 return { ok: false, message: `path to table: ${err.message || err}` };
               }
             }
           }
           craftingTable = bot.blockAt(craftingTable.position) || craftingTable;
-          recipes = bot.recipesFor(item.id, null, 1, craftingTable);
-          if (!recipes.length) {
-            return {
-              ok: false,
-              message: `no craftable recipe for ${itemName} at table (missing materials?)`,
-            };
-          }
         }
 
-        const recipe = recipes[0];
+        // prefer a recipe whose concrete ingredient ids are actually in the
+        // inventory — tag-based recipes can carry placeholder ids that pass
+        // the delta check but fail findInventoryItem at click time
+        const recipeFits = (r) => {
+          const need = {};
+          const add = (ing) => {
+            if (ing && ing.id != null && ing.id !== -1) need[ing.id] = (need[ing.id] || 0) + 1;
+          };
+          if (r.inShape) r.inShape.forEach((row) => row.forEach(add));
+          if (r.ingredients) r.ingredients.forEach(add);
+          return Object.entries(need).every(([id, n]) => bot.inventory.count(+id, null) >= n);
+        };
+        const recipe = recipes.find(recipeFits) || recipes[0];
         const plan = computeCraftPlan(recipe, count);
         if (!plan) return { ok: false, message: `bad craft plan for ${itemName}` };
 
-        const before = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
-        await bot.craft(recipe, plan.repetitions, craftingTable);
-        // Wait a tick for inventory sync
-        await sleep(150);
-        const after = bot.inventory.items().reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
+        const before = invItems(bot).reduce((n, i) => (i.name === itemName ? n + i.count : n), 0);
+        // One resync-retry for "missing ingredient": a desynced client can
+        // think it lacks items the server knows it has. Reopening the table
+        // forces a full slot resend, then the craft goes through.
+        let craftErr = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          craftErr = null;
+          // a stale half-open table window from an aborted prior craft makes
+          // every later click land in the wrong window — close it first
+          if (bot.currentWindow && bot.currentWindow !== bot.inventory) {
+            try {
+              bot.closeWindow(bot.currentWindow);
+              await sleep(200);
+            } catch {
+              /* already closed */
+            }
+          }
+          // a previous aborted craft may have left ingredients in the grid or
+          // on the cursor — evacuate before every attempt
+          await cleanCraftArea(bot).catch(() => {});
+          await craftDirect(bot, recipe, plan.repetitions, craftingTable).catch((err) => {
+            craftErr = err;
+          });
+          if (!craftErr) break;
+          if (attempt === 0) {
+            try {
+              await cleanCraftArea(bot);
+              if (craftingTable) {
+                const w = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
+                if (bot._syncWindow) await withTimeout(bot._syncWindow(w), 6000, "sync table").catch(() => {});
+                await sleep(300);
+                if (w) bot.closeWindow(w);
+              } else {
+                // no table for 2x2 — a pick+drop click forces the server to
+                // resend the player-window slots, repairing desynced state
+                const inv = bot.inventory;
+                const slot = inv.slots.findIndex((s) => s);
+                if (slot >= 0) {
+                  await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+                  await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+                }
+              }
+              await sleep(300);
+              continue;
+            } catch {
+              /* resync failed — report the original craft error */
+            }
+          }
+        }
+        if (craftErr) {
+          const inv = invItems(bot)
+            .map((i) => `${i.name}x${i.count}`)
+            .join(",");
+          throw new Error(`${craftErr?.message || craftErr} | inv=[${inv}] table=${craftingTable ? "yes" : "no"}`);
+        }
+        // Server-side inventory sync lags table crafts: every set_slot went
+        // to the table window while it was open, so bot.inventory only
+        // catches up on the next resend. For a table craft, force that
+        // resend NOW — reopen+close so every later countItem reads truth.
+        if (!craftErr && craftingTable) {
+          try {
+            const w = await withTimeout(bot.openBlock(craftingTable), 8000, "resync open");
+            if (bot._syncWindow) await withTimeout(bot._syncWindow(w), 6000, "sync table").catch(() => {});
+            await sleep(350);
+            if (w) bot.closeWindow(w);
+            await sleep(250);
+          } catch {
+            /* resync best-effort — the poll below still gets a chance */
+          }
+        }
+        let after = before;
+        for (let i = 0; i < 60 && after <= before; i++) {
+          await sleep(150);
+          after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+        }
+        // Still no change: the client may have dropped window packets entirely.
+        // Re-opening the crafting table forces the server to resend all slots,
+        // which repairs a desynced inventory before we declare failure.
         if (after <= before) {
+          try {
+            if (craftingTable) {
+              const win = await withTimeout(bot.openBlock(craftingTable), 8000, "open table timeout");
+              await sleep(400);
+              if (win) bot.closeWindow(win);
+            } else {
+              const slot = bot.inventory.slots.findIndex((s) => s);
+              if (slot >= 0) {
+                await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+                await withTimeout(bot.clickWindow(slot, 0, 0), 6000, "click timeout");
+              }
+            }
+            for (let i = 0; i < 30 && after <= before; i++) {
+              await sleep(150);
+              after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+            }
+          } catch {
+            /* resync failed — fall through to the failure verdict */
+          }
+        }
+        if (after <= before) {
+          // final grace: the server's set_slot burst can land well after the
+          // resync — one long sleep + recount catches stragglers before a
+          // false-negative verdict burns a retry and a stuck tick
+          await sleep(2500);
+          after = invItems(bot).reduce((n, it) => (it.name === itemName ? n + it.count : n), 0);
+        }
+        if (after <= before) {
+          const win = bot.currentWindow;
+          const winDump = win
+            ? ` win=${win.type} slots=[${(win.slots || [])
+                .map((s, i) => (s ? `${i}:${s.name}x${s.count}` : null))
+                .filter(Boolean)
+                .join(",")}]`
+            : " win=none";
           return {
             ok: false,
-            message: `craft ${itemName} did not increase inventory (before=${before} after=${after})`,
+            message: `craft ${itemName} did not increase inventory (before=${before} after=${after})${winDump}`,
           };
         }
         return {
@@ -296,7 +777,7 @@ export async function executeAction(bot, action, mcData) {
         const dest = action.destination || "hand";
         const item = bot.inventory.items().find((i) => i.name === itemName || i.name.includes(itemName));
         if (!item) return { ok: false, message: `no item ${itemName}` };
-        await bot.equip(item, dest);
+        await withTimeout(bot.equip(item, dest), 8000, "equip timeout");
         return { ok: true, message: `equipped ${item.name} -> ${dest}` };
       }
 
@@ -311,13 +792,16 @@ export async function executeAction(bot, action, mcData) {
       }
 
       case "eat": {
+        const FOOD =
+          /cooked|beef|pork|bread|apple|carrot|potato|baked|chicken|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit|rotten_flesh/;
+        const wanted = action.item ? String(action.item) : null;
         const foods = bot.inventory
           .items()
-          .filter((i) => bot.food < 20 && (i.name.includes("beef") || i.name.includes("pork") || i.name.includes("bread") || i.name.includes("apple") || i.name.includes("carrot") || i.name.includes("potato") || i.name.includes("chicken") || i.name.includes("cod") || i.name.includes("salmon") || i.name.includes("cookie") || i.name.includes("melon") || i.name.includes("pie") || i.name.includes("stew") || i.name.includes("berries")));
+          .filter((i) => bot.food < 20 && FOOD.test(i.name) && (!wanted || i.name === wanted));
         const food = foods[0];
         if (!food) return { ok: false, message: "no food" };
-        await bot.equip(food, "hand");
-        await bot.consume();
+        await withTimeout(bot.equip(food, "hand"), 8000, "equip timeout");
+        await withTimeout(bot.consume(), 10000, "consume timeout");
         return { ok: true, message: `ate ${food.name}` };
       }
 
@@ -362,6 +846,13 @@ export async function executeAction(bot, action, mcData) {
         const itemName = action.item || action.block || action.name;
         const item = bot.inventory.items().find((i) => i.name === itemName || i.name.includes(itemName));
         if (!item) return { ok: false, message: `no block ${itemName}` };
+        // tools/weapons aren't placeable — a confused caller (LLM) picking a
+        // sword as filler gets a readable failure, not a server refuse. Use the
+        // bot's own registry — always present — not the caller-supplied mcData
+        const blocksByName = bot.registry?.blocksByName || mcData?.blocksByName;
+        if (blocksByName && !blocksByName[item.name]) {
+          return { ok: false, message: `${item.name} is not a placeable block` };
+        }
         const direction = faceVec(action.face || "top");
         const target = placementTarget(bot, action, direction);
         if (!target) return { ok: false, message: "no safe placement target; provide x,y,z" };
@@ -371,11 +862,33 @@ export async function executeAction(bot, action, mcData) {
         }
         const ref = bot.blockAt(target.minus(direction));
         if (!ref) return { ok: false, message: "no reference block" };
-        if (ref.name === "air") return { ok: false, message: "reference block is air" };
+        if (["air", "cave_air", "void_air"].includes(ref.name)) {
+          return { ok: false, message: "reference block is air" };
+        }
         if (ref.position.distanceTo(bot.entity.position) > 4.2) {
           await goto(bot, new goals.GoalNear(ref.position.x, ref.position.y, ref.position.z, 3), 30000);
         }
-        await bot.equip(item, "hand");
+        await withTimeout(bot.equip(item, "hand"), 6000, "equip timeout");
+        // equip resolves before the server swaps the held slot — placing
+        // with a stale item (e.g. wooden_sword in hand) makes the server
+        // refuse, and mineflayer's error names heldItem, not our item
+        if (bot.heldItem?.name !== item.name) {
+          await sleep(120);
+          if (bot.heldItem?.name !== item.name) {
+            try {
+              await withTimeout(bot.equip(item, "hand"), 6000, "equip timeout");
+              await sleep(120);
+            } catch {
+              /* fall through to the desync check */
+            }
+          }
+        }
+        // equip resolved but the held slot never changed — the move was
+        // silently rejected (stale window state, leaked container). Bail with
+        // the real cause instead of a guaranteed server refuse.
+        if (bot.heldItem?.name !== item.name) {
+          return { ok: false, message: `equip desync: held=${bot.heldItem?.name || "empty"} want=${item.name}` };
+        }
         await bot.placeBlock(ref, direction);
         const placed = bot.blockAt(target);
         if (!placed || ["air", "cave_air", "void_air"].includes(placed.name)) {
@@ -397,6 +910,7 @@ export async function executeAction(bot, action, mcData) {
         return { ok: false, message: `unknown action type: ${type}` };
     }
   } catch (err) {
+    if (err?.stack) console.error(`[actions] ${type} crash: ${err.stack}`);
     return { ok: false, message: err.message || String(err) };
   }
 }
@@ -418,6 +932,22 @@ function faceVec(face) {
   }
 }
 
+function dropVacuumTargets(bot, origin) {
+  const targets = [origin.floored().offset(0.5, 0, 0.5)];
+  for (const entity of Object.values(bot.entities)) {
+    if (!entity?.position || typeof entity.getDroppedItem !== "function") continue;
+    try {
+      if (!entity.getDroppedItem()) continue;
+    } catch {
+      continue;
+    }
+    if (entity.position.distanceTo(origin) > 7) continue;
+    targets.push(entity.position.floored().offset(0.5, 0, 0.5));
+    if (targets.length >= 4) break;
+  }
+  return targets;
+}
+
 function nearestPlayer(bot) {
   let best = null;
   let bestD = Infinity;
@@ -433,7 +963,9 @@ function nearestPlayer(bot) {
 }
 
 async function boundedCombat(bot, action) {
-  const maxDistance = finiteNumber(action.maxDistance, 16, 3, 32);
+  // prey hunts legitimately pass 48-60m (food field reach) — the old 32 cap
+  // made every chicken past 32m "no safe target nearby" while starving
+  const maxDistance = finiteNumber(action.maxDistance, 16, 3, 60);
   const maxDurationMs = finiteNumber(action.maxDurationMs ?? action.timeoutMs, 12000, 1000, 30000);
   const cooldownMs = finiteNumber(action.cooldownMs, 700, 450, 1500);
   const fleeAtHealth = finiteNumber(action.fleeAtHealth, 6, 1, 19);
@@ -443,9 +975,19 @@ async function boundedCombat(bot, action) {
     allowPlayers: action.allowPlayers === true,
     selfUsername: bot.username,
   };
-  let target = selectNearestCombatTarget(bot.entities, bot.entity.position, options);
+  // prey that burned a whole chase with 0 hits is unreachable — ban that
+  // entity for 3min so the next hunt tries a different animal instead of
+  // re-timing-out on the same one (the 6x 0-hit chicken loop)
+  bot._attackBan = bot._attackBan || new Map();
+  for (const [id, until] of bot._attackBan) if (until < Date.now()) bot._attackBan.delete(id);
+  let target = selectNearestCombatTarget(bot.entities, bot.entity.position, { ...options, skipIds: bot._attackBan });
   if (!target) return { ok: false, message: `no safe target nearby: ${options.name || "mob"}` };
-  if (Number(bot.health) <= fleeAtHealth) {
+  // the flee gate exists for hostiles — passive prey can't hurt us, and a
+  // starving 1hp bot that refuses to swing at a chicken starves standing on
+  // a field of food (the food=0 stall: every hunt silently "combat refused")
+  const PREY = /cow|pig|sheep|rabbit|chicken|horse|donkey|mule|llama|goat|squid|cod|salmon|mooshroom|villager|golem|frog|turtle|bee/;
+  const isPrey = PREY.test(String(target.name || target.username || "").toLowerCase());
+  if (!isPrey && Number(bot.health) <= fleeAtHealth) {
     return { ok: false, message: `combat refused at low health (${bot.health})` };
   }
 
@@ -454,25 +996,59 @@ async function boundedCombat(bot, action) {
   const label = target.username || target.name || String(target.displayName || "mob");
   const deadline = Date.now() + maxDurationMs;
   let hits = 0;
+  let lastIntercept = null;
+  let lastDist = null;
 
   try {
     while (Date.now() < deadline) {
-      if (Number(bot.health) <= fleeAtHealth) {
+      if (!isPrey && Number(bot.health) <= fleeAtHealth) {
         return { ok: false, message: `retreated from ${label}: health=${bot.health}, hits=${hits}` };
       }
       target = bot.entities[targetId];
       if (!target || target.isValid === false) {
-        return hits > 0
-          ? { ok: true, message: `target ${label} gone after ${hits} hit(s)` }
-          : { ok: false, message: `target ${label} disappeared before attack` };
+        // "gone" is a kill only when the entity vanished inside melee reach —
+        // the same state also fires when the target unloads past render
+        // range (~60m+), which is an ESCAPE not a kill. A fleeing sheep
+        // outruns a starving walker and unloads; reporting ok there prints
+        // "sheep down" with wool=0 and drop-walks a corpse that doesn't exist
+        if (hits > 0 && lastDist != null && lastDist <= 8) {
+          return { ok: true, message: `target ${label} gone after ${hits} hit(s)` };
+        }
+        return { ok: false, message: `target ${label} disappeared before attack` };
       }
 
       const distance = distanceBetween(bot.entity.position, target.position);
-      if (!Number.isFinite(distance) || distance > maxDistance + 4) {
+      lastDist = distance;
+      // passive prey sprints when hit — the ~36m escape leash is how every
+      // sheep hunt ends with zero wool. persistent hunts hold the chase and
+      // only give up when the target is truly gone (despawned / 60m out)
+      const leash = action.persistent ? 60 : maxDistance + 4;
+      if (!Number.isFinite(distance) || distance > leash) {
+        if (isPrey && hits === 0) bot._attackBan.set(targetId, Date.now() + 180000);
         return { ok: false, message: `target ${label} escaped (${round1(distance)}m)` };
       }
       if (distance > 3.1) {
-        bot.pathfinder.setGoal(new goals.GoalFollow(target, 2.4), true);
+        if (isPrey && target.velocity) {
+          // intercept: a fleeing animal always wins a tail-chase — its flee
+          // speed ~2.5-3m/s vs our walk 4.3 barely closes. Aiming at where it
+          // WILL BE (pos + velocity×lead) cuts the corner on every panic zig
+          const lead = Math.min(distance / 5.6, 1.2);
+          const ip = target.position.offset(
+            target.velocity.x * lead,
+            0,
+            target.velocity.z * lead
+          );
+          // re-issuing the goal every tick forces a fresh A* replan — a
+          // wandering chicken shifts the intercept constantly, so the bot
+          // stutter-steps and never closes (the starving "0 hits" chicken
+          // timeouts). Only replan when the intercept actually moved
+          if (!lastIntercept || lastIntercept.distanceTo(ip) > 2.5) {
+            lastIntercept = ip;
+            bot.pathfinder.setGoal(new goals.GoalNear(ip.x, ip.y, ip.z, 1.5), true);
+          }
+        } else {
+          bot.pathfinder.setGoal(new goals.GoalFollow(target, 2.4), true);
+        }
         await sleep(150);
         continue;
       }
@@ -480,10 +1056,20 @@ async function boundedCombat(bot, action) {
       bot.pathfinder.setGoal(null);
       const aim = target.position.offset(0, Math.max(0.5, (target.height || 1.6) * 0.7), 0);
       await bot.lookAt(aim, true);
+      // hostile swing: land the hit while falling for the +50% crit bonus —
+      // a stone axe crit two-shots a zombie/skeleton where flat swings need
+      // 4-5. Jump ~400ms before the hit so we're descending when it lands.
+      if (!isPrey) {
+        bot.setControlState("jump", true);
+        await sleep(240);
+        bot.setControlState("jump", false);
+        await sleep(160);
+      }
       await Promise.resolve(bot.attack(target));
       hits += 1;
       await sleep(cooldownMs);
     }
+    if (isPrey && hits === 0) bot._attackBan.set(targetId, Date.now() + 180000);
     return { ok: false, message: `combat timeout against ${label} after ${hits} hit(s)` };
   } finally {
     bot.pathfinder.setGoal(null);
@@ -578,7 +1164,7 @@ async function useHeldItem(bot, action) {
   if (itemName) {
     const item = findInventoryItem(bot, itemName);
     if (!item) return { ok: false, message: `no item ${itemName}` };
-    await bot.equip(item, action.offHand ? "off-hand" : "hand");
+    await withTimeout(bot.equip(item, action.offHand ? "off-hand" : "hand"), 6000, "equip timeout");
   }
   if (!bot.heldItem && !action.offHand) return { ok: false, message: "no held item to use" };
 
@@ -600,7 +1186,7 @@ async function useWorldBlock(bot, action) {
   if (itemName) {
     const item = findInventoryItem(bot, itemName);
     if (!item) return { ok: false, message: `no item ${itemName}` };
-    await bot.equip(item, action.offHand ? "off-hand" : "hand");
+    await withTimeout(bot.equip(item, action.offHand ? "off-hand" : "hand"), 6000, "equip timeout");
   }
   const direction = faceVec(action.face || "top");
   await withTimeout(
@@ -762,7 +1348,7 @@ export async function equipBestWeapon(bot, requestedName) {
   const candidates = bot.inventory.items().filter((item) => /_(sword|axe)$/.test(item.name));
   candidates.sort((a, b) => weaponScore(b.name, materialScore) - weaponScore(a.name, materialScore));
   const weapon = requested || candidates[0];
-  if (weapon) await bot.equip(weapon, "hand");
+  if (weapon) await withTimeout(bot.equip(weapon, "hand"), 6000, "equip timeout");
   return weapon || null;
 }
 
@@ -770,7 +1356,7 @@ export async function equipBestShield(bot) {
   const shield = bot.inventory.items().find((item) => item.name === "shield");
   if (!shield) return null;
   try {
-    await bot.equip(shield, "off-hand");
+    await withTimeout(bot.equip(shield, "off-hand"), 6000, "equip timeout");
     return shield;
   } catch {
     return null;
@@ -803,7 +1389,10 @@ export function pickBestFood(bot) {
 
 function weaponScore(name, materialScore) {
   const material = Object.keys(materialScore).find((key) => name.startsWith(`${key}_`));
-  return (materialScore[material] || 0) + (name.endsWith("_sword") ? 5 : 0);
+  // an axe out-damages a sword of the same material per swing (Java: stone
+  // axe 9 vs sword 5) and our attacks are cooldown-throttled anyway, so the
+  // slower axe recharge never binds — axe wins on damage per hit
+  return (materialScore[material] || 0) + (name.endsWith("_axe") ? 8 : 0);
 }
 
 function placementTarget(bot, action, direction) {
@@ -820,7 +1409,13 @@ function placementTarget(bot, action, direction) {
     const target = base.offset(dx, 0, dz);
     const at = bot.blockAt(target);
     const below = bot.blockAt(target.offset(0, -1, 0));
-    if (["air", "cave_air", "void_air"].includes(at?.name) && below && below.name !== "air") return target;
+    if (
+      ["air", "cave_air", "void_air"].includes(at?.name) &&
+      below &&
+      !["air", "cave_air", "void_air"].includes(below.name)
+    ) {
+      return target;
+    }
   }
   return null;
 }
@@ -876,7 +1471,7 @@ function withTimeout(promise, timeoutMs, message) {
 async function equipBestTool(bot, block) {
   try {
     if (bot.tool?.equipForBlock) {
-      await bot.tool.equipForBlock(block, { requireHarvest: true });
+      await withTimeout(bot.tool.equipForBlock(block, { requireHarvest: true }), 8000, "equipForBlock timeout");
       return;
     }
   } catch {
@@ -890,7 +1485,7 @@ async function equipBestTool(bot, block) {
   const tool = bot.inventory.items().find((i) => i.name.includes(prefer));
   if (tool) {
     try {
-      await bot.equip(tool, "hand");
+      await withTimeout(bot.equip(tool, "hand"), 6000, "equip timeout");
     } catch {
       /* ignore */
     }
@@ -901,7 +1496,29 @@ function setupMovements(bot, mcData) {
   const movements = new Movements(bot, mcData);
   movements.canDig = true;
   movements.allowSprinting = true;
+  movements._ours = true;
   bot.pathfinder.setMovements(movements);
+  // mineflayer-tool bug: equipForBlock recurses forever when the bot owns no
+  // item that can harvest the target and getFromChest is set — retrieveTools
+  // resolves instantly on an empty chest list, so each recursion level leaves a
+  // suspended async frame until the process OOMs. Strip getFromChest when no
+  // chests are configured so it errors out instead of recursing.
+  if (bot.tool?.equipForBlock && !bot.tool._equipPatched) {
+    const orig = bot.tool.equipForBlock.bind(bot.tool);
+    bot.tool.equipForBlock = (block, options = {}, cb) => {
+      if (options.getFromChest && !(bot.tool.chestLocations?.length)) {
+        const { getFromChest, ...rest } = options;
+        options = rest;
+      }
+      return orig(block, options, cb);
+    };
+    bot.tool._equipPatched = true;
+  }
+  // Unbounded A* search in dense 3D terrain (jungle canopy, caves) explodes the
+  // node space until the process OOMs — cap cost radius and think time; all our
+  // goals are local.
+  bot.pathfinder.searchRadius = 48;
+  bot.pathfinder.thinkTimeout = 2500;
 }
 
 async function goto(bot, goal, timeoutMs) {
@@ -912,6 +1529,7 @@ async function goto(bot, goal, timeoutMs) {
     const finish = (fn) => {
       if (done) return;
       done = true;
+      if (bot._phaseMove === goal) bot._phaseMove = null;
       clearTimeout(timer);
       clearInterval(poll);
       bot.removeListener("goal_reached", onReached);
@@ -922,20 +1540,27 @@ async function goto(bot, goal, timeoutMs) {
       bot.pathfinder.setGoal(null);
       finish(() => reject(new Error("pathfinder timeout")));
     }, finiteNumber(timeoutMs, 45000, 1000, 180000));
-    const onReached = () => finish(() => resolve());
+    // goal_reached fires for ANY goal that completes — resolve only on ours,
+    // or a combat-reflex goal finishing masquerades as our move succeeding.
+    const onReached = (g) => {
+      if (g === goal) finish(() => resolve());
+    };
     const onPath = (r) => {
-      if (r?.status === "noPath") {
+      if (r?.status === "noPath" && bot.pathfinder.goal === goal) {
         bot.pathfinder.setGoal(null);
         finish(() => reject(new Error("no path")));
       }
     };
-    bot.once("goal_reached", onReached);
+    bot.on("goal_reached", onReached);
     bot.on("path_update", onPath);
+    // Mark a phase-owned move in flight: the combat reflex must not steal the
+    // pathfinder to chase while one is active (it may still hit/kite/flee).
+    bot._phaseMove = goal;
     bot.pathfinder.setGoal(goal);
     poll = setInterval(() => {
-      // goal completed / cancelled
-      if (!bot.pathfinder.goal) finish(() => resolve());
-    }, 500);
+      // Our goal was cleared or replaced (combat reflex, stop, another goto)
+      if (bot.pathfinder.goal !== goal) finish(() => reject(new Error("goal superseded")));
+    }, 250);
   });
 }
 

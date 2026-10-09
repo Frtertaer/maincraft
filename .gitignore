@@ -17,3 +17,14 @@ server/plugins/.paper-remapped/remap-classpath/
 .env
 *.env
 opus4.8api.txt
+
+# session diagnostics (bench probes)
+agent/probe-*.cjs
+agent/bcheck.cjs
+*.heapsnapshot
+
+# runtime
+logs/
+server/
+agent/logs/
+/tmp/
