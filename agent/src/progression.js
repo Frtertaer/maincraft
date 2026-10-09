@@ -4662,6 +4662,18 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // the floor (dirt vs stone) or every dir is mob/fluid-blocked — neither
     // improves in 25s, so stop instead of spamming a stuck line all night
     let nightDigDone = false;
+    // day-hide side-work pacers: a sealed daylight hold is dead time unless
+    // it strips away from the mobs it can still see
+    let sideDigAt = 0;
+    let sideDigDone = false;
+    // pocket-wall ore scan pacer — sealed-in walls are in reach, so ore
+    // sealed inside the pocket gets mined during the wait
+    let pocketOreAt = 0;
+    // a mining pass needs a real food kit, not a snack: ~32 carried meals
+    // (cooked meat + village bread) before any descent or strip starts —
+    // descending near-empty is how the shaft ends at 0.5hp with nothing
+    // edible below
+    const FOOD_KIT_MIN = 32;
     while (
       Date.now() - t0 < waitCap ||
       // deep mining: a staircase ~9 below the seal with a SUSTAINABLE kit is
@@ -4787,6 +4799,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // sealed night ends stranded at y~58 fisting stone. Only go deep on a
       // durable pick, or a carried kit that rebuilds one when it breaks.
       (hasDurablePick(bot) || canRecraftPickHere(bot)) &&
+      // the night shift is still a mine run — same food-kit floor as the
+      // surface descent: without ~32 carried meals a starving hold waits
+      // for dawn instead of digging all night at 0.5hp. deepMining already
+      // committed below the seal keeps its own sustain rule
+      (stockFoodCount(bot) >= FOOD_KIT_MIN || deepMining) &&
       Date.now() - nightDigAt > 25000
     ) {
       if (nightDigFloorY == null) nightDigFloorY = Math.floor(bot.entity.position.y);
@@ -4850,6 +4867,93 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
           log?.(`[burrow] night shift: strip-mined ${sm.mined} (${sm.oreHits || 0} ore) at y=${np.y}`);
         } else nightDigDone = true;
       }
+    }
+    // sealed day-shift: a daylight hide holds against the mob outside —
+    // the wait is dead time unless it digs. Strip a short 1x2 in the
+    // direction AWAY from the nearest remembered hostile (their positions
+    // are known), so the tunnel grows toward clean ground and whatever ore
+    // the face exposes gets mined. Same food-kit floor as a descent: a
+    // hungry hold waits, it does not dig.
+    if (
+      !tunnelEscape &&
+      !camper &&
+      !nightDigDone &&
+      !sideDigDone &&
+      !deepMining &&
+      hasPickaxe(bot) &&
+      stockFoodCount(bot) >= FOOD_KIT_MIN &&
+      (bot.time?.timeOfDay ?? 0) < 12541 &&
+      Date.now() - sideDigAt > 20000
+    ) {
+      sideDigAt = Date.now();
+      const sideMob = findHostile(bot, 40);
+      let sDir = state?._pocketStripDir;
+      if (sideMob) {
+        const fp2 = bot.entity.position;
+        const cp2 = sideMob.position;
+        sDir =
+          Math.abs(cp2.x - fp2.x) > Math.abs(cp2.z - fp2.z)
+            ? [-Math.sign(cp2.x - fp2.x), 0]
+            : [0, -Math.sign(cp2.z - fp2.z)];
+        if (state) state._pocketStripDir = sDir;
+      } else if (!sDir) {
+        sDir = [Math.random() < 0.5 ? 1 : -1, 0];
+        if (state) state._pocketStripDir = sDir;
+      }
+      const sm = await stripMine(bot, mcData, 6, log, sDir).catch(() => null);
+      if (sm?.flooded || !(sm?.mined > 0)) {
+        // flooded face or every dir blocked — the seal stays intact; just
+        // stop re-spamming the same face for the rest of this hold
+        sideDigDone = true;
+      } else {
+        const np3 = bot.entity.position.floored();
+        pocketDeep = { x: np3.x + 0.5, y: np3.y, z: np3.z + 0.5 };
+        log?.(`[burrow] day shift: strip-mined ${sm.mined} (${sm.oreHits || 0} ore) away from ${sideMob?.name || "open field"}`);
+      }
+    }
+    // ore in the pocket wall: the seal plug cells stay untouched, but any
+    // ore that ended up inside the pocket is in reach — mine it during the
+    // wait instead of standing next to it. If a dig breaches into open cave
+    // air with a mob in view, plug the hole straight back.
+    if (!camper && hasPickaxe(bot) && Date.now() - pocketOreAt > 15000) {
+      pocketOreAt = Date.now();
+      try {
+        const sealSet = new Set((sealedCells || []).map((c) => `${c.x},${c.y},${c.z}`));
+        const ores =
+          bot.findBlocks?.({
+            matching: (b) =>
+              b && /_ore$/.test(b.name || "") && !sealSet.has(`${b.position.x},${b.position.y},${b.position.z}`),
+            maxDistance: 4,
+            count: 3,
+          }) || [];
+        for (const op of ores) {
+          const fb2 = bot.entity.position.floored();
+          // never mine the floor cells the pocket stands on — its depth is
+          // the margin against the mobs above
+          if (op.x === fb2.x && op.z === fb2.z && op.y <= fb2.y) continue;
+          const oreName = bot.blockAt(op)?.name || "ore";
+          const dd = await executeAction(
+            bot,
+            { type: "dig", x: op.x, y: op.y, z: op.z, timeoutMs: 10000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+          if (dd?.ok !== false) {
+            log?.(`[burrow] pocket ore: mined ${oreName} @${op.x},${op.y},${op.z}`);
+            const hole = bot.blockAt(op);
+            if (hole && /^(air|cave_air|void_air)$/.test(hole.name) && findHostile(bot, 14)) {
+              const plug = bot.inventory.items().find((i) => /^(dirt|cobblestone|stone|.*_planks|gravel|sand)$/.test(i.name));
+              const face = bot.blockAt(op.offset(0, -1, 0));
+              if (plug && face && face.boundingBox === "block") {
+                try {
+                  await bot.equip(plug, "hand");
+                  await pt(bot.placeBlock(face, new Vec3(0, 1, 0)), 4000, "plug");
+                  log?.("[burrow] pocket ore breached the wall — plugged back");
+                } catch {}
+              }
+            }
+          }
+        }
+      } catch {}
     }
     // pocket greenhouse: a sealed pocket is the only guaranteed-safe grow
     // space this world offers — till a floor cell, drop the seeds the
@@ -5102,14 +5206,28 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
 // is fatal. Eat carried food first; when empty, hunt farm animals and eat
 // the drops raw (safe raw: beef/pork/mutton/rabbit/cod/salmon — raw
 // chicken's hunger effect makes it a last resort).
+// every edible in the game counts toward the kit — cooked/raw meat, bread,
+// crops, berries, melon, stews, kelp, honey, chorus — while the poison
+// foods (spider eye, poisonous potato, pufferfish) are excluded up front:
+// the leading lookahead rejects them wherever a real food name is a
+// substring, so every .test() below is safe on its own
 const EDIBLE_FOOD =
-  /cooked|beef|pork|bread|apple|carrot|potato|baked|cod|salmon|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit/;
+  /^(?!.*(?:spider_eye|poisonous_potato|pufferfish)).*(?:cooked|beef|pork|bread|apple|carrot|potato|baked|cod|salmon|tropical_fish|cake|cookie|melon|pie|stew|soup|berries|mutton|rabbit(?!_foot|_hide)|beetroot(?!_seeds)|dried_kelp|honey_bottle|chorus_fruit)/;
 const SAFE_RAW = /beef|porkchop|mutton|^rabbit$|raw_rabbit|cod|salmon/;
+// smelts to a denser ration — raw meat plus baked potato and dried kelp
+const COOKABLE = /beef|porkchop|mutton|^rabbit$|raw_rabbit|cod|salmon|^potato$|^kelp$/;
 
 function stockFoodCount(bot) {
   return bot.inventory
     .items()
-    .reduce((n, i) => n + (EDIBLE_FOOD.test(i.name) || SAFE_RAW.test(i.name) || i.name === "rotten_flesh" ? i.count : 0), 0);
+    .reduce(
+      (n, i) =>
+        n +
+        (EDIBLE_FOOD.test(i.name) || SAFE_RAW.test(i.name) || i.name === "rotten_flesh" || i.name === "chicken"
+          ? i.count
+          : 0),
+      0
+    );
 }
 
 // bank carried food for a descent: hunts prey but KEEPS the drops instead
@@ -5119,8 +5237,14 @@ async function stockFood(bot, mcData, state, log, want = 12) {
   const carried = () => stockFoodCount(bot);
   // free calories first: an edible drop on the ground costs a walk, not a chase
   const drop = droppedItemEntity(bot, mcData, [
-    "rotten_flesh", "beef", "porkchop", "mutton", "rabbit",
-    "bread", "potato", "carrot", "apple",
+    "rotten_flesh", "beef", "porkchop", "mutton", "rabbit", "chicken",
+    "cod", "salmon", "tropical_fish",
+    "bread", "potato", "carrot", "beetroot", "apple", "golden_apple",
+    "sweet_berries", "glow_berries", "melon_slice", "cookie", "cake",
+    "pumpkin_pie", "mushroom_stew", "rabbit_stew", "beetroot_soup",
+    "dried_kelp", "kelp", "honey_bottle", "chorus_fruit",
+    "cooked_beef", "cooked_porkchop", "cooked_mutton", "cooked_chicken",
+    "cooked_rabbit", "cooked_cod", "cooked_salmon", "baked_potato",
   ]);
   if (drop && drop.position.distanceTo(bot.entity.position) <= 12) {
     await executeAction(
@@ -5158,6 +5282,60 @@ async function stockFood(bot, mcData, state, log, want = 12) {
       if (bc.ok) log?.(`[food] stock hay→bread x${swept} (carried=${carried()})`);
     }
   }
+  // field forage: every food the world grows, each biome feeding
+  // differently — berry bushes and glow-vines (right-click harvest), melon
+  // blocks, ripe village crops, and kelp for the furnace. Sweep whatever
+  // grows in reach, not just meat and hay.
+  const forageTargets = [
+    { re: /^sweet_berry_bush$/, act: true },
+    { re: /^cave_vines(_plant)?$/, act: true, needProp: "berries" },
+    { re: /^melon(_block)?$/ },
+    { re: /^(carrots|potatoes|wheat)$/, age: 7 },
+    { re: /^beetroots$/, age: 3 },
+    { re: /^kelp(_plant)?$/ },
+  ];
+  for (let i = 0; i < 24 && carried() < want; i++) {
+    let hit = null;
+    for (const f of forageTargets) {
+      let b = null;
+      try {
+        b = bot.findBlock?.({
+          matching: (blk) => {
+            if (!blk || !f.re.test(blk.name)) return false;
+            if (f.age != null) return (blk._properties?.age ?? 0) >= f.age;
+            if (f.needProp) return blk._properties?.[f.needProp] === true;
+            return true;
+          },
+          maxDistance: 64,
+        });
+      } catch {
+        /* scan failed */
+      }
+      if (b) {
+        hit = { b, f };
+        break;
+      }
+    }
+    if (!hit) break;
+    if (hit.f.act) {
+      const g = await executeAction(
+        bot,
+        { type: "goto", x: hit.b.position.x, y: hit.b.position.y, z: hit.b.position.z, range: 2, timeoutMs: 12000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!g.ok) break;
+      try {
+        await pt(bot.activateBlock(bot.blockAt(hit.b.position) || hit.b), 5000, "forage");
+      } catch {}
+    } else {
+      const d = await executeAction(
+        bot,
+        { type: "dig", x: hit.b.position.x, y: hit.b.position.y, z: hit.b.position.z, timeoutMs: 15000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!d.ok) break;
+    }
+  }
   // raw chicken carries the hunger effect and isn't counted edible — skip it.
   // Same walk-chase ceiling as the hunt: food<=6 can't sprint, and fleeing
   // livestock outruns a walk — only the chicken is catchable on foot.
@@ -5176,7 +5354,7 @@ async function stockFood(bot, mcData, state, log, want = 12) {
   // cooked meat is ~2.5x the calories of raw for the same bank count — once
   // the hunt has gathered a real batch (~8+), fire a furnace (craft+place if
   // needed, then dig it back up so the iron smelter can reuse it underground)
-  const rawTotal = bot.inventory.items().reduce((n, i) => n + (SAFE_RAW.test(i.name) ? i.count : 0), 0);
+  const rawTotal = bot.inventory.items().reduce((n, i) => n + (COOKABLE.test(i.name) ? i.count : 0), 0);
   if (rawTotal >= 8) {
     await cookFoodStock(bot, mcData, log);
   }
@@ -5186,7 +5364,7 @@ async function stockFood(bot, mcData, state, log, want = 12) {
 // smelt whatever raw meat is in the bank — one 8-item batch keeps the call
 // well under the step watchdog, and stockFood re-runs until the bank is full
 async function cookFoodStock(bot, mcData, log) {
-  const raws = bot.inventory.items().filter((i) => SAFE_RAW.test(i.name) && i.count > 0);
+  const raws = bot.inventory.items().filter((i) => COOKABLE.test(i.name) && i.count > 0);
   if (!raws.length) return 0;
   // find a furnace already standing; otherwise craft+place our own
   const hasFurnace = () =>
@@ -7554,12 +7732,12 @@ async function phaseIron(bot, mcData, state, log) {
       }
       // never descend on an empty pack either: the meter refills above ground
       // but the ~10min strip mine drains it with nothing edible below — bank
-      // ~20 meals while prey/village hay still render, or the mine ends in the
+      // ~32 meals while prey/village hay still render, or the mine ends in the
       // starving-staircase loop at 0.5hp. Cooked meat stretches each unit
       // ~2.5x — stockFood fires the furnace once the hunt has a batch.
       const foodStock = stockFoodCount(bot);
-      if (foodStock < 20) {
-        const sf = await stockFood(bot, mcData, state, log, 20);
+      if (foodStock < 32) {
+        const sf = await stockFood(bot, mcData, state, log, 32);
         if (sf.stocked > foodStock) return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
       }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
