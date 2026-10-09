@@ -5088,7 +5088,7 @@ function stockFoodCount(bot) {
 // bank carried food for a descent: hunts prey but KEEPS the drops instead
 // of topping the meter — the strip mine at y<=16 offers no food for ~10+
 // min, and descending empty-handed is how the underground starving loop starts
-async function stockFood(bot, mcData, state, log, want = 6) {
+async function stockFood(bot, mcData, state, log, want = 12) {
   const carried = () => stockFoodCount(bot);
   // free calories first: an edible drop on the ground costs a walk, not a chase
   const drop = droppedItemEntity(bot, mcData, [
@@ -5104,19 +5104,20 @@ async function stockFood(bot, mcData, state, log, want = 6) {
   }
   // village hay edge: a bale uncrafts to 9 wheat = 3 bread — the single
   // densest food source on any seed that has one, and it costs a dig not a
-  // chase. Sweep every visible bale, then bake the lot.
+  // chase. Sweep EVERY visible bale (villages stack them by the dozen —
+  // a full field bakes several stacks of bread), then craft the lot.
   let swept = 0;
-  for (let i = 0; i < 6 && carried() < want; i++) {
+  for (let i = 0; i < 24; i++) {
     let hay = null;
     try {
-      hay = bot.findBlock?.({ matching: (b) => b && b.name === "hay_block", maxDistance: 56 });
+      hay = bot.findBlock?.({ matching: (b) => b && b.name === "hay_block", maxDistance: 72 });
     } catch {
       /* none visible */
     }
     if (!hay) break;
     const d = await executeAction(
       bot,
-      { type: "dig", x: hay.position.x, y: hay.position.y, z: hay.position.z, timeoutMs: 12000 },
+      { type: "dig", x: hay.position.x, y: hay.position.y, z: hay.position.z, timeoutMs: 15000 },
       mcData
     ).catch(() => ({ ok: false }));
     if (!d.ok) break;
@@ -5129,7 +5130,6 @@ async function stockFood(bot, mcData, state, log, want = 6) {
       const bc = await ensureCraft(bot, mcData, "bread", Math.floor(countItem(bot, "wheat") / 3)).catch(() => ({ ok: false }));
       if (bc.ok) log?.(`[food] stock hay→bread x${swept} (carried=${carried()})`);
     }
-    if (carried() >= want) return { ok: true, stocked: carried() };
   }
   // raw chicken carries the hunger effect and isn't counted edible — skip it.
   // Same walk-chase ceiling as the hunt: food<=6 can't sprint, and fleeing
@@ -5146,7 +5146,73 @@ async function stockFood(bot, mcData, state, log, want = 6) {
       await sleep(400);
     }
   }
+  // cooked meat is ~2.5x the calories of raw for the same bank count — once
+  // the hunt has gathered a batch, fire a furnace (craft+place if needed,
+  // then dig it back up so the iron smelter can reuse it below ground)
+  if (bot.inventory.items().some((i) => SAFE_RAW.test(i.name))) {
+    await cookFoodStock(bot, mcData, log);
+  }
   return { ok: carried() >= want, stocked: carried() };
+}
+
+// smelt whatever raw meat is in the bank — one 8-item batch keeps the call
+// well under the step watchdog, and stockFood re-runs until the bank is full
+async function cookFoodStock(bot, mcData, log) {
+  const raws = bot.inventory.items().filter((i) => SAFE_RAW.test(i.name) && i.count > 0);
+  if (!raws.length) return 0;
+  // find a furnace already standing; otherwise craft+place our own
+  const hasFurnace = () =>
+    bot.findBlock?.({
+      matching: (b) => b && /^(furnace|blast_furnace|smoker)$/.test(b.name),
+      maxDistance: 12,
+    });
+  let fb = null;
+  try {
+    fb = hasFurnace();
+  } catch {
+    /* scan failed */
+  }
+  let placedOurs = false;
+  if (!fb) {
+    if (!countItem(bot, "furnace") && countItem(bot, "cobblestone") >= 8) {
+      await ensureCraft(bot, mcData, "furnace", 1).catch(() => ({ ok: false }));
+    }
+    if (countItem(bot, "furnace")) {
+      const p = await executeAction(bot, { type: "place", item: "furnace", timeoutMs: 10000 }, mcData).catch(() => ({ ok: false }));
+      if (p.ok) placedOurs = true;
+    }
+    try {
+      fb = hasFurnace();
+    } catch {
+      /* scan failed */
+    }
+    if (!fb) return 0;
+  }
+  let cooked = 0;
+  for (const r of raws) {
+    let left = r.count;
+    while (left > 0 && cooked < 16) {
+      const n = Math.min(left, 8);
+      const s = await executeAction(
+        bot,
+        { type: "smelt", item: r.name, count: n, timeoutMs: n * 11000 + 20000 },
+        mcData
+      ).catch(() => ({ ok: false }));
+      if (!s.ok) break;
+      cooked += n;
+      left -= n;
+    }
+  }
+  if (cooked) log?.(`[food] cooked ${cooked} raw for the descent bank`);
+  // take the furnace back — iron smelting below ground needs it anyway
+  if (placedOurs && fb?.position) {
+    await executeAction(
+      bot,
+      { type: "dig", x: fb.position.x, y: fb.position.y, z: fb.position.z, timeoutMs: 8000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+  }
+  return cooked;
 }
 
 export async function ensureFed(bot, mcData, log, state = null) {
@@ -7460,11 +7526,12 @@ async function phaseIron(bot, mcData, state, log) {
       }
       // never descend on an empty pack either: the meter refills above ground
       // but the ~10min strip mine drains it with nothing edible below — bank
-      // ~12 meals while prey/village hay still render, or the mine ends in the
-      // starving-staircase loop at 0.5hp
+      // ~20 meals while prey/village hay still render, or the mine ends in the
+      // starving-staircase loop at 0.5hp. Cooked meat stretches each unit
+      // ~2.5x — stockFood fires the furnace once the hunt has a batch.
       const foodStock = stockFoodCount(bot);
-      if (foodStock < 12) {
-        const sf = await stockFood(bot, mcData, state, log, 12);
+      if (foodStock < 20) {
+        const sf = await stockFood(bot, mcData, state, log, 20);
         if (sf.stocked > foodStock) return { ok: true, phase: "iron", message: `pre-descend food stock (${sf.stocked})` };
       }
       // never descend wood-poor: at y≤16 there are no trees — sticks for iron
