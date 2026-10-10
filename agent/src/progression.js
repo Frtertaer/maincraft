@@ -9030,9 +9030,19 @@ async function phasePortal(bot, mcData, state, log) {
     await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 32 }, mcData);
     // if still low: mine more diamonds/iron for bucket and cast
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
-      // place water on lava source to make obsidian — simplified: look for lava and use_item
-      await executeAction(bot, { type: "use_item", item: "water_bucket" }, mcData);
+      // pour water ONTO the lava face — a blind use_item pours it at the
+      // bot's feet and nothing converts; activating the lava block puts the
+      // water where it actually contacts the source
+      const lava2 = bot.findBlock({ matching: (b) => b?.name === "lava", maxDistance: 32 });
+      if (lava2) {
+        await executeAction(bot, { type: "use_block", block: "lava", item: "water_bucket", maxDistance: 6 }, mcData);
+      }
       await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 16 }, mcData);
+      // refill: the pour drains the bucket — re-dip in the spill or any
+      // nearby water so the next cast works too
+      if (countItem(bot, "water_bucket") < 1 && countItem(bot, "bucket") > 0) {
+        await executeAction(bot, { type: "use_block", block: "water", item: "bucket", maxDistance: 16 }, mcData).catch(() => ({}));
+      }
     }
     return { ok: true, phase: "portal", message: "obsidian", milestone: "OBSIDIAN" };
   }
