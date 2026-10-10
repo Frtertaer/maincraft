@@ -9492,24 +9492,34 @@ function droppedItemEntity(bot, mcData, names) {
 }
 
 async function enterPortal(bot, mcData) {
-  const portal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 96 });
-  if (!portal) return { ok: false, message: "no portal" };
+  const portals = bot.findBlocks({ matching: (b) => b?.name === "nether_portal", maxDistance: 96, count: 16 });
+  if (!portals.length) return { ok: false, message: "no portal" };
+  // stand ON the lowest portal block — the walkable floor of the interior.
+  // (goto range 1 stopped at the rim and side-on approaches hit the frame)
+  const floorPos = portals.reduce((a, b) => (b.y < a.y ? b : a));
   await executeAction(
     bot,
-    { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1, timeoutMs: 60000 },
+    { type: "goto", x: floorPos.x, y: floorPos.y, z: floorPos.z, range: 0, timeoutMs: 60000 },
     mcData
-  );
-  // pathfinder stops at the rim — walk INTO the portal blocks. Crossings
-  // need ~4s standing inside, so drive forward until the dimension flips
-  const center = portal.position.offset(0.5, 0.5, 0.5);
-  for (let i = 0; i < 3 && !/nether/i.test(String(bot.game?.dimension || "")); i++) {
-    await bot.lookAt(center, true);
+  ).catch(() => {});
+  // still not crossed: drive through the portal along each horizontal axis —
+  // only the two face directions actually work, the frame walls the others
+  const center = floorPos.offset(0.5, 0.5, 0.5);
+  for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+    if (/nether/i.test(String(bot.game?.dimension || ""))) break;
+    const approach = center.offset(dx * 2.5, 0, dz * 2.5);
+    await executeAction(
+      bot,
+      { type: "goto", x: approach.x, y: approach.y - 1, z: approach.z, range: 1, timeoutMs: 15000 },
+      mcData
+    ).catch(() => {});
+    await bot.lookAt(center.offset(0, 0.4, 0), true).catch(() => {});
     bot.setControlState("jump", true);
     bot.setControlState("forward", true);
-    await sleep(2500);
+    await sleep(2200);
     bot.setControlState("jump", false);
     bot.setControlState("forward", false);
-    await sleep(3500);
+    await sleep(3500); // ~4s inside = teleport
   }
   // on the nether side the bot materializes INSIDE the return portal — walk
   // AWAY from the portal blocks (wall-embedded twins defeat a blind forward
