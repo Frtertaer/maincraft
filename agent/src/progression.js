@@ -9070,7 +9070,7 @@ async function phasePortal(bot, mcData, state, log) {
         if (pourCell) {
           await executeAction(
             bot,
-            { type: "goto", x: pourCell.x, y: pourCell.y, z: pourCell.z, range: 2, timeoutMs: 20000 },
+            { type: "goto", x: pourCell.x, y: pourCell.y, z: pourCell.z, range: 3, timeoutMs: 20000 },
             mcData
           ).catch(() => ({}));
           const me = bot.entity.position.floored();
@@ -9087,6 +9087,8 @@ async function phasePortal(bot, mcData, state, log) {
               mcData
             ).catch(() => ({}));
             log?.(`[pour] aim@${pourCell} lava=${lava2.position} wb=${countItem(bot, "water_bucket")}`);
+          } else {
+            log?.(`[pour] unreachable cell@${pourCell} me=${me.x},${me.y},${me.z} lava=${lava2.position}`);
           }
         } else {
           const nbr = (o) => bot.blockAt(lava2.position.offset(o[0], o[1], o[2]))?.name;
