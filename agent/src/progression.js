@@ -9065,10 +9065,20 @@ async function phasePortal(bot, mcData, state, log) {
         await executeAction(bot, { type: "use_block", block: "water", item: "bucket", maxDistance: 16 }, mcData).catch(() => ({}));
       }
     }
-    // bail-out: collect/pour spins at ~1Hz when the lava in range can't be
-    // converted (all flowing, unreachable, or dry after a cast). Track
-    // failures and re-wander so the scan covers fresh terrain
+    // no source lava in scan range → keep drilling: real lava lakes (full of
+    // level-0 sources) sit at the bottom of caves, ~y<=14. Sideways cave
+    // wander only finds more flowing lava that can't be converted
     if (countItem(bot, "obsidian") < 10) {
+      const hasSource = !!bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
+      if (!hasSource && Math.floor(bot.entity.position.y) > -40) {
+        const shaft = await digStaircaseDown(bot, mcData, -55, 10).catch(() => null);
+        if (shaft?.digs > 0) {
+          return { ok: true, phase: "portal", message: `obsidian: shaft to lakes y=${shaft.y}` };
+        }
+      }
+      // bail-out: collect/pour spins at ~1Hz when the lava in range can't be
+      // converted (all flowing, unreachable, or dry after a cast). Track
+      // failures and re-wander so the scan covers fresh terrain
       globalThis.__portalObsidianFails = (globalThis.__portalObsidianFails || 0) + 1;
       if (globalThis.__portalObsidianFails >= 6) {
         globalThis.__portalObsidianFails = 0;
