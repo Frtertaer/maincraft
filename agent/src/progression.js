@@ -9035,27 +9035,61 @@ async function phasePortal(bot, mcData, state, log) {
       b?.name === "lava" &&
       (b.stateProperties?.level === 0 || b.stateProperties?.level === "0" || b.metadata === 0);
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
-      // pour water into the cell beside a lava SOURCE so it flows in and
-      // converts: a "top" pour floats water above the source and nothing
-      // converts, a side face puts water at lava level. Aim at the exact
-      // verified source block, else findActionBlock may hit flowing lava
+      // pour water into an air/lava-flow cell beside a lava SOURCE so it
+      // flows in and converts. Fluids aren't clickable — the click has to
+      // land on a SOLID neighbor's face that opens into the target cell
       const lava2 = bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
       if (lava2) {
-        for (const face of ["north", "south", "east", "west"]) {
+        const solidDirs = [
+          { d: [0, 1, 0], face: "bottom" }, // solid above lava → water lands in lava cell
+          { d: [1, 0, 0], face: "west" },
+          { d: [-1, 0, 0], face: "east" },
+          { d: [0, 0, 1], face: "north" },
+          { d: [0, 0, -1], face: "south" },
+        ];
+        let poured = false;
+        // direct fill: solid block whose face opens into the lava cell itself
+        for (const { d, face } of solidDirs) {
+          const nb = bot.blockAt(lava2.position.offset(d[0], d[1], d[2]));
+          if (!nb || nb.boundingBox !== "block") continue;
           await executeAction(
             bot,
             {
               type: "use_block",
-              x: lava2.position.x,
-              y: lava2.position.y,
-              z: lava2.position.z,
+              x: nb.position.x, y: nb.position.y, z: nb.position.z,
               face,
               item: "water_bucket",
               maxDistance: 6,
             },
             mcData
           );
-          if (countItem(bot, "water_bucket") < 1) break; // pour consumed the bucket
+          if (countItem(bot, "water_bucket") < 1) { poured = true; break; }
+        }
+        // edge pour: air cell beside the source, reached through a solid
+        // neighbor of that cell — water placed in the cell flows into lava
+        if (!poured) {
+          for (const hd of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+            const cell = lava2.position.offset(hd[0], 0, hd[2]);
+            const cb = bot.blockAt(cell);
+            if (!cb || !/^(air|cave_air|void_air|lava|water)$/.test(cb.name)) continue;
+            for (const { d, face } of solidDirs) {
+              const nb = bot.blockAt(cell.offset(d[0], d[1], d[2]));
+              if (!nb || nb.boundingBox !== "block") continue;
+              await executeAction(
+                bot,
+                {
+                  type: "use_block",
+                  x: nb.position.x, y: nb.position.y, z: nb.position.z,
+                  face,
+                  item: "water_bucket",
+                  maxDistance: 6,
+                },
+                mcData
+              );
+              if (countItem(bot, "water_bucket") < 1) { poured = true; break; }
+            }
+            if (poured) break;
+          }
         }
       }
       await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 16 }, mcData);
