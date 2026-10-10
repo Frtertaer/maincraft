@@ -6400,14 +6400,27 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // underground the climb paths above own the escape; a hostile on the
     // tile keeps the hold since shelter-first already owns that branch.
     if (state) state.foodHoldStreak = (state.foodHoldStreak || 0) + 1;
+    const feetF = bot.entity.position.floored();
+    // "underground" = solid roof in the column overhead, not just a dark head
+    // cell — a cavern lit by a distant skylight crack still has no surface
+    // path, and the hold below used to wait for /kill forever.
+    let roofedF = false;
+    for (let dy = 2; dy <= 48; dy++) {
+      const rb = bot.blockAt(feetF.offset(0, dy, 0));
+      if (rb && !/^(air|cave_air|void_air)$/.test(rb.name)) { roofedF = true; break; }
+    }
     const headSky =
-      bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0;
+      bot.blockAt(feetF.offset(0, 2, 0))?.skyLight ?? 0;
     // starving UNDERGROUND with no food path: daylight, livestock and the
     // stash are all topside, so hold-position just waits for the stuck
     // counter to /kill the run. Climb the dug staircase toward the surface
     // first — on reaching daylight the anchor march below takes over.
-    if (state?.foodHoldStreak >= 5 && headSky <= 4) {
-      const up = await stairwayUp(bot, mcData, 14, log).catch(() => null);
+    if (state?.foodHoldStreak >= 5 && roofedF) {
+      let up = await shaftUp(bot, mcData, 56, log).catch(() => null);
+      if (!up?.ok) {
+        const sw = await stairwayUp(bot, mcData, 14, log).catch(() => null);
+        if (sw?.ok) up = sw;
+      }
       if (up?.ok) {
         state.foodHoldStreak = 0;
         return { ok: true, ate, message: "starvation climb to surface" };
@@ -6950,6 +6963,36 @@ export async function panicBurrow(bot, mcData, log) {
 }
 
 export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
+  // Sealed pocket / cave spawn: no log is ever reachable down here and every
+  // lateral path dead-ends — the run used to hard-trap /kill on the spot in a
+  // loop. Detection is a solid roof in the column overhead (not just a dark
+  // head cell): a big cavern with a distant skylight crack still reads
+  // "underground". Climb to skylight first; gather only works on the surface.
+  {
+    const feet0 = bot.entity.position.floored();
+    let roofed = false;
+    for (let dy = 2; dy <= 48; dy++) {
+      const b = bot.blockAt(feet0.offset(0, dy, 0));
+      if (b && !/^(air|cave_air|void_air)$/.test(b.name)) { roofed = true; break; }
+    }
+    if (roofed) {
+      // shaft first: a 1x1 column straight up is the fastest way out of a
+      // deep pocket (staircase digs 3 cells per step — twice the time)
+      const sh = await shaftUp(bot, mcData, 56, null).catch(() => ({ ok: false }));
+      if (sh.ok || (bot.blockAt(feet0.offset(0, 2, 0))?.skyLight ?? 0) >= 15)
+        return { ok: true, message: "climbed out of sealed pocket" };
+      const sw = await stairwayUp(bot, mcData, 14, null).catch(() => null);
+      if (sw?.ok) return { ok: true, message: "stairway out of pocket" };
+      // undiggable cap right here — sidestep to find a diggable column
+      const [dx, dz] = [[3, 0], [-3, 0], [0, 3], [0, -3]][Math.floor(Math.random() * 4)];
+      await executeAction(
+        bot,
+        { type: "goto", x: feet0.x + dx, y: feet0.y, z: feet0.z + dz, range: 2, timeoutMs: 6000 },
+        mcData
+      ).catch(() => {});
+      return { ok: true, message: "seeking diggable column" };
+    }
+  }
   const logNames = [
     "oak_log",
     "spruce_log",
@@ -7799,7 +7842,7 @@ async function phaseIron(bot, mcData, state, log) {
           bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 15;
         if (headSky < 4) {
           const sh = await shaftUp(bot, mcData, 56, log).catch(() => ({ ok: false }));
-          if (sh.ok || (bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0) >= 4)
+          if (sh.ok || (bot.blockAt(bot.entity.position.floored().offset(0, 2, 0))?.skyLight ?? 0) >= 15)
             return { ok: true, phase: "iron", message: "climbed out for wood" };
           // shaft blocked overhead — keep walking sideways; do not arm the
           // gather loop where nothing can ever be reached
@@ -8398,7 +8441,7 @@ async function shaftUp(bot, mcData, maxRise = 56, log = null) {
   while (rise < maxRise) {
     const feet = bot.entity.position.floored();
     try {
-      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 4) return { ok: true, rise };
+      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 15) return { ok: true, rise };
     } catch {
       /* keep digging */
     }
@@ -8626,7 +8669,7 @@ async function stairwayUp(bot, mcData, maxSteps = 14, log) {
   for (let step = 0; step < maxSteps; step++) {
     const feet = bot.entity.position.floored();
     try {
-      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 4) return { ok: true, steps: step };
+      if ((bot.blockAt(feet.offset(0, 2, 0))?.skyLight ?? 0) >= 15) return { ok: true, steps: step };
     } catch {
       /* keep digging */
     }
