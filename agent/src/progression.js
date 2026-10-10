@@ -9053,9 +9053,21 @@ async function phasePortal(bot, mcData, state, log) {
       // source — standing there isn't required. Water deposited in the cell
       // contacts the source on the next tick and converts it to obsidian.
       // Directly-above cells convert instantly; side cells sheet across.
+      const anyLava = bot.findBlocks({
+        matching: (b) => b && b.name === "lava",
+        maxDistance: 32,
+        count: 6,
+      });
       const lava2 =
         bot.findBlock({ matching: isPourableSource, maxDistance: 32 }) ||
         bot.findBlock({ matching: (b) => b && b.position && isLavaSource(b), maxDistance: 32 });
+      if (!lava2 && anyLava.length) {
+        const seen = anyLava.slice(0, 4).map((p) => {
+          const bl = bot.blockAt(p);
+          return `${p}${bl ? `(lv=${bl.stateProperties?.level} md=${bl.metadata} nm=${bl.name})` : "(null)"}`;
+        }).join(" ");
+        log?.(`[pour] saw lava but no source: ${seen}`);
+      }
       if (lava2) {
         // nearest open cell touching the source (prefer directly above)
         const me0 = bot.entity.position.floored();
