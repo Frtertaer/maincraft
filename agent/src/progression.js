@@ -9028,12 +9028,17 @@ async function phasePortal(bot, mcData, state, log) {
     }
     // dig for obsidian if already formed
     await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 32 }, mcData);
-    // if still low: mine more diamonds/iron for bucket and cast
+    // if still low: pour water onto a lava SOURCE and mine the result.
+    // pouring on flowing lava makes cobblestone — only level-0 sources
+    // convert to obsidian, so filter on the level property
+    const isLavaSource = (b) =>
+      b?.name === "lava" &&
+      (b.stateProperties?.level === 0 || b.stateProperties?.level === "0" || b.metadata === 0);
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
       // pour water ONTO the lava face — a blind use_item pours it at the
       // bot's feet and nothing converts; activating the lava block puts the
       // water where it actually contacts the source
-      const lava2 = bot.findBlock({ matching: (b) => b?.name === "lava", maxDistance: 32 });
+      const lava2 = bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
       if (lava2) {
         await executeAction(bot, { type: "use_block", block: "lava", item: "water_bucket", maxDistance: 6 }, mcData);
       }
@@ -9043,6 +9048,25 @@ async function phasePortal(bot, mcData, state, log) {
       if (countItem(bot, "water_bucket") < 1 && countItem(bot, "bucket") > 0) {
         await executeAction(bot, { type: "use_block", block: "water", item: "bucket", maxDistance: 16 }, mcData).catch(() => ({}));
       }
+    }
+    // bail-out: collect/pour spins at ~1Hz when the lava in range can't be
+    // converted (all flowing, unreachable, or dry after a cast). Track
+    // failures and re-wander so the scan covers fresh terrain
+    if (countItem(bot, "obsidian") < 10) {
+      globalThis.__portalObsidianFails = (globalThis.__portalObsidianFails || 0) + 1;
+      if (globalThis.__portalObsidianFails >= 6) {
+        globalThis.__portalObsidianFails = 0;
+        const me3 = bot.entity.position;
+        const a = Math.random() * Math.PI * 2;
+        await executeAction(
+          bot,
+          { type: "goto", x: me3.x + Math.cos(a) * 24, y: me3.y, z: me3.z + Math.sin(a) * 24, range: 1, timeoutMs: 12000 },
+          mcData
+        ).catch(() => ({}));
+        return { ok: true, phase: "portal", message: "obsidian: relocating" };
+      }
+    } else {
+      globalThis.__portalObsidianFails = 0;
     }
     return { ok: true, phase: "portal", message: "obsidian", milestone: "OBSIDIAN" };
   }
