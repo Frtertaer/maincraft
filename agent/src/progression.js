@@ -9213,6 +9213,13 @@ async function phasePortal(bot, mcData, state, log) {
 }
 
 async function phaseNetherBlaze(bot, mcData, state, log) {
+  // verify dimension first — the bot slips back to the overworld through the
+  // portal and then explores the wrong world forever
+  const dim = String(bot.game?.dimension || "");
+  if (!/nether/i.test(dim)) {
+    const back = await enterPortal(bot, mcData);
+    return { ok: true, phase: "nether", message: back.ok ? "re-entering portal" : `nether re-entry: ${back.message}` };
+  }
   // Explore nether: fight blazes if fortress nearby
   const blaze = Object.values(bot.entities).find((e) => mobName(e) === "blaze");
   if (blaze) {
