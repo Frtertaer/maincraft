@@ -9516,10 +9516,17 @@ async function enterPortal(bot, mcData) {
     await bot.lookAt(center.offset(0, 0.4, 0), true).catch(() => {});
     bot.setControlState("jump", true);
     bot.setControlState("forward", true);
-    await sleep(2200);
+    // stop INSIDE the portal: walking straight through only spends <1s in the
+    // blocks — the 4s teleport timer needs the bot standing still inside
+    for (let t = 0; t < 20; t++) {
+      await sleep(200);
+      const me = bot.entity.position;
+      const inside = bot.blockAt(me.floored())?.name === "nether_portal" || bot.blockAt(me.floored().offset(0, 1, 0))?.name === "nether_portal";
+      if (inside || me.distanceTo(center) < 0.7) break;
+    }
     bot.setControlState("jump", false);
     bot.setControlState("forward", false);
-    await sleep(3500); // ~4s inside = teleport
+    await sleep(5000); // ~4s standing inside = teleport
   }
   // on the nether side the bot materializes INSIDE the return portal — walk
   // AWAY from the portal blocks (wall-embedded twins defeat a blind forward
