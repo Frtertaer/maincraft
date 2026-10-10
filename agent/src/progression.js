@@ -9056,29 +9056,26 @@ async function phasePortal(bot, mcData, state, log) {
       const anyLava = bot.findBlocks({
         matching: (b) => b && b.name === "lava",
         maxDistance: 32,
-        count: 6,
+        count: 24,
       });
-      const lava2 =
-        bot.findBlock({ matching: isPourableSource, maxDistance: 32 }) ||
-        bot.findBlock({ matching: (b) => b && b.position && isLavaSource(b), maxDistance: 32 });
-      if (!lava2 && anyLava.length) {
-        const seen = anyLava.slice(0, 4).map((p) => {
-          const bl = bot.blockAt(p);
-          return `${p}${bl ? `(lv=${bl.stateProperties?.level} md=${bl.metadata} nm=${bl.name})` : "(null)"}`;
-        }).join(" ");
-        log?.(`[pour] saw lava but no source: ${seen}`);
+      // pour target = the HIGHEST open cell adjacent to any lava — water
+      // dropped there falls through the flow column and hits the source at
+      // its head, converting it. Only level-0 sources convert, but aiming
+      // at the column's top is the best bet when source metadata is moot
+      const me0 = bot.entity.position.floored();
+      const OPEN = /^(air|cave_air|void_air)$/;
+      const pourCandidates = [];
+      for (const pos of anyLava) {
+        for (const o of [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+          const cell = pos.offset(o[0], o[1], o[2]);
+          const bl = bot.blockAt(cell);
+          if (bl && OPEN.test(bl.name)) pourCandidates.push(cell);
+        }
       }
+      pourCandidates.sort((a, b) => b.y - a.y || a.distanceTo(me0) - b.distanceTo(me0));
+      const lava2 = anyLava.length ? bot.blockAt(anyLava[0]) : null;
+      const pourCell = pourCandidates[0];
       if (lava2) {
-        // nearest open cell touching the source (prefer directly above)
-        const me0 = bot.entity.position.floored();
-        const candidates = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
-          .map((o) => lava2.position.offset(o[0], o[1], o[2]))
-          .filter((cell) => {
-            const bl = bot.blockAt(cell);
-            return bl && /^(air|cave_air|void_air|water)$/.test(bl.name);
-          })
-          .sort((p, q) => p.distanceTo(me0) - q.distanceTo(me0));
-        const pourCell = candidates[0];
         if (pourCell) {
           await executeAction(
             bot,
