@@ -9072,7 +9072,12 @@ async function phasePortal(bot, mcData, state, log) {
             log?.(`[pour] rim@${rim} wb=${countItem(bot, "water_bucket")}`);
           }
         } else {
-          log?.("[pour] no rim cell near lava source");
+          const nbr = (o) => bot.blockAt(lava2.position.offset(o[0], o[1], o[2]))?.name;
+          const sig = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0],
+                       [1,1,0],[-1,1,0],[0,1,1],[0,1,-1]]
+            .map((o, i) => `${i}=${nbr(o)}`).join(" ");
+          const me = bot.entity.position.floored();
+          log?.(`[pour] no rim @${lava2.position} me=${me.x},${me.y},${me.z} nb=[${sig}]`);
         }
       }
       await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 16 }, mcData);
