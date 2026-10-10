@@ -8985,9 +8985,18 @@ async function phaseDiamond(bot, mcData, state, log) {
 async function phasePortal(bot, mcData, state, log) {
   // Need obsidian 10 + flint and steel
   if (countItem(bot, "obsidian") < 10) {
+    // obsidian harvest needs a diamond pick — craft it from loose diamonds
+    // before anything else, or the collect below spins forever on iron gear
+    if (!hasAny(bot, ["diamond_pickaxe"]) && countItem(bot, "diamond") >= 3) {
+      await ensureCraft(bot, mcData, "diamond_pickaxe", 1);
+    }
     // bucket method: water + lava
     if (countItem(bot, "water_bucket") < 1 && countItem(bot, "bucket") < 1) {
       if (countItem(bot, "iron_ingot") >= 3) await ensureCraft(bot, mcData, "bucket", 1);
+    }
+    // an empty bucket is useless until filled — dip it in any water source
+    if (countItem(bot, "water_bucket") < 1 && countItem(bot, "bucket") > 0) {
+      await executeAction(bot, { type: "use_block", block: "water", item: "bucket", maxDistance: 32 }, mcData).catch(() => ({}));
     }
     // find lava lake
     const lava = bot.findBlock({ matching: (b) => b?.name === "lava", maxDistance: 48 });
@@ -8997,6 +9006,25 @@ async function phasePortal(bot, mcData, state, log) {
         { type: "goto", x: lava.position.x, y: lava.position.y, z: lava.position.z, range: 3 },
         mcData
       );
+    } else {
+      // no lava in scan range: lava lakes live at the bottom of caves —
+      // stair down toward them; already deep → sidestep so the next scan
+      // covers fresh ground instead of spinning on the same empty scan
+      const me2 = bot.entity.position;
+      const y2 = Math.floor(me2.y);
+      if (y2 > -20) {
+        const shaft = await digStaircaseDown(bot, mcData, -20, 10).catch(() => null);
+        if (shaft?.digs > 0) {
+          return { ok: true, phase: "portal", message: `shaft for lava y=${shaft.y} digs=${shaft.digs}` };
+        }
+      }
+      const a = Math.random() * Math.PI * 2;
+      await executeAction(
+        bot,
+        { type: "goto", x: me2.x + Math.cos(a) * 16, y: me2.y, z: me2.z + Math.sin(a) * 16, range: 1, timeoutMs: 8000 },
+        mcData
+      ).catch(() => ({}));
+      return { ok: true, phase: "portal", message: `seeking lava y=${y2}` };
     }
     // dig for obsidian if already formed
     await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 32 }, mcData);
