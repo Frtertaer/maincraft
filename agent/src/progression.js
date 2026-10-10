@@ -9520,6 +9520,8 @@ async function enterPortal(bot, mcData) {
     // teleport cooldown bounces it back to the overworld
     await bot.waitForChunksToLoad().catch(() => {});
     await sleep(500);
+    const p0 = bot.entity.position;
+    console.log(`[portaldbg] after-cross dim=${bot.game?.dimension} pos=${p0.x.toFixed(1)},${p0.y.toFixed(1)},${p0.z.toFixed(1)}`);
     for (let i = 0; i < 20; i++) {
       const ret = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 2.5 });
       if (!ret) break;
