@@ -9039,7 +9039,7 @@ async function phasePortal(bot, mcData, state, log) {
     // pour and always report "no rim cell"
     const AIRISH = /^(air|cave_air|void_air)$/;
     const isPourableSource = (b) => {
-      if (!isLavaSource(b)) return false;
+      if (!b || !b.position || !isLavaSource(b)) return false;
       const up = bot.blockAt(b.position.offset(0, 1, 0));
       if (!up || !AIRISH.test(up.name)) return false;
       for (const o of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
