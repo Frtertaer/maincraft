@@ -9043,7 +9043,13 @@ async function phasePortal(bot, mcData, state, log) {
       const lava2 = bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
       if (lava2) {
         let rim = null;
-        for (const hd of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]]) {
+        // standable cells next to the source: same-level neighbors whose
+        // floor is solid, plus the diagonal-up cells (air above the shore
+        // wall block) — a lava lake's open rim is always one of these
+        for (const hd of [
+          [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
+          [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 1, 0],
+        ]) {
           const cell = lava2.position.offset(hd[0], hd[1], hd[2]);
           const stand = bot.blockAt(cell);
           if (!stand || !/^(air|cave_air|void_air|water)$/.test(stand.name)) continue;
