@@ -9035,12 +9035,28 @@ async function phasePortal(bot, mcData, state, log) {
       b?.name === "lava" &&
       (b.stateProperties?.level === 0 || b.stateProperties?.level === "0" || b.metadata === 0);
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
-      // pour water ONTO the lava face — a blind use_item pours it at the
-      // bot's feet and nothing converts; activating the lava block puts the
-      // water where it actually contacts the source
+      // pour water into the cell beside a lava SOURCE so it flows in and
+      // converts: a "top" pour floats water above the source and nothing
+      // converts, a side face puts water at lava level. Aim at the exact
+      // verified source block, else findActionBlock may hit flowing lava
       const lava2 = bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
       if (lava2) {
-        await executeAction(bot, { type: "use_block", block: "lava", item: "water_bucket", maxDistance: 6 }, mcData);
+        for (const face of ["north", "south", "east", "west"]) {
+          await executeAction(
+            bot,
+            {
+              type: "use_block",
+              x: lava2.position.x,
+              y: lava2.position.y,
+              z: lava2.position.z,
+              face,
+              item: "water_bucket",
+              maxDistance: 6,
+            },
+            mcData
+          );
+          if (countItem(bot, "water_bucket") < 1) break; // pour consumed the bucket
+        }
       }
       await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 16 }, mcData);
       // refill: the pour drains the bucket — re-dip in the spill or any
