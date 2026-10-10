@@ -9052,7 +9052,7 @@ async function phasePortal(bot, mcData, state, log) {
         for (const { d, face } of solidDirs) {
           const nb = bot.blockAt(lava2.position.offset(d[0], d[1], d[2]));
           if (!nb || nb.boundingBox !== "block") continue;
-          await executeAction(
+          const r = await executeAction(
             bot,
             {
               type: "use_block",
@@ -9063,6 +9063,7 @@ async function phasePortal(bot, mcData, state, log) {
             },
             mcData
           );
+          log?.(`[pour] direct ${face}@${nb.position} -> ok=${r?.ok} msg=${r?.message || ""} wb=${countItem(bot, "water_bucket")}`);
           if (countItem(bot, "water_bucket") < 1) { poured = true; break; }
         }
         // edge pour: air cell beside the source, reached through a solid
@@ -9075,7 +9076,7 @@ async function phasePortal(bot, mcData, state, log) {
             for (const { d, face } of solidDirs) {
               const nb = bot.blockAt(cell.offset(d[0], d[1], d[2]));
               if (!nb || nb.boundingBox !== "block") continue;
-              await executeAction(
+              const r2 = await executeAction(
                 bot,
                 {
                   type: "use_block",
@@ -9086,6 +9087,7 @@ async function phasePortal(bot, mcData, state, log) {
                 },
                 mcData
               );
+              log?.(`[pour] edge ${face}@${nb.position} -> ok=${r2?.ok} msg=${r2?.message || ""} wb=${countItem(bot, "water_bucket")}`);
               if (countItem(bot, "water_bucket") < 1) { poured = true; break; }
             }
             if (poured) break;
