@@ -9499,8 +9499,19 @@ async function enterPortal(bot, mcData) {
     { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1, timeoutMs: 60000 },
     mcData
   );
-  await sleep(5000); // dimension transfer
-  return { ok: true, message: "portal crossed" };
+  // pathfinder stops at the rim — walk INTO the portal blocks. Crossings
+  // need ~4s standing inside, so drive forward until the dimension flips
+  const center = portal.position.offset(0.5, 0.5, 0.5);
+  for (let i = 0; i < 3 && !/nether/i.test(String(bot.game?.dimension || "")); i++) {
+    await bot.lookAt(center, true);
+    bot.setControlState("jump", true);
+    bot.setControlState("forward", true);
+    await sleep(2500);
+    bot.setControlState("jump", false);
+    bot.setControlState("forward", false);
+    await sleep(3500);
+  }
+  return { ok: /nether/i.test(String(bot.game?.dimension || "")), message: "portal crossed" };
 }
 
 async function wander(bot, mcData, radius = 48, dy = 0) {
