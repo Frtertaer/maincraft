@@ -9511,14 +9511,26 @@ async function enterPortal(bot, mcData) {
     bot.setControlState("forward", false);
     await sleep(3500);
   }
-  // on the nether side the bot materializes INSIDE the return portal — keep
-  // walking forward to clear the frame, or the next tick teleports it back
+  // on the nether side the bot materializes INSIDE the return portal — walk
+  // AWAY from the portal blocks (wall-embedded twins defeat a blind forward
+  // walk) or the teleport cooldown ends and it bounces back to the overworld
   if (/nether/i.test(String(bot.game?.dimension || ""))) {
-    bot.setControlState("forward", true);
-    bot.setControlState("sprint", true);
-    await sleep(1600);
+    for (let i = 0; i < 20; i++) {
+      const ret = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 2.5 });
+      if (!ret) break;
+      const me = bot.entity.position;
+      const away = me.minus(ret.position.offset(0.5, 0.5, 0.5));
+      away.y = 0;
+      if (away.norm() < 0.01) away.set(1, 0, 0); // dead center — pick +x
+      await bot.lookAt(me.plus(away.normalize()), true);
+      bot.setControlState("forward", true);
+      bot.setControlState("sprint", true);
+      bot.setControlState("jump", true);
+      await sleep(400);
+    }
     bot.setControlState("forward", false);
     bot.setControlState("sprint", false);
+    bot.setControlState("jump", false);
   }
   return { ok: /nether/i.test(String(bot.game?.dimension || "")), message: "portal crossed" };
 }
