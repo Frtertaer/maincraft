@@ -9113,6 +9113,19 @@ async function phasePortal(bot, mcData, state, log) {
           return { ok: true, phase: "portal", message: `obsidian: shaft to lakes y=${shaft.y}` };
         }
       }
+      // no source visible → walk to lava the edge-scan has already seen.
+      // Site memory covers the whole trek (48m sweeps every 12s), so a lake
+      // the bot passed earlier stays reachable instead of relying on a
+      // lucky random relocate.
+      const lavaSite = state ? nearestSite(bot, state, "lava", 300) : null;
+      if (lavaSite && Math.hypot(lavaSite.x - bot.entity.position.x, lavaSite.z - bot.entity.position.z) > 20) {
+        await executeAction(
+          bot,
+          { type: "goto", x: lavaSite.x, y: lavaSite.y, z: lavaSite.z, range: 4, timeoutMs: 30000 },
+          mcData
+        ).catch(() => ({}));
+        return { ok: true, phase: "portal", message: `obsidian: to lava site ${lavaSite.x},${lavaSite.z}` };
+      }
       // bail-out: collect/pour spins at ~1Hz when the lava in range can't be
       // converted (all flowing, unreachable, or dry after a cast). Track
       // failures and re-wander so the scan covers fresh terrain
