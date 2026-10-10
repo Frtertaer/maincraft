@@ -9034,13 +9034,27 @@ async function phasePortal(bot, mcData, state, log) {
     const isLavaSource = (b) =>
       b?.name === "lava" &&
       (b.stateProperties?.level === 0 || b.stateProperties?.level === "0" || b.metadata === 0);
+    // a pourable source sits at a lake SURFACE: open air above it and at
+    // least one lava neighbor — buried single-block pockets can't take a
+    // pour and always report "no rim cell"
+    const AIRISH = /^(air|cave_air|void_air)$/;
+    const isPourableSource = (b) => {
+      if (!isLavaSource(b)) return false;
+      const up = bot.blockAt(b.position.offset(0, 1, 0));
+      if (!up || !AIRISH.test(up.name)) return false;
+      for (const o of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]) {
+        const n = bot.blockAt(b.position.offset(o[0], o[1], o[2]));
+        if (n && n.name === "lava") return true;
+      }
+      return false;
+    };
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
       // rim pour: face-clicks on lava-adjacent solids keep getting rejected
       // (fluids aren't clickable and the far faces are out of reach/LOS), so
       // walk onto a solid cell next to the source and dump the bucket at our
       // own feet — the sheet of water flows over the rim and converts the
       // whole lava surface it can reach
-      const lava2 = bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
+      const lava2 = bot.findBlock({ matching: isPourableSource, maxDistance: 32 });
       if (lava2) {
         let rim = null;
         // standable cells next to the source: same-level neighbors whose
@@ -9091,7 +9105,7 @@ async function phasePortal(bot, mcData, state, log) {
     // level-0 sources) sit at the bottom of caves, ~y<=14. Sideways cave
     // wander only finds more flowing lava that can't be converted
     if (countItem(bot, "obsidian") < 10) {
-      const hasSource = !!bot.findBlock({ matching: isLavaSource, maxDistance: 32 });
+      const hasSource = !!bot.findBlock({ matching: isPourableSource, maxDistance: 32 });
       if (!hasSource && Math.floor(bot.entity.position.y) > -40) {
         const shaft = await digStaircaseDown(bot, mcData, -55, 10).catch(() => null);
         if (shaft?.digs > 0) {
