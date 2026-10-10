@@ -9075,6 +9075,12 @@ async function phasePortal(bot, mcData, state, log) {
       pourCandidates.sort((a, b) => b.y - a.y || a.distanceTo(me0) - b.distanceTo(me0));
       const lava2 = anyLava.length ? bot.blockAt(anyLava[0]) : null;
       const pourCell = pourCandidates[0];
+      // when the pour cell sits directly on top of a lava block, aim at the
+      // LAVA — the ray stops on its top face and the water lands in the open
+      // cell above it. Aiming at bare air lets the ray fly past to a wall
+      // face and the bucket lands one block off-target
+      const lavaUnder = pourCell && anyLava.find((p) => p.equals(pourCell.offset(0, -1, 0)));
+      const aimTarget = lavaUnder || pourCell;
       if (lava2) {
         if (pourCell) {
           await executeAction(
@@ -9089,9 +9095,9 @@ async function phasePortal(bot, mcData, state, log) {
               {
                 type: "use_item",
                 item: "water_bucket",
-                x: pourCell.x + 0.5,
-                y: pourCell.y + 0.5,
-                z: pourCell.z + 0.5,
+                x: aimTarget.x + 0.5,
+                y: aimTarget.y + (lavaUnder ? 0.99 : 0.5),
+                z: aimTarget.z + 0.5,
               },
               mcData
             ).catch(() => ({}));
