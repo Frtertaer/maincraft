@@ -9049,49 +9049,50 @@ async function phasePortal(bot, mcData, state, log) {
       return false;
     };
     if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
-      // rim pour: face-clicks on lava-adjacent solids keep getting rejected
-      // (fluids aren't clickable and the far faces are out of reach/LOS), so
-      // walk onto a solid cell next to the source and dump the bucket at our
-      // own feet — the sheet of water flows over the rim and converts the
-      // whole lava surface it can reach
-      const lava2 = bot.findBlock({ matching: isPourableSource, maxDistance: 32 });
+      // aim-pour: the pour cell only has to be OPEN and adjacent to a lava
+      // source — standing there isn't required. Water deposited in the cell
+      // contacts the source on the next tick and converts it to obsidian.
+      // Directly-above cells convert instantly; side cells sheet across.
+      const lava2 =
+        bot.findBlock({ matching: isPourableSource, maxDistance: 32 }) ||
+        bot.findBlock({ matching: (b) => b && b.position && isLavaSource(b), maxDistance: 32 });
       if (lava2) {
-        let rim = null;
-        // standable cells next to the source: same-level neighbors whose
-        // floor is solid, plus the diagonal-up cells (air above the shore
-        // wall block) — a lava lake's open rim is always one of these
-        for (const hd of [
-          [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1],
-          [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1], [0, 1, 0],
-        ]) {
-          const cell = lava2.position.offset(hd[0], hd[1], hd[2]);
-          const stand = bot.blockAt(cell);
-          if (!stand || !/^(air|cave_air|void_air|water)$/.test(stand.name)) continue;
-          const under = bot.blockAt(cell.offset(0, -1, 0));
-          if (!under || under.boundingBox !== "block") continue;
-          rim = cell;
-          break;
-        }
-        if (rim) {
-          await executeAction(bot, { type: "goto", x: rim.x, y: rim.y, z: rim.z, range: 0, timeoutMs: 20000 }, mcData).catch(() => ({}));
+        // nearest open cell touching the source (prefer directly above)
+        const me0 = bot.entity.position.floored();
+        const candidates = [[0, 1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]]
+          .map((o) => lava2.position.offset(o[0], o[1], o[2]))
+          .filter((cell) => {
+            const bl = bot.blockAt(cell);
+            return bl && /^(air|cave_air|void_air|water)$/.test(bl.name);
+          })
+          .sort((p, q) => p.distanceTo(me0) - q.distanceTo(me0));
+        const pourCell = candidates[0];
+        if (pourCell) {
+          await executeAction(
+            bot,
+            { type: "goto", x: pourCell.x, y: pourCell.y, z: pourCell.z, range: 2, timeoutMs: 20000 },
+            mcData
+          ).catch(() => ({}));
           const me = bot.entity.position.floored();
-          if (me.distanceTo(rim) <= 2) {
-            // look straight down at the floor under us and dump the bucket —
-            // water lands at our feet and sheets over the lava rim
+          if (me.distanceTo(pourCell) <= 5) {
             await executeAction(
               bot,
-              { type: "use_item", item: "water_bucket", x: me.x, y: me.y - 1, z: me.z },
+              {
+                type: "use_item",
+                item: "water_bucket",
+                x: pourCell.x + 0.5,
+                y: pourCell.y + 0.5,
+                z: pourCell.z + 0.5,
+              },
               mcData
             ).catch(() => ({}));
-            log?.(`[pour] rim@${rim} wb=${countItem(bot, "water_bucket")}`);
+            log?.(`[pour] aim@${pourCell} lava=${lava2.position} wb=${countItem(bot, "water_bucket")}`);
           }
         } else {
           const nbr = (o) => bot.blockAt(lava2.position.offset(o[0], o[1], o[2]))?.name;
-          const sig = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0],
-                       [1,1,0],[-1,1,0],[0,1,1],[0,1,-1]]
+          const sig = [[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]]
             .map((o, i) => `${i}=${nbr(o)}`).join(" ");
-          const me = bot.entity.position.floored();
-          log?.(`[pour] no rim @${lava2.position} me=${me.x},${me.y},${me.z} nb=[${sig}]`);
+          log?.(`[pour] sealed @${lava2.position} me=${me0.x},${me0.y},${me0.z} nb=[${sig}]`);
         }
       }
       await executeAction(bot, { type: "collect", block: "obsidian", count: 10, maxDistance: 16 }, mcData);
