@@ -9515,6 +9515,11 @@ async function enterPortal(bot, mcData) {
   // AWAY from the portal blocks (wall-embedded twins defeat a blind forward
   // walk) or the teleport cooldown ends and it bounces back to the overworld
   if (/nether/i.test(String(bot.game?.dimension || ""))) {
+    // client unloads all chunks on dimension change — without this wait,
+    // findBlock sees nothing and the bot stands inside the portal until the
+    // teleport cooldown bounces it back to the overworld
+    await bot.waitForChunksToLoad().catch(() => {});
+    await sleep(500);
     for (let i = 0; i < 20; i++) {
       const ret = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 2.5 });
       if (!ret) break;
