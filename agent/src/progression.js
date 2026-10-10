@@ -9048,7 +9048,13 @@ async function phasePortal(bot, mcData, state, log) {
       }
       return false;
     };
-    if (countItem(bot, "obsidian") < 10 && countItem(bot, "water_bucket") > 0) {
+    if (countItem(bot, "obsidian") < 10 && (countItem(bot, "water_bucket") > 0 || countItem(bot, "bucket") > 0)) {
+      // refill FIRST: a spent cast leaves an empty bucket, and gating the
+      // dip on water_bucket>0 made this dead code — the bot stranded with
+      // two empty buckets next to a pool
+      if (countItem(bot, "water_bucket") < 1 && countItem(bot, "bucket") > 0) {
+        await executeAction(bot, { type: "use_block", block: "water", item: "bucket", maxDistance: 24 }, mcData).catch(() => ({}));
+      }
       // aim-pour: the pour cell only has to be OPEN and adjacent to a lava
       // source — standing there isn't required. Water deposited in the cell
       // contacts the source on the next tick and converts it to obsidian.
@@ -9081,7 +9087,7 @@ async function phasePortal(bot, mcData, state, log) {
       // face and the bucket lands one block off-target
       const lavaUnder = pourCell && anyLava.find((p) => p.equals(pourCell.offset(0, -1, 0)));
       const aimTarget = lavaUnder || pourCell;
-      if (lava2) {
+      if (lava2 && countItem(bot, "water_bucket") > 0) {
         if (pourCell) {
           await executeAction(
             bot,
