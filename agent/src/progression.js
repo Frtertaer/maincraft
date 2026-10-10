@@ -9106,7 +9106,7 @@ async function phasePortal(bot, mcData, state, log) {
     // wander only finds more flowing lava that can't be converted
     if (countItem(bot, "obsidian") < 10) {
       const hasSource = !!bot.findBlock({ matching: isPourableSource, maxDistance: 32 });
-      if (!hasSource && Math.floor(bot.entity.position.y) > -40) {
+      if (!hasSource && Math.floor(bot.entity.position.y) > -52) {
         const shaft = await digStaircaseDown(bot, mcData, -55, 10).catch(() => null);
         if (shaft?.digs > 0) {
           return { ok: true, phase: "portal", message: `obsidian: shaft to lakes y=${shaft.y}` };
