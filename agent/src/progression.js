@@ -9204,10 +9204,24 @@ async function phasePortal(bot, mcData, state, log) {
       mcData
     );
   }
-  // light
-  await executeAction(bot, { type: "use_block", block: "obsidian", item: "flint_and_steel", x: ox + 1, y: oy + 1, z: oz }, mcData);
+  // light — retry until the portal block actually exists. The use_block
+  // click must hit an inner frame face; from some angles the first cast
+  // sparks against the rim instead, so verify rather than assume
+  for (let lit = false, tries = 0; !lit && tries < 4; tries++) {
+    await executeAction(
+      bot,
+      { type: "use_block", block: "obsidian", item: "flint_and_steel", x: ox + 1, y: oy + 1, z: oz },
+      mcData
+    ).catch(() => ({}));
+    await sleep(700);
+    lit = !!bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 24 });
+  }
+  const litPortal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 24 });
+  if (!litPortal) {
+    return { ok: true, phase: "portal", message: "portal: frame built, still unlit" };
+  }
   // enter portal
-  await executeAction(bot, { type: "goto", x: ox + 1.5, y: oy + 1, z: oz, range: 0.5 }, mcData);
+  await executeAction(bot, { type: "goto", x: litPortal.position.x, y: litPortal.position.y, z: litPortal.position.z, range: 1 }, mcData);
   await sleep(4000);
   return { ok: true, phase: "portal", message: "portal build/enter", milestone: "PORTAL" };
 }
@@ -9217,7 +9231,19 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
   // portal and then explores the wrong world forever
   const dim = String(bot.game?.dimension || "");
   if (!/nether/i.test(dim)) {
-    const back = await enterPortal(bot, mcData);
+    let back = await enterPortal(bot, mcData);
+    if (!back.ok && hasAny(bot, ["flint_and_steel"])) {
+      // an unlit frame may be standing nearby — spark it and retry
+      const obs = bot.findBlock({ matching: (b) => b?.name === "obsidian", maxDistance: 32 });
+      if (obs) {
+        await executeAction(
+          bot,
+          { type: "use_block", block: "obsidian", item: "flint_and_steel", x: obs.position.x, y: obs.position.y, z: obs.position.z },
+          mcData
+        ).catch(() => ({}));
+        back = await enterPortal(bot, mcData);
+      }
+    }
     return { ok: true, phase: "nether", message: back.ok ? "re-entering portal" : `nether re-entry: ${back.message}` };
   }
   // Explore nether: fight blazes if fortress nearby
