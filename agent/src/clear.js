@@ -143,7 +143,7 @@ export class ClearRunner {
           else if (near.length) cause = ` mob:${near.join(",")}`;
         } catch {}
       }
-      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
+      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this._phaseSeen || this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
       if (p) {
         this.state._diedPos = { x: p.x, z: p.z };
         // the whole kit drops where the death happened — keep the full spot
@@ -170,7 +170,7 @@ export class ClearRunner {
         deathZonesSaveFile(this.bot, this.state._deathPts, this.state.campZone);
         try {
           const strat = strategyLoad(this.bot);
-          const ph = this.state?.phase || "?";
+          const ph = this._phaseSeen || this.state?.phase || "?";
           strategyRecord(strat, ph, "default", siteKey(p), "death");
           strat.deaths = (strat.deaths || []).concat([{ x: p.x, z: p.z, t: Date.now(), phase: ph, dim: String(this.bot.game?.dimension || "") }]).slice(-200);
           strategySave(strat);
@@ -588,6 +588,7 @@ export class ClearRunner {
   // banked capital back into the pocket after a death, and walk off a site
   // whose failure budget for the current phase is spent.
   async _govern(bot, state) {
+    try { if (bot.entity && bot.health > 0) this._phaseSeen = detectPhase(bot); } catch { /* keep last */ }
     const now = Date.now();
     const me = bot.entity?.position;
     if (!me) return;
