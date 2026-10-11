@@ -481,6 +481,95 @@ async function ensureCraft(bot, mcData, item, count = 1) {
   return r;
 }
 
+// Torch supply: coal|charcoal + sticks → 4 torches per coal. Crafts only the
+// deficit toward `want`; sticks are cut from planks when short. The whole
+// spawn-proofing plan (home, pockets, mine shafts) hangs on keeping a torch
+// stock — a lit cell can never spawn a mob.
+async function ensureTorches(bot, mcData, want = 8) {
+  const have = countItem(bot, (i) => i.name === "torch");
+  if (have >= want) return { ok: true, have };
+  if (countItem(bot, (i) => i.name === "coal" || i.name === "charcoal") < 1) {
+    return { ok: false, have, message: "no coal" };
+  }
+  if (countItem(bot, (i) => i.name === "stick") < 1) {
+    await ensureSticks(bot, mcData, 4).catch(() => {});
+  }
+  const sticks = countItem(bot, (i) => i.name === "stick");
+  if (sticks < 1) return { ok: false, have, message: "no sticks" };
+  const fuel = countItem(bot, (i) => i.name === "coal" || i.name === "charcoal");
+  const target = Math.min(Math.max(4, want - have + 4), fuel * 4, sticks * 4, 16);
+  const cr = await ensureCraft(bot, mcData, "torch", target).catch(() => ({ ok: false }));
+  return { ok: cr.ok !== false, have: countItem(bot, (i) => i.name === "torch"), message: cr.message };
+}
+
+// Opportunistic coal: a vein within reach while a pickaxe exists is free
+// fuel AND torch stock — dig the nearest `n` cells on the way past instead
+// of walking by. Skipped entirely without a pickaxe (bare hands get no drop).
+async function snagCoal(bot, mcData, n = 2, maxDist = 14) {
+  if (!bot.inventory.items().some((i) => /pickaxe/.test(i.name))) return 0;
+  let got = 0;
+  for (let i = 0; i < n; i++) {
+    const ore = bot.findBlock({
+      matching: (b) => b && /^(coal_ore|deepslate_coal_ore)$/.test(b.name || ""),
+      maxDistance: maxDist,
+    });
+    if (!ore) break;
+    const dg = await executeAction(
+      bot,
+      { type: "dig", x: ore.position.x, y: ore.position.y, z: ore.position.z, timeoutMs: 15000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (!dg.ok) break;
+    got++;
+  }
+  return got;
+}
+
+// Spawn-proof an area: torch the darkest floor cells around the bot. A cell
+// counts as dark when its combined light <8 (vanilla needs light>0 to block
+// spawns; 8 leaves margin for torch falloff). Only cells a top-face place
+// can reach get lit; the caller picks when (idle moments: sealed pocket,
+// home fortification, shaft landings).
+async function lightArea(bot, mcData, log, radius = 6, maxTorches = 4) {
+  if (!bot.inventory.items().some((i) => i.name === "torch")) return 0;
+  const me = bot.entity.position.floored();
+  const isAirN = (b) => !b || /^(air|cave_air|void_air)$/.test(b.name);
+  const cand = [];
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dy = -2; dy <= 1; dy++) {
+        const cell = bot.blockAt(me.offset(dx, dy, dz));
+        if (!cell || cell.name !== "air") continue;
+        if ((cell.light ?? 0) >= 8 || (cell.skyLight ?? 0) >= 8) continue;
+        const floor = bot.blockAt(me.offset(dx, dy - 1, dz));
+        if (isAirN(floor) || /lava|water|magma|fire|torch|lantern/.test(floor.name)) continue;
+        const head = bot.blockAt(me.offset(dx, dy + 1, dz));
+        if (head && head.name !== "air") continue;
+        cand.push({
+          x: me.x + dx,
+          y: me.y + dy,
+          z: me.z + dz,
+          l: Math.max(cell.light ?? 0, cell.skyLight ?? 0),
+        });
+      }
+    }
+  }
+  cand.sort((a, b) => a.l - b.l);
+  let lit = 0;
+  for (const c of cand) {
+    if (lit >= maxTorches) break;
+    if (!bot.inventory.items().some((i) => i.name === "torch")) break;
+    const p = await executeAction(
+      bot,
+      { type: "place", item: "torch", x: c.x, y: c.y, z: c.z, face: "top", timeoutMs: 8000 },
+      mcData
+    ).catch(() => ({ ok: false }));
+    if (p.ok) lit++;
+  }
+  if (lit) log?.(`[light] placed ${lit} torch(es) — area spawn-proofed`);
+  return lit;
+}
+
 async function ensureSticks(bot, mcData, min = 4) {
   if (countItem(bot, "stick") >= min) return { ok: true, message: "have sticks" };
   if (countItem(bot, (i) => i.name.includes("planks")) < 2) {
@@ -2210,6 +2299,44 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
     );
     if (!step.ok) break;
     mined += 1;
+    // light the tunnel behind: a dark 1x2 shaft is the spawn cell the
+    // "mob up the shaft" killer uses — torch every ~6 steps keeps the whole
+    // strip unspawnable and the torches also mark the way back to the stair
+    if (mined % 6 === 0) {
+      await ensureTorches(bot, mcData, 6).catch(() => {});
+      const f2 = bot.entity.position.floored();
+      const head2 = bot.blockAt(f2.offset(0, 1, 0));
+      if (head2 && (head2.light ?? 0) < 8 && (head2.skyLight ?? 0) < 8) {
+        // wall torch on either side of the 1x2 (floor-top would get
+        // trampled out on the return walk); fall back to floor-top
+        let lit2 = false;
+        for (const [wx, wz] of [[dx === 0 ? 1 : 0, dz === 0 ? 0 : 1], [dx === 0 ? -1 : 0, dz === 0 ? 0 : -1]]) {
+          const wallB = bot.blockAt(f2.offset(wx, 0, wz));
+          const airC = bot.blockAt(f2);
+          if (wallB && !/air|water|lava/.test(wallB.name) && airC && airC.name === "air") {
+            // ref = target.minus(direction): a wall at +x attaches the torch
+            // to that block's WEST face → face "west", not "east"
+            const face = wx === 1 ? "west" : wx === -1 ? "east" : wz === 1 ? "north" : "south";
+            const tp2 = await executeAction(
+              bot,
+              { type: "place", item: "torch", x: f2.x, y: f2.y, z: f2.z, face, timeoutMs: 5000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            if (tp2.ok) {
+              lit2 = true;
+              break;
+            }
+          }
+        }
+        if (!lit2) {
+          await executeAction(
+            bot,
+            { type: "place", item: "torch", x: f2.x, y: f2.y, z: f2.z, face: "top", timeoutMs: 5000 },
+            mcData
+          ).catch(() => {});
+        }
+      }
+    }
     // collect ore veins visible in the freshly dug tunnel walls — tight
     // radius so it only mines into stone, never walks into open caves
     for (const ore of [
@@ -2545,6 +2672,10 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
       at: Date.now(),
     };
     homeSaveFile(state.home);
+    // a claimed pocket is the base — spawn-proof it while we sit here:
+    // coal+sticks → torches on the darkest floor cells of room and mouth
+    await ensureTorches(bot, mcData, 8).catch(() => {});
+    await lightArea(bot, mcData, log, 5, 4).catch(() => 0);
     return true;
   }
   return false;
@@ -8260,6 +8391,10 @@ async function phaseIron(bot, mcData, state, log) {
       { type: "collect", block: "iron_ore", count: 6, maxDistance: 10, timeoutMs: 20000 },
       mcData
     );
+    // the walk to iron usually passes a coal vein — it's fuel AND torch
+    // stock; grab up to 2 cells on the way through (needs a pickaxe, which
+    // the iron phase already carries)
+    await snagCoal(bot, mcData, 2, 12).catch(() => 0);
     let gained = countItem(bot, "raw_iron") + countItem(bot, "iron_ore") + countItem(bot, "deepslate_iron_ore") - before;
     if (!close.ok || gained <= 0) {
       // strip-mine: tunnel through stone at depth, ore shows in the walls —
@@ -8561,6 +8696,40 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
     );
     if (!dig.ok) return { ok: false, message: dig.message, digs, y: Math.floor(bot.entity.position.y) };
     digs += 1;
+    // the descent shaft is also the coal route and a spawn corridor: grab a
+    // vein when one shows in the fresh wall and drop a torch every few
+    // steps so the stair never spawns a follower up behind us
+    if (digs % 3 === 0) {
+      await snagCoal(bot, mcData, 1, 10).catch(() => 0);
+      await ensureTorches(bot, mcData, 6).catch(() => {});
+      const f2 = bot.entity.position.floored();
+      const head2 = bot.blockAt(f2.offset(0, 1, 0));
+      if (head2 && head2.name === "air" && (head2.light ?? 0) < 8 && (head2.skyLight ?? 0) < 8) {
+        let lit2 = false;
+        for (const [wx, wz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const wallB = bot.blockAt(f2.offset(wx, 1, wz));
+          if (wallB && !/air|water|lava/.test(wallB.name)) {
+            const face = wx === 1 ? "west" : wx === -1 ? "east" : wz === 1 ? "north" : "south";
+            const tp2 = await executeAction(
+              bot,
+              { type: "place", item: "torch", x: f2.x, y: f2.y + 1, z: f2.z, face, timeoutMs: 5000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            if (tp2.ok) {
+              lit2 = true;
+              break;
+            }
+          }
+        }
+        if (!lit2) {
+          await executeAction(
+            bot,
+            { type: "place", item: "torch", x: f2.x, y: f2.y, z: f2.z, face: "top", timeoutMs: 5000 },
+            mcData
+          ).catch(() => {});
+        }
+      }
+    }
     await sleep(400);
   }
   return { ok: true, digs, y: Math.floor(bot.entity.position.y), from: startY };
