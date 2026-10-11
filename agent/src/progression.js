@@ -7047,6 +7047,13 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // recorded deaths and the night loop kept landing in the same bowl.
       // Carrying the bed out of the zone beats claiming it here
       const bedZones = campZonesFor(bot, state);
+      const todC = bot.time?.timeOfDay ?? 0;
+      if (posInCamp(p, bedZones, 100) && todC >= 11000 && todC < 23000) {
+        // a 120m carry started at dusk lands the naked bot on open ground at
+        // nightfall (5 skeleton deaths in 3 min) — hold the bed, shelter first
+        log?.(`[bed] dusk (tod=${todC}) — bed carry deferred to morning`);
+        return { ok: false, message: "bed carry deferred (dusk)" };
+      }
       if (posInCamp(p, bedZones, 100)) {
         // "carrying the bed out" must actually CARRY — the old bare refusal
         // left the bot standing in the kill ring with the bed in the bag
