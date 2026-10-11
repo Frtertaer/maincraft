@@ -2529,6 +2529,14 @@ export class ClearRunner {
           // since /kill is denied for a non-op player and silently no-ops.
           // The respawn handler above re-gears from the stash chest. Surface
           // phases only — a nether/end kill strands the run.
+          // a bot that keeps covering ground (forest trek, sheep chase) is
+          // not trapped — only cycles spent within ~24m count toward suicide
+          {
+            const here = bot.entity.position;
+            const a = state.stuckAnchor;
+            state.stuckAnchor = { x: here.x, z: here.z };
+            if (a && Math.hypot(here.x - a.x, here.z - a.z) > 24) state.stuckCycles = 0;
+          }
           state.stuckCycles = (state.stuckCycles || 0) + 1;
           if (
             state.stuckCycles >= 3 &&

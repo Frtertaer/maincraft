@@ -7879,6 +7879,7 @@ async function phaseWood(bot, mcData, state, log) {
         }
       }
     }
+    if (now > logs && state) logSiteRecord(bot.entity.position.floored(), bot, state);
     return {
       ok: rr.ok || now > logs,
       phase: "wood",
