@@ -1082,9 +1082,38 @@ export class ClearRunner {
                 // naked on undiggable stone with a pack inside 40m: "burrow
                 // anyway" is the guaranteed carve-mid-seal death the flee
                 // comment warns about — there's no shelter to build anyway.
-                // Keep sprinting; opening the gap is the only working exit.
-                this.log(`[clear] can't shelter here — keep fleeing, not carving into the pack`);
-                await fleeUntilClear(legDir[0], legDir[1], 8).catch(() => {});
+                // But sprinting blind across stone just meets fresh mobs (the
+                // night-camp respawn loop): run to the nearest DIGGABLE ground
+                // instead — bare hands carve a dirt pocket that seals the pack.
+                const me = bot.entity.position.floored();
+                const dirtSpots = [];
+                for (let dx = -14; dx <= 14; dx += 2) {
+                  for (let dz = -14; dz <= 14; dz += 2) {
+                    if (Math.abs(dx) < 4 && Math.abs(dz) < 4) continue;
+                    const c = bot.blockAt(me.offset(dx, -1, dz));
+                    const h1 = bot.blockAt(me.offset(dx, 0, dz));
+                    const h2 = bot.blockAt(me.offset(dx, 1, dz));
+                    if (diggable(c) && h1 && h1.name === "air" && h2 && h2.name === "air") {
+                      dirtSpots.push(me.offset(dx, 0, dz));
+                    }
+                  }
+                }
+                dirtSpots.sort((a, b) => a.distanceTo(me) - b.distanceTo(me));
+                const dirt = dirtSpots[0];
+                if (dirt) {
+                  this.log(`[clear] flee to diggable ground @${dirt.x},${dirt.z}`);
+                  await executeAction(
+                    bot,
+                    { type: "goto", x: dirt.x, y: dirt.y, z: dirt.z, range: 1, timeoutMs: 12000 },
+                    this.mcData
+                  ).catch(() => {});
+                  await burrowForNight(bot, this.mcData, this.log, false, 0, this.state).catch((err) => {
+                    this.log(`[clear] dirt burrow fail: ${err?.message || err}`);
+                  });
+                } else {
+                  this.log(`[clear] can't shelter here — keep fleeing, not carving into the pack`);
+                  await fleeUntilClear(legDir[0], legDir[1], 8).catch(() => {});
+                }
               } else {
                 if (!bedNear && stillClose) this.log(`[clear] pack within 40m — burrow immediately`);
                 await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
