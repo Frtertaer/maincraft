@@ -1261,10 +1261,16 @@ async function farmTend(bot, mcData, log, state) {
         maxDistance: 40,
         count: 60,
       }) || []).map((p) => bot.blockAt(p)).filter(Boolean);
-      const plantable = (b) =>
-        b.name !== "farmland" &&
-        /air|short_grass|tall_grass|fern/.test(bot.blockAt(b.position.offset(0, 1, 0))?.name || "") &&
-        (bot.blockAt(b.position.offset(0, 1, 0))?.skyLight ?? 15) > 8; // crops need light
+      const plantable = (b) => {
+        const above = bot.blockAt(b.position.offset(0, 1, 0));
+        return (
+          b.name !== "farmland" &&
+          /air|short_grass|tall_grass|fern/.test(above?.name || "") &&
+          // crops grow at light ≥9 from ANY source — a torch-lit pocket is as
+          // good as daylight, and the sealed room never spawns a trampler
+          Math.max(above?.light ?? 0, above?.skyLight ?? 0) >= 9
+        );
+      };
       const site =
         (water
           ? soils.find(
@@ -1308,6 +1314,56 @@ async function farmTend(bot, mcData, log, state) {
                 }
               } catch { /* plant best-effort */ }
             }
+          }
+        } else if (countItem(bot, (i) => i.name === "dirt") > 0 && bot.food != null && bot.food <= 6) {
+          // pocket farm: no tillable soil in reach (underground stone room) —
+          // place an inventory dirt block on the floor as a raised bed. Torch
+          // light ≥9 grows wheat here, and the sealed pocket is the one
+          // permanently spawn-proofed cell on the map: free bread forever.
+          const f = bot.entity.position.floored();
+          const spots = [
+            [1, 0], [-1, 0], [0, 1], [0, -1],
+            [1, 1], [-1, -1], [1, -1], [-1, 1],
+            [2, 0], [0, 2], [-2, 0], [0, -2],
+          ];
+          for (const [ox, oz] of spots) {
+            const cell = bot.blockAt(f.offset(ox, 0, oz));
+            const under = bot.blockAt(f.offset(ox, -1, oz));
+            const head = bot.blockAt(f.offset(ox, 1, oz));
+            if (!(cell && cell.name === "air" && head && head.name === "air")) continue;
+            if (!(under && !/air|water|lava/.test(under.name))) continue;
+            const pd = await executeAction(
+              bot,
+              { type: "place", item: "dirt", x: cell.position.x, y: cell.position.y, z: cell.position.z, face: "top", timeoutMs: 6000 },
+              mcData
+            ).catch(() => ({ ok: false }));
+            if (!pd.ok) continue;
+            const fresh = bot.blockAt(cell.position);
+            if (!fresh || fresh.name !== "dirt") continue;
+            if (!bot.inventory.items().some((i) => /_hoe$/.test(i.name))) {
+              await ensurePlanks(bot, mcData, 2).catch(() => null);
+              await ensureCraft(bot, mcData, "wooden_hoe", 1).catch(() => ({ ok: false }));
+            }
+            const hoe2 = bot.inventory.items().find((i) => /_hoe$/.test(i.name));
+            if (hoe2) {
+              try {
+                await bot.equip(hoe2, "hand");
+                await pt(bot.activateBlock(fresh), 5000);
+              } catch { /* till best-effort */ }
+              const tilled2 = bot.blockAt(cell.position);
+              if (tilled2 && tilled2.name === "farmland") {
+                try {
+                  const s2 = bot.inventory.items().find((i) => /_seeds$/.test(i.name));
+                  if (s2) {
+                    await bot.equip(s2, "hand");
+                    await pt(bot.activateBlock(tilled2), 5000);
+                    state.farm = { x: cell.position.x, y: cell.position.y, z: cell.position.z };
+                    log?.(`[food] pocket farm plot @${cell.position.x},${cell.position.z}`);
+                  }
+                } catch { /* plant best-effort */ }
+              }
+            }
+            break;
           }
         }
       }
