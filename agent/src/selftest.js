@@ -26,7 +26,7 @@ import { readDecision, gateDecision, compactState, createController } from "./co
 import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
 import {
-  intersectRays, perpendicularPoint,
+  intersectRays, perpendicularPoint, sweepTarget,
   phaseFromItems, capitalGap, assessRisk, deathHeat, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
 } from "./insurance.js";
 import fs from "fs";
@@ -913,6 +913,9 @@ const mkCtx = (world, over = {}) => ({
   check("side point perpendicular", Math.abs(side.x) < 1e-9 && Math.abs(side.z - 100) < 1e-9);
   check("eyes lost keeps stronghold", phaseFromItems({ ender_eye: 10 }) === "stronghold");
   check("eyes mid-craft stays eyes", phaseFromItems({ ender_eye: 6, ender_pearl: 6, blaze_powder: 6 }) === "eyes");
+  const sw0 = sweepTarget({ x: 0, z: 0 }, 0);
+  const sw8 = sweepTarget({ x: 0, z: 0 }, 8);
+  check("sweep grows rings", Math.hypot(sw8.x, sw8.z) > Math.hypot(sw0.x, sw0.z) + 40, JSON.stringify([sw0, sw8]));
   check("nether gate needs armor", !readiness("nether", full, 2).ready);
   check("nether gate ready", readiness("nether", full, armorPoints([{ name: "iron_chestplate" }, { name: "iron_leggings" }])).ready);
 }

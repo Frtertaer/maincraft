@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
-import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints, intersectRays, perpendicularPoint } from "./insurance.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -9749,6 +9749,7 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
     maxDistance: 64,
   });
   if (brick) {
+    sitesAdd(bot, "fortress", brick.position);
     await executeAction(
       bot,
       { type: "goto", x: brick.position.x, y: brick.position.y, z: brick.position.z, range: 2, timeoutMs: 90000 },
@@ -9756,12 +9757,25 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
     );
     return { ok: true, phase: "blaze", message: "goto fortress", milestone: "FORTRESS" };
   }
-  // random explore
   const p = bot.entity.position;
-  const ang = Math.random() * Math.PI * 2;
-  const nx = p.x + Math.cos(ang) * 40;
-  const nz = p.z + Math.sin(ang) * 40;
-  await executeAction(bot, { type: "goto", x: nx, y: p.y, z: nz, range: 3, timeoutMs: 60000 }, mcData);
+  const known = sitesLoad(bot, "fortress").sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+  if (known && Math.hypot(known.x - p.x, known.z - p.z) > 24) {
+    const d = Math.hypot(known.x - p.x, known.z - p.z);
+    const k = Math.min(1, 60 / d);
+    await executeAction(bot, { type: "goto", x: p.x + (known.x - p.x) * k, y: known.y, z: p.z + (known.z - p.z) * k, range: 3, timeoutMs: 70000 }, mcData).catch(() => ({}));
+    return { ok: true, phase: "blaze", message: `back to known fortress ${known.x},${known.z} d=${d | 0}` };
+  }
+  // systematic sweep around the arrival portal
+  const sw = (state.netherSweep = state.netherSweep || { o: { x: Math.round(p.x), z: Math.round(p.z) }, k: 0 });
+  const tgt = sweepTarget(sw.o, sw.k);
+  if (Math.hypot(tgt.x - p.x, tgt.z - p.z) < 8 || (sw.tries = (sw.tries || 0) + 1) > 3) {
+    sw.k += 1;
+    sw.tries = 0;
+  }
+  const t2 = sweepTarget(sw.o, sw.k);
+  const dd = Math.hypot(t2.x - p.x, t2.z - p.z) || 1;
+  const kk = Math.min(1, 48 / dd);
+  await executeAction(bot, { type: "goto", x: p.x + (t2.x - p.x) * kk, y: p.y, z: p.z + (t2.z - p.z) * kk, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
   // fight piglins/ghasts if attacked
   await executeAction(bot, { type: "attack", maxDurationMs: 8000, maxDistance: 16 }, mcData);
   return { ok: true, phase: "nether", message: "explore nether", milestone: "NETHER_EXPLORE" };

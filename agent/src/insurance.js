@@ -309,3 +309,29 @@ export function intersectRays(r1, r2) {
 export function perpendicularPoint(r, dist = 100) {
   return { x: r.x - r.dz * dist, z: r.z + r.dx * dist };
 }
+
+// ---------- structure memory ----------
+// Found structures (fortress, bastion, stronghold fix) outlive death and
+// restart: the corpse-run kit walks straight back instead of re-scouting.
+const SITES_FILE = path.join(LOGS, "sites.json");
+export function sitesLoad(bot, kind) {
+  const a = readJson(SITES_FILE, []);
+  return (Array.isArray(a) ? a : []).filter((e) => e && e.kind === kind && sameWorld(bot, e));
+}
+export function sitesAdd(bot, kind, pos) {
+  if (!pos) return;
+  const a = readJson(SITES_FILE, []);
+  const list = Array.isArray(a) ? a : [];
+  if (list.some((e) => e.kind === kind && Math.hypot(e.x - pos.x, e.z - pos.z) < 48)) return;
+  const sp = bot?.spawnPoint;
+  list.push({ kind, x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z), sx: sp?.x ?? null, sz: sp?.z ?? null, t: Date.now() });
+  writeJson(SITES_FILE, list.slice(-100));
+}
+
+// Systematic scouting: spokes around an origin at growing radius instead of
+// random 40-block hops (random walk covers area ~√t; spokes cover it ~t).
+export function sweepTarget(origin, k, leg = 48, spokes = 8) {
+  const ring = Math.floor(k / spokes) + 1;
+  const ang = ((k % spokes) / spokes) * Math.PI * 2 + (ring % 2 ? 0 : Math.PI / spokes);
+  return { x: Math.round(origin.x + Math.cos(ang) * ring * leg * 1.5), z: Math.round(origin.z + Math.sin(ang) * ring * leg * 1.5) };
+}
