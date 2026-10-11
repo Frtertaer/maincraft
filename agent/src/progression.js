@@ -6498,6 +6498,22 @@ export async function ensureFed(bot, mcData, log, state = null) {
         state.foodHoldStreak = 0;
         return { ok: true, ate, message: "starvation climb to surface" };
       }
+      // the column refuses (gravel/lava/water overhead) and the hold just
+      // re-tries the same dead column forever — the 1hp starvation loop.
+      // Hop a few meters sideways before holding so the next tick digs a
+      // different column; starving still WALKS so a 7m hop is cheap.
+      const q0 = bot.entity.position.floored();
+      const hopDir = [
+        [7, 0],
+        [-7, 0],
+        [0, 7],
+        [0, -7],
+      ][Math.floor(state.foodHoldStreak / 2) % 4];
+      await executeAction(
+        bot,
+        { type: "goto", x: q0.x + hopDir[0], y: q0.y, z: q0.z + hopDir[1], range: 2, timeoutMs: 9000 },
+        mcData
+      ).catch(() => {});
     }
     // A slow melee mob can't catch a walking bot (zombie/drowned ~2.3 vs
     // 4.3 m/s) — on a mob-dense seed there is ALWAYS a hostile within 24m,
