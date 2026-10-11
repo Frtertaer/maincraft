@@ -2414,6 +2414,34 @@ export class ClearRunner {
               // 1hp is still the real respawn the trap needs; a corridor
               // that keeps going is an actual exit.
               const moved = bot.entity?.position ? me2.distanceTo(bot.entity.position) : 0;
+              if (victim && moved < 1.5) {
+                // mob behind rock — open the wall cell on its bearing.
+                // Pathfinding works both ways through the hole: it walks
+                // in and lands the hit. Stone by hand is ~10s, so retry
+                // the same cell until it breaks.
+                const dvx = victim.position.x - me2.x;
+                const dvz = victim.position.z - me2.z;
+                const cards =
+                  Math.abs(dvx) > Math.abs(dvz)
+                    ? [[Math.sign(dvx), 0], [0, Math.sign(dvz)]]
+                    : [[0, Math.sign(dvz)], [Math.sign(dvx), 0]];
+                for (const [cx, cz] of cards) {
+                  if (!cx && !cz) continue;
+                  for (const dy of [0, 1]) {
+                    const wb = bot.blockAt(me2.floored().offset(cx, dy, cz));
+                    if (!wb || /air|cave_air|void_air|bedrock|water|lava|torch|lantern/.test(wb.name || "")) continue;
+                    this.log(`[clear] digging mob-door ${wb.name} toward ${victim.name}`);
+                    for (let t = 0; t < 4; t++) {
+                      await executeAction(
+                        bot,
+                        { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000 },
+                        this.mcData
+                      ).catch(() => {});
+                      if (bot.blockAt(wb.position)?.name === "air") break;
+                    }
+                  }
+                }
+              }
               if (moved < 1.5) {
                 const anchor = [
                   ...(state?.home ? [state.home] : []),
