@@ -6484,6 +6484,56 @@ export async function ensureFed(bot, mcData, log, state = null) {
     }
     const headSky =
       bot.blockAt(feetF.offset(0, 2, 0))?.skyLight ?? 0;
+    // starving inside its own sealed pocket: every respawn lands back in
+    // the grave (bed anchor or respawn-in-place), the food-hold waits for
+    // dawn that never reaches underground, and /kill just resets the loop
+    // — the y=33 trap held ~20min through 8 unstick kills. The plug is its
+    // own burrow wall — diggable by fist. Crack the face cells (feet+head,
+    // 4 sides), skipping walls that face fluid, and let pathfinder find
+    // the way it came in. Stone walls fail the dig and cost nothing.
+    if (state?.foodHoldStreak >= 3 && headSky <= 4) {
+      let cracked = 0;
+      for (const [ddx, ddz] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
+        for (const dy of [0, 1]) {
+          const wb = bot.blockAt(feetF.offset(ddx, dy, ddz));
+          if (!wb || /air|cave_air|void_air|bedrock/.test(wb.name)) continue;
+          const behind = bot.blockAt(feetF.offset(ddx * 2, dy, ddz * 2));
+          if (behind && /water|lava|kelp|seagrass|bubble/.test(behind.name || "")) continue;
+          const dg = await executeAction(
+            bot,
+            { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 8000 },
+            mcData
+          ).catch(() => null);
+          if (dg?.ok || bot.blockAt(wb.position)?.name === "air") cracked++;
+        }
+      }
+      if (cracked) {
+        log?.(`[food] cracked ${cracked} pocket wall cells — leaving the grave`);
+        const exits = [
+          ...(state?.home ? [state.home] : []),
+          ...(state?.logSites || []),
+          ...(stashLoadFile(bot) || []),
+        ]
+          .filter(Boolean)
+          .sort(
+            (a, b) =>
+              Math.hypot(a.x - feetF.x, a.z - feetF.z) -
+              Math.hypot(b.x - feetF.x, b.z - feetF.z)
+          )[0];
+        if (exits) {
+          await executeAction(
+            bot,
+            { type: "goto", x: exits.x, y: exits.y, z: exits.z, range: 6, timeoutMs: 20000 },
+            mcData
+          ).catch(() => {});
+        }
+      }
+    }
     // starving UNDERGROUND with no food path: daylight, livestock and the
     // stash are all topside, so hold-position just waits for the stuck
     // counter to /kill the run. Climb the dug staircase toward the surface
