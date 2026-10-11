@@ -2435,13 +2435,19 @@ export class ClearRunner {
                       : [[0, Math.sign(daz)], [Math.sign(dax), 0]];
                   for (const [cx, cz] of acards) {
                     if (!cx && !cz) continue;
-                    for (let step = 1; step <= 5; step++) {
-                      let opened = true;
+                    // real tunneling: dig the face, step INTO the hole,
+                    // dig the next face — otherwise cells 2+ stay out of
+                    // reach and the pocket never opens
+                    for (let step = 1; step <= 6; step++) {
+                      const cur = bot.entity?.position || me2;
+                      let blocked = false;
                       for (const dy of [0, 1]) {
-                        const wb = bot.blockAt(me2.floored().offset(cx * step, dy, cz * step));
+                        const wb = bot.blockAt(cur.floored().offset(cx, dy, cz));
                         if (!wb || /air|cave_air|void_air|torch|lantern/.test(wb.name || "")) continue;
-                        opened = false;
-                        if (/bedrock|lava|gravel|sand/.test(wb.name || "")) break;
+                        if (/bedrock|lava|gravel|sand/.test(wb.name || "")) {
+                          blocked = true;
+                          break;
+                        }
                         this.log(`[clear] digging escape-tunnel ${wb.name}@${step} toward anchor`);
                         const dg = await executeAction(
                           bot,
@@ -2451,9 +2457,21 @@ export class ClearRunner {
                           this.log(`[clear] escape-tunnel dig fail: ${e?.message || e}`);
                           return null;
                         });
-                        if (dg?.ok === false) this.log(`[clear] escape-tunnel dig nok: ${dg?.error || dg?.msg || "?"}`);
+                        if (bot.blockAt(wb.position)?.name !== "air") {
+                          this.log(`[clear] escape-tunnel dig nok: ${dg?.error || dg?.msg || dg?.message || "?"}`);
+                          blocked = true;
+                          break;
+                        }
                       }
-                      if (opened) break;
+                      if (blocked) break; // a wall cell refused — try the other cardinal
+                      // face open — step into the hole so the next face is in reach
+                      const fwd = bot.entity.position.floored().offset(cx, 0, cz);
+                      await executeAction(
+                        bot,
+                        { type: "goto", x: fwd.x, y: fwd.y, z: fwd.z, range: 0, timeoutMs: 6000 },
+                        this.mcData
+                      ).catch(() => {});
+                      if (bot.entity.position.distanceTo(fwd.offset(0.5, 0.5, 0.5)) > 1.8) break; // can't advance
                     }
                   }
                   // reconnected? the anchor goto answers it
@@ -2481,26 +2499,36 @@ export class ClearRunner {
                 for (const [cx, cz] of cards) {
                   if (!cx && !cz) continue;
                   // tunnel along the mob's bearing — walls can be several
-                  // cells thick; keep digging until the corridor opens or
-                  // the mob is reachable through the hole
-                  for (let step = 1; step <= 4; step++) {
-                    let opened = true;
+                  // cells thick; dig the face, step in, dig the next
+                  for (let step = 1; step <= 5; step++) {
+                    const cur = bot.entity?.position || me2;
+                    let blocked = false;
                     for (const dy of [0, 1]) {
-                      const wb = bot.blockAt(me2.floored().offset(cx * step, dy, cz * step));
+                      const wb = bot.blockAt(cur.floored().offset(cx, dy, cz));
                       if (!wb || /air|cave_air|void_air|torch|lantern/.test(wb.name || "")) continue;
-                      opened = false;
-                      if (/bedrock|water|lava|gravel|sand/.test(wb.name || "")) break;
+                      if (/bedrock|water|lava|gravel|sand/.test(wb.name || "")) {
+                        blocked = true;
+                        break;
+                      }
                       this.log(`[clear] digging mob-door ${wb.name}@${step} toward ${victim.name}`);
-                      for (let t = 0; t < 4; t++) {
-                        await executeAction(
-                          bot,
-                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000, forceDig: true },
-                          this.mcData
-                        ).catch(() => {});
-                        if (bot.blockAt(wb.position)?.name === "air") break;
+                      await executeAction(
+                        bot,
+                        { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000, forceDig: true },
+                        this.mcData
+                      ).catch(() => {});
+                      if (bot.blockAt(wb.position)?.name !== "air") {
+                        blocked = true;
+                        break;
                       }
                     }
-                    if (opened) break; // corridor open — step into it next round
+                    if (blocked) break;
+                    const fwd = bot.entity.position.floored().offset(cx, 0, cz);
+                    await executeAction(
+                      bot,
+                      { type: "goto", x: fwd.x, y: fwd.y, z: fwd.z, range: 0, timeoutMs: 6000 },
+                      this.mcData
+                    ).catch(() => {});
+                    if (bot.entity.position.distanceTo(fwd.offset(0.5, 0.5, 0.5)) > 1.8) break;
                   }
                 }
               }
