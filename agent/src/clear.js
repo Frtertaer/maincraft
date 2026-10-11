@@ -268,11 +268,19 @@ export class ClearRunner {
         // sprint kick may already be carrying the bot, so scan wide and
         // walk back to dig.
         try {
-          const foodAtRespawn = this.bot.food;
-          const headAtRespawn = this.bot.blockAt(this.bot.entity.position.floored().offset(0, 2, 0));
+          const me0 = this.bot.entity?.position;
+          const headAtRespawn = me0 && this.bot.blockAt(me0.floored().offset(0, 2, 0));
           const respawnSky = headAtRespawn?.skyLight ?? 15;
-          if (foodAtRespawn != null && foodAtRespawn <= 4 && respawnSky < 8) {
-            this.log(`[clear] starve-trap probe: food=${foodAtRespawn} sky=${respawnSky} — hunting bed anchor`);
+          // the signature of an anchored trap: dying over and over at the
+          // same spot where respawns land. Food is back to 20 after a real
+          // death so it cannot be the gate — repeated death-in-place is.
+          const trapDeaths = me0
+            ? (this.state?._deathPts || []).filter(
+                (d) => Math.hypot(d.x - me0.x, d.z - me0.z) < 12 && Date.now() - d.t < 300000
+              ).length
+            : 0;
+          if (respawnSky < 8 && trapDeaths >= 2) {
+            this.log(`[clear] starve-trap probe: sky=${respawnSky} deathsHere=${trapDeaths} — hunting bed anchor`);
             this._pendingBedDig = (async () => {
               try {
                 let bedT = null;
@@ -2044,7 +2052,9 @@ export class ClearRunner {
             // it for real separation before retrying. Day-hide aborts need
             // the same escalation: a creeper camper doesn't burn off at noon
             // and was locking every ~90s retry into the same abort forever
-            if (!burrowed) {
+            // suppressed while a hard-trap suicide is waiting for its hit —
+            // out-walking the mob undoes the goto that just put it in reach
+            if (!burrowed && !(this._suiciding && Date.now() - this._suiciding < 20000)) {
               const camperNow = Object.values(bot.entities || {})
                 .filter((e) => {
                   if (!e?.position || e === bot.entity) return false;
@@ -2363,19 +2373,48 @@ export class ClearRunner {
           samePhaseSteps = 0;
           // hard-trap escalation: the planner had its shots and the phase
           // still can't move (ravine/cave-in — every goto is no-path). The
-          // sanctioned unstick is /kill respawn onto spawn ground; the
-          // respawn handler above re-gears from the stash chest. Surface
+          // sanctioned unstick is a real death — mob-assisted suicide,
+          // since /kill is denied for a non-op player and silently no-ops.
+          // The respawn handler above re-gears from the stash chest. Surface
           // phases only — a nether/end kill strands the run.
           state.stuckCycles = (state.stuckCycles || 0) + 1;
           if (
             state.stuckCycles >= 3 &&
-            (state.unstickKills || 0) < 2 &&
+            (state.unstickKills || 0) < 6 &&
             ["wood", "stone", "iron"].includes(phaseAfter)
           ) {
-            this.log("[clear] hard trap — /kill unstick respawn");
+            this.log("[clear] hard trap — walking into a mob for a real respawn");
             state.unstickKills += 1;
-            bot.chat("/kill");
-            await sleep(3000);
+            this._suiciding = Date.now();
+            // /kill was a no-op all along: a non-op player's command is
+            // silently denied, so the bot logged "respawn" and kept
+            // standing in the trap — 11 fake unsticks at y=33. The death
+            // it wants is vanilla: walk into the nearest hostile, drop
+            // control, let it land the hit. Respawn handler picks up
+            // from there (starve-trap bed hunt re-anchors to world spawn).
+            try {
+              const me2 = bot.entity?.position;
+              const victim = me2 && Object.values(bot.entities || {})
+                .filter((e) => {
+                  if (!e?.position || e === bot.entity) return false;
+                  const n = String(e.name || "").toLowerCase();
+                  return /zombie|spider|creeper|husk|drowned|slime|skeleton|stray|pillager|vex|witch|phantom|silverfish|cave_spider|enderman|piglin|hoglin|zoglin|blaze|magma_cube|ghast|wither_skeleton|guardian|evoker|vindicator|ravager/.test(n);
+                })
+                .sort((a, b) => a.position.distanceTo(me2) - b.position.distanceTo(me2))[0];
+              if (victim) {
+                await executeAction(
+                  bot,
+                  { type: "goto", x: victim.position.x, y: victim.position.y, z: victim.position.z, range: 1, timeoutMs: 10000 },
+                  this.mcData
+                ).catch(() => {});
+              }
+            } catch {
+              /* mob-assisted death is best-effort */
+            }
+            // wait out the hit(s) — the death event runs the respawn
+            // handler; if nothing managed to land a hit the loop just
+            // continues holding, which is where it was anyway
+            await sleep(12000);
           }
           await sleep(1500);
         }
