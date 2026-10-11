@@ -9169,6 +9169,21 @@ async function phasePortal(bot, mcData, state, log) {
     }
     return { ok: true, phase: "portal", message: "obsidian", milestone: "OBSIDIAN" };
   }
+  const litPortal = await buildAndLightPortal(bot, mcData);
+  if (!litPortal) {
+    return { ok: true, phase: "portal", message: "portal: frame built, still unlit" };
+  }
+  // enter portal
+  await executeAction(bot, { type: "goto", x: litPortal.position.x, y: litPortal.position.y, z: litPortal.position.z, range: 1 }, mcData);
+  await sleep(4000);
+  return { ok: true, phase: "portal", message: "portal build/enter", milestone: "PORTAL" };
+}
+
+// Build a 4x5 obsidian frame ahead of the bot and light it. Returns the lit
+// nether_portal block or null. Shared by phasePortal and by phaseNetherBlaze's
+// no-portal recovery — the bot must be able to replace a lost/unreachable
+// portal, not just reuse the one it remembers.
+async function buildAndLightPortal(bot, mcData) {
   if (!hasAny(bot, ["flint_and_steel"])) {
     if (countItem(bot, "flint") < 1) {
       await executeAction(bot, { type: "collect", block: "gravel", count: 16, maxDistance: 32 }, mcData);
@@ -9216,14 +9231,7 @@ async function phasePortal(bot, mcData, state, log) {
     await sleep(700);
     lit = !!bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 24 });
   }
-  const litPortal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 24 });
-  if (!litPortal) {
-    return { ok: true, phase: "portal", message: "portal: frame built, still unlit" };
-  }
-  // enter portal
-  await executeAction(bot, { type: "goto", x: litPortal.position.x, y: litPortal.position.y, z: litPortal.position.z, range: 1 }, mcData);
-  await sleep(4000);
-  return { ok: true, phase: "portal", message: "portal build/enter", milestone: "PORTAL" };
+  return bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 24 });
 }
 
 async function phaseNetherBlaze(bot, mcData, state, log) {
@@ -9243,6 +9251,11 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
         ).catch(() => ({}));
         back = await enterPortal(bot, mcData);
       }
+    }
+    if (!back.ok && countItem(bot, "obsidian") >= 10) {
+      // portal lost/out of range — build a fresh frame instead of spinning
+      await buildAndLightPortal(bot, mcData).catch(() => null);
+      back = await enterPortal(bot, mcData);
     }
     return { ok: true, phase: "nether", message: back.ok ? "re-entering portal" : `nether re-entry: ${back.message}` };
   }
