@@ -9781,35 +9781,78 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
   return { ok: true, phase: "nether", message: "explore nether", milestone: "NETHER_EXPLORE" };
 }
 
+async function pickupDrops(bot, mcData, re, radius = 16) {
+  for (let i = 0; i < 4; i++) {
+    const drop = Object.values(bot.entities).find((e) => {
+      if (e?.name !== "item" || e.position.distanceTo(bot.entity.position) > radius) return false;
+      try { return re.test(String(e.getDroppedItem?.()?.name || "")); } catch { return false; }
+    });
+    if (!drop) return i;
+    await executeAction(bot, { type: "goto", x: drop.position.x, y: drop.position.y, z: drop.position.z, range: 0.5, timeoutMs: 12000 }, mcData).catch(() => ({}));
+    await sleep(400);
+  }
+  return 4;
+}
+
+// Pearl strategies, cheapest first:
+//  barter — in the Nether with gold + golden helmet, toss gold at piglins
+//  hunt   — endermen anywhere loaded (Nether warped/soul valleys, overworld
+//           nights); kill then pick the pearl up
+//  sweep  — overworld surface spokes from base at night to load new spawns
 async function phasePearls(bot, mcData, state, log) {
-  // Prefer overworld endermen
   const dim = String(bot.game?.dimension || "");
+  const me = bot.entity.position;
+  const enderman = Object.values(bot.entities)
+    .filter((e) => mobName(e) === "enderman" && e.position.distanceTo(me) < 40)
+    .sort((x, y) => x.position.distanceTo(me) - y.position.distanceTo(me))[0];
+  const worn = [5, 6, 7, 8].map((s) => bot.inventory.slots[s]).filter(Boolean);
+  const armor = armorPoints(worn);
+  if (enderman && (armor >= 7 || bot.health >= 16)) {
+    const before = countItem(bot, "ender_pearl");
+    await executeAction(bot, { type: "attack", name: "enderman", maxDurationMs: 30000, maxDistance: 32 }, mcData).catch(() => ({}));
+    await pickupDrops(bot, mcData, /^ender_pearl$/, 20);
+    const got = countItem(bot, "ender_pearl") - before;
+    return { ok: true, phase: "pearls", message: `hunt enderman +${got} (pearls=${countItem(bot, "ender_pearl")})`, milestone: got > 0 ? "PEARL" : "ENDERMAN" };
+  }
   if (/nether/i.test(dim)) {
-    // go back through portal if we have enough rods
+    const gold = countItem(bot, "gold_ingot");
+    const piglin = Object.values(bot.entities).find((e) => mobName(e) === "piglin" && e.position.distanceTo(me) < 24);
+    if (gold >= 1 && piglin) {
+      if (!bot.inventory.slots[5] || bot.inventory.slots[5].name !== "golden_helmet") {
+        if (countItem(bot, "golden_helmet") < 1 && gold >= 6) await ensureCraft(bot, mcData, "golden_helmet", 1).catch(() => null);
+        const gh = bot.inventory.items().find((i) => i.name === "golden_helmet");
+        if (gh) await pt(bot.equip(gh, "head"), 8000, "equip golden helmet").catch(() => null);
+      }
+      if (bot.inventory.slots[5]?.name === "golden_helmet") {
+        await executeAction(bot, { type: "goto", x: piglin.position.x, y: piglin.position.y, z: piglin.position.z, range: 3, timeoutMs: 20000 }, mcData).catch(() => ({}));
+        await bot.lookAt(piglin.position.offset(0, 1.2, 0), true).catch(() => null);
+        const g = bot.inventory.items().find((i) => i.name === "gold_ingot");
+        if (g) await bot.toss(g.type, null, Math.min(4, g.count)).catch(() => null);
+        await sleep(9000);
+        await pickupDrops(bot, mcData, /^ender_pearl$/, 12);
+        return { ok: true, phase: "pearls", message: `barter gold (left ${countItem(bot, "gold_ingot")}, pearls=${countItem(bot, "ender_pearl")})`, milestone: "BARTER" };
+      }
+    }
+    // no barter possible here: go home through the portal
     const portal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 64 });
     if (portal) {
-      await executeAction(
-        bot,
-        { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1 },
-        mcData
-      );
+      await executeAction(bot, { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1 }, mcData);
       await sleep(4000);
     }
     return { ok: true, phase: "pearls", message: "return overworld for pearls" };
   }
-  const enderman = Object.values(bot.entities).find((e) => mobName(e) === "enderman");
-  if (enderman) {
-    await executeAction(bot, { type: "attack", name: "enderman", maxDurationMs: 25000, maxDistance: 24 }, mcData);
-    return { ok: true, phase: "pearls", message: "hunt enderman", milestone: "ENDERMAN" };
-  }
-  // wander night-ish
-  const p = bot.entity.position;
-  await executeAction(
-    bot,
-    { type: "goto", x: p.x + (Math.random() - 0.5) * 60, y: p.y, z: p.z + (Math.random() - 0.5) * 60, range: 2 },
-    mcData
-  );
-  return { ok: true, phase: "pearls", message: "search endermen" };
+  // overworld: endermen spawn in darkness on the surface — scout at night
+  // only when armored, otherwise let the clear loop's shelter handle night
+  const tod = bot.time?.timeOfDay ?? 0;
+  const night = tod > 13000 && tod < 23000;
+  if (night && armor < 7) return { ok: false, phase: "pearls", message: "night, armor<7: not hunting" };
+  const sw = (state.pearlSweep = state.pearlSweep || { o: { x: Math.round(me.x), z: Math.round(me.z) }, k: 0 });
+  sw.k += 1;
+  const t = sweepTarget(sw.o, sw.k, 40, 8);
+  const d = Math.hypot(t.x - me.x, t.z - me.z) || 1;
+  const k = Math.min(1, 50 / d);
+  await executeAction(bot, { type: "goto", x: me.x + (t.x - me.x) * k, y: me.y, z: me.z + (t.z - me.z) * k, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
+  return { ok: true, phase: "pearls", message: `scout endermen ${night ? "night" : "day"} k=${sw.k}` };
 }
 
 async function phaseEyes(bot, mcData, state, log) {
