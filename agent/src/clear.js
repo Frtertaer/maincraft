@@ -270,7 +270,9 @@ export class ClearRunner {
         try {
           const foodAtRespawn = this.bot.food;
           const headAtRespawn = this.bot.blockAt(this.bot.entity.position.floored().offset(0, 2, 0));
-          if (foodAtRespawn != null && foodAtRespawn <= 4 && (headAtRespawn?.skyLight ?? 15) < 4) {
+          const respawnSky = headAtRespawn?.skyLight ?? 15;
+          if (foodAtRespawn != null && foodAtRespawn <= 4 && respawnSky < 8) {
+            this.log(`[clear] starve-trap probe: food=${foodAtRespawn} sky=${respawnSky} — hunting bed anchor`);
             this._pendingBedDig = (async () => {
               try {
                 let bedT = null;
