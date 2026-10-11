@@ -7594,6 +7594,9 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     { type: "dig", x: block.position.x, y: block.position.y, z: block.position.z },
     mcData
   );
+  // the single-trunk dig path also yields logs — remember the ground too,
+  // otherwise log-sites.json stayed empty and every post-death trek was blind
+  if (dig.ok && state) logSiteRecord(block.position, bot, state);
   if (!dig.ok && /no path|timeout/i.test(String(dig.message || "")) && state) {
     state.badDig = state.badDig || new Map();
     const k = `${block.position.x},${block.position.y},${block.position.z}`;
