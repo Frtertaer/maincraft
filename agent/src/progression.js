@@ -1271,20 +1271,24 @@ async function farmTend(bot, mcData, log, state) {
           Math.max(above?.light ?? 0, above?.skyLight ?? 0) >= 9
         );
       };
+      const byDist = (a, b) =>
+        a.position.distanceSquared(bot.entity.position) - b.position.distanceSquared(bot.entity.position);
       const site =
         (water
-          ? soils.find(
-              (b) =>
-                plantable(b) &&
-                Math.abs(b.position.x - water.x) <= 4 &&
-                Math.abs(b.position.z - water.z) <= 4 &&
-                b.position.y >= water.y - 1 &&
-                b.position.y <= water.y + 1
-            )
-          : null) || soils.find(plantable); // dry farmland grows too — slower, but a starving bot takes it
+          ? soils
+              .filter(
+                (b) =>
+                  plantable(b) &&
+                  Math.abs(b.position.x - water.x) <= 4 &&
+                  Math.abs(b.position.z - water.z) <= 4 &&
+                  b.position.y >= water.y - 1 &&
+                  b.position.y <= water.y + 1
+              )
+              .sort(byDist)[0]
+          : null) || soils.filter(plantable).sort(byDist)[0]; // dry farmland grows too — slower, but a starving bot takes it
+      let planted = false;
       {
         if (site) {
-          state.farmPlantAt = Date.now();
           const g = await executeAction(
             bot,
             { type: "goto", x: site.position.x, y: site.position.y, z: site.position.z, range: 3, timeoutMs: 12000 },
@@ -1310,17 +1314,40 @@ async function farmTend(bot, mcData, log, state) {
                   await bot.equip(s, "hand");
                   await pt(bot.activateBlock(tilled), 5000);
                   state.farm = { x: site.position.x, y: site.position.y, z: site.position.z };
+                  state.farmPlantAt = Date.now();
+                  planted = true;
                   log?.(`[food] farm plot tilled @${site.position.x},${site.position.z}`);
                 }
               } catch { /* plant best-effort */ }
             }
           }
-        } else if (countItem(bot, (i) => i.name === "dirt") > 0 && bot.food != null && bot.food <= 6) {
-          // pocket farm: no tillable soil in reach (underground stone room) —
-          // place an inventory dirt block on the floor as a raised bed. Torch
-          // light ≥9 grows wheat here, and the sealed pocket is the one
-          // permanently spawn-proofed cell on the map: free bread forever.
-          const f = bot.entity.position.floored();
+        }
+        // pocket farm: no reachable tillable soil (sealed stone room) — put an
+        // inventory dirt block on the floor as a raised bed. Torch light ≥9
+        // grows wheat here, and the sealed pocket is the one permanently
+        // spawn-proofed cell on the map: free bread forever.
+        if (!planted && bot.food != null && bot.food <= 6) {
+          if (countItem(bot, (i) => i.name === "dirt") === 0) {
+            // no dirt carried — dig one block of dirt/grass within reach; every
+            // soil variant digs to a dirt item and is soft enough for fists
+            const src = soils
+              .filter((b) => b && b.name !== "farmland")
+              .sort(byDist)
+              .slice(0, 4);
+            for (const d of src) {
+              const dg = await executeAction(
+                bot,
+                { type: "goto", x: d.position.x, y: d.position.y, z: d.position.z, range: 3, timeoutMs: 8000 },
+                mcData
+              ).catch(() => ({ ok: false }));
+              if (!dg.ok) continue;
+              await executeAction(bot, { type: "dig", x: d.position.x, y: d.position.y, z: d.position.z, forceDig: true, timeoutMs: 8000 }, mcData).catch(() => null);
+              await pt(new Promise((r) => setTimeout(r, 900)), 2000);
+              if (countItem(bot, (i) => i.name === "dirt") > 0) break;
+            }
+          }
+          if (countItem(bot, (i) => i.name === "dirt") > 0) {
+            const f = bot.entity.position.floored();
           const spots = [
             [1, 0], [-1, 0], [0, 1], [0, -1],
             [1, 1], [-1, -1], [1, -1], [-1, 1],
@@ -1358,12 +1385,14 @@ async function farmTend(bot, mcData, log, state) {
                     await bot.equip(s2, "hand");
                     await pt(bot.activateBlock(tilled2), 5000);
                     state.farm = { x: cell.position.x, y: cell.position.y, z: cell.position.z };
+                    state.farmPlantAt = Date.now();
                     log?.(`[food] pocket farm plot @${cell.position.x},${cell.position.z}`);
                   }
                 } catch { /* plant best-effort */ }
               }
             }
             break;
+          }
           }
         }
       }
