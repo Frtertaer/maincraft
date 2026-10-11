@@ -8403,6 +8403,22 @@ async function digStaircaseDown(bot, mcData, targetY, maxDigs = 8) {
   const startY = Math.floor(bot.entity.position.y);
   while (Math.floor(bot.entity.position.y) > targetY + 1 && digs < maxDigs) {
     const feet = bot.entity.position.floored();
+    // the shaft killer: a hostile walks up the open stair or pokes through a
+    // fresh opening while the digger is locked facing the floor — bail on
+    // proximity and let the combat reflex / flee logic own the fight
+    const foe = Object.values(bot.entities || {}).find((e) => {
+      if (!e?.position || e === bot.entity) return false;
+      const n = String(e.name || e.displayName || "").toLowerCase();
+      if (
+        !(e.kind === "Hostile mobs" && e.name !== "enderman" ||
+          /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish|cave_spider/.test(n))
+      )
+        return false;
+      return e.position.distanceTo(bot.entity.position) < 8;
+    });
+    if (foe) {
+      return { ok: true, message: `mob ${foe.name} nearby`, digs, y: feet.y };
+    }
     // dig ONLY the floor cell directly under us: a gap of air between feet
     // and the next solid is a cave — digging into it drops us onto a mob
     // ledge (the y=59→58 death loop). Stop above caves and let the caller
