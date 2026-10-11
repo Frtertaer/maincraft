@@ -2414,6 +2414,59 @@ export class ClearRunner {
               // 1hp is still the real respawn the trap needs; a corridor
               // that keeps going is an actual exit.
               const moved = bot.entity?.position ? me2.distanceTo(bot.entity.position) : 0;
+              // escape first, death second: the pocket probably shares a
+              // wall with the staircase the bot itself carved — tunnel
+              // toward the nearest anchor (mine network below) and a
+              // single open cell may reconnect the whole path graph
+              if (moved < 1.5) {
+                const nearAnchor = [
+                  ...(state?.home ? [state.home] : []),
+                  ...(state?.logSites || []),
+                  ...(stashLoadFile(bot) || []),
+                ]
+                  .filter(Boolean)
+                  .sort((a, b) => Math.hypot(a.x - me2.x, a.z - me2.z) - Math.hypot(b.x - me2.x, b.z - me2.z))[0];
+                if (nearAnchor) {
+                  const dax = nearAnchor.x - me2.x;
+                  const daz = nearAnchor.z - me2.z;
+                  const acards =
+                    Math.abs(dax) > Math.abs(daz)
+                      ? [[Math.sign(dax), 0], [0, Math.sign(daz)]]
+                      : [[0, Math.sign(daz)], [Math.sign(dax), 0]];
+                  for (const [cx, cz] of acards) {
+                    if (!cx && !cz) continue;
+                    for (let step = 1; step <= 5; step++) {
+                      let opened = true;
+                      for (const dy of [0, 1]) {
+                        const wb = bot.blockAt(me2.floored().offset(cx * step, dy, cz * step));
+                        if (!wb || /air|cave_air|void_air|torch|lantern/.test(wb.name || "")) continue;
+                        opened = false;
+                        if (/bedrock|lava|gravel|sand/.test(wb.name || "")) break;
+                        this.log(`[clear] digging escape-tunnel ${wb.name}@${step} toward anchor`);
+                        const dg = await executeAction(
+                          bot,
+                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 25000 },
+                          this.mcData
+                        ).catch((e) => {
+                          this.log(`[clear] escape-tunnel dig fail: ${e?.message || e}`);
+                          return null;
+                        });
+                        if (dg?.ok === false) this.log(`[clear] escape-tunnel dig nok: ${dg?.error || dg?.msg || "?"}`);
+                      }
+                      if (opened) break;
+                    }
+                  }
+                  // reconnected? the anchor goto answers it
+                  const g = await executeAction(
+                    bot,
+                    { type: "goto", x: nearAnchor.x, y: nearAnchor.y, z: nearAnchor.z, range: 4, timeoutMs: 15000 },
+                    this.mcData
+                  ).catch(() => null);
+                  if (g?.ok) {
+                    this.log("[clear] escape-tunnel reconnected the path graph — out of the trap");
+                  }
+                }
+              }
               if (victim && moved < 1.5) {
                 // mob behind rock — open the wall cell on its bearing.
                 // Pathfinding works both ways through the hole: it walks
