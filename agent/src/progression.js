@@ -176,7 +176,10 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         }
         if (!sw.ok) {
           state.submergedFails = (state.submergedFails || 0) + 1;
-          if (state.submergedFails >= 3) {
+          // one failed column probe already says "open water, not a flooded
+          // shaft" — three probes spent ~4min treading before swimming for
+          // land, and drowned mobs farm that whole window
+          if (state.submergedFails >= 1) {
             // repeated surface failures = a flooded REGION, not a column:
             // swim hard for land and mark the basin so descends and
             // relocations stop probing columns into it
