@@ -916,6 +916,27 @@ const mkCtx = (world, over = {}) => ({
   const sw0 = sweepTarget({ x: 0, z: 0 }, 0);
   const sw8 = sweepTarget({ x: 0, z: 0 }, 8);
   check("sweep grows rings", Math.hypot(sw8.x, sw8.z) > Math.hypot(sw0.x, sw0.z) + 40, JSON.stringify([sw0, sw8]));
+  {
+    const { runStep, cancelSteps, stepStale, installStepGuards } = await import("./stepctl.js");
+    const fake = { _stepGen: 0, dig: async () => "dug" };
+    installStepGuards(fake);
+    let staleSeen = null;
+    let digErr = null;
+    const p = runStep(fake, async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      staleSeen = stepStale(fake);
+      try {
+        await fake.dig();
+      } catch (e) {
+        digErr = e.message;
+      }
+    });
+    cancelSteps(fake);
+    await p;
+    check("stepctl: orphaned step sees itself stale", staleSeen === true);
+    check("stepctl: orphan's dig refused", /cancelled/.test(digErr || ""), String(digErr));
+    check("stepctl: main context unaffected", stepStale(fake) === false && (await fake.dig()) === "dug");
+  }
   check("nether gate needs armor", !readiness("nether", full, 2).ready);
   check("nether gate ready", readiness("nether", full, armorPoints([{ name: "iron_chestplate" }, { name: "iron_leggings" }])).ready);
 }

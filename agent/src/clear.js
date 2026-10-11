@@ -11,6 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { installStepGuards, runStep, cancelSteps } from "./stepctl.js";
 import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed, corpseLoadFile, corpseSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { equipAllArmor, craftSpareArmor } from "./progression.js";
@@ -704,7 +705,17 @@ export class ClearRunner {
     // below the 240s log-watchdog: a stuck step resolves "hung" and the loop
     // moves on instead of the process being killed mid-work
     const STEP_MS = 100000;
-    const stepTO = (p) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), STEP_MS))]);
+    installStepGuards(bot);
+    const stepTO = async (fn) => {
+      let timer;
+      const r = await Promise.race([
+        runStep(bot, fn),
+        new Promise((res) => (timer = setTimeout(() => res(null), STEP_MS))),
+      ]);
+      clearTimeout(timer);
+      if (r === null) cancelSteps(bot);
+      return r;
+    };
 
     try {
       while (this.running && bot.entity && Date.now() - state.t0 < this.maxMs) {
@@ -2367,7 +2378,7 @@ export class ClearRunner {
           // Epilogue boss objectives (wither/warden): self-contained prep + fight.
           state.objective = nextObj;
           try {
-            step = (await stepTO(bossObjectiveStep(bot, this.mcData, state, nextObj, this.log))) ||
+            step = (await stepTO(() => bossObjectiveStep(bot, this.mcData, state, nextObj, this.log))) ||
               { ok: false, phase: phaseBefore, message: "boss step hung" };
             if (step.message === "boss step hung") this.log("[clear] STEP_HUNG boss — watchdog fired");
           } catch (err) {
@@ -2385,7 +2396,7 @@ export class ClearRunner {
           // stalls at 1hp between them (the y~52 stall). The food run IS the
           // productive step until hunger clears.
           try {
-            const fed = await stepTO(ensureFed(bot, this.mcData, this.log, state));
+            const fed = await stepTO(() => ensureFed(bot, this.mcData, this.log, state));
             if (fed == null) {
               step = { ok: false, phase: phaseBefore, message: "food: hung" };
               this.log("[clear] STEP_HUNG ensureFed — watchdog fired");
@@ -2397,7 +2408,7 @@ export class ClearRunner {
           }
         } else {
           try {
-            step = await stepTO(progressionStep(bot, this.mcData, state, this.log));
+            step = await stepTO(() => progressionStep(bot, this.mcData, state, this.log));
             if (step == null) {
               step = { ok: false, phase: phaseBefore, message: "step hung" };
               this.log(`[clear] STEP_HUNG ${phaseBefore} — watchdog fired`);
