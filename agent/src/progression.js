@@ -4726,6 +4726,7 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // real daylight — at night it can never fire, so the loop holds until
     // dawn unless the ceiling is hit (an escape valve for a broken safe()).
     let safeStreak = 0;
+    let holdBeat = 0;
     // set when the camper-lockdown tunnel let us surface away from the seal
     // — the unseal/pillar exit below must NOT run: it would walk back into
     // the shaft the camper is sitting on.
@@ -4819,6 +4820,12 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       return false;
     }
     await sleep(4000);
+    // a multi-minute night hold logs nothing without this — the log
+    // watchdog (240s silence) would kill a perfectly healthy wait
+    if (++holdBeat % 15 === 0) {
+      const todB = bot.time?.timeOfDay ?? -1;
+      log?.(`[burrow] holding ${Math.round((Date.now() - t0) / 60000)}min tod=${todB}`);
+    }
     // vanilla melee reaches through a 1-block face when the target hugs it —
     // a mob standing on the plug hits a bot pressed at the doorway. Keep the
     // bot pinned at the pocket's far end for the whole wait
