@@ -5523,11 +5523,12 @@ export async function ensureFed(bot, mcData, log, state = null) {
       bot.inventory.items().find((i) => EDIBLE_FOOD.test(i.name)) ||
       bot.inventory.items().find((i) => SAFE_RAW.test(i.name)) ||
       (bot.food <= 8 ? bot.inventory.items().find((i) => /chicken/.test(i.name)) : null) ||
-      // rotten flesh only at a literally empty bar: its 80% hunger effect
-      // strips sprint — the bot's only out-spacing from a creeper. Eating it
-      // at food<=8 trades the survive-tool for 4 food, a losing swap on a mob
-      // field. It's a desperation food, not a ration.
-      (bot.food <= 0 ? bot.inventory.items().find((i) => i.name === "rotten_flesh") : null);
+      // rotten flesh is a desperation food: its 80% hunger effect strips
+      // sprint, so it stays below the safe-food picks. But sprint is already
+      // gone under 6 — waiting for literally 0 just starts starvation damage
+      // first (the starve-walk death loop this run kept hitting). Eat at <=4:
+      // no sprint left to lose, damage hasn't started.
+      (bot.food <= 4 ? bot.inventory.items().find((i) => i.name === "rotten_flesh") : null);
     if (!f) break;
     const r = await executeAction(bot, { type: "eat", item: f.name, timeoutMs: 12000 }, mcData).catch((e) => ({
       ok: false,
