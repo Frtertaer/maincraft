@@ -881,6 +881,51 @@ export class ClearRunner {
                 this.log(`[clear] seal-now fail: ${errNow?.message || errNow}`);
               }
             }
+            // bare-handed and nothing digs underfoot: the 6-leg flee loop
+            // spends ~50s crossing a field where the pack keeps pace —
+            // deaths #2-3 this run died mid-leg with a dirt spot ~15m away
+            // the whole time. Skip the legs entirely and walk straight to
+            // the nearest diggable column; burrowForNight's own camper
+            // handling (hops, LOS sprint, pillar) covers what arrives with
+            // us. Armed bots keep the legs — a sword can win the gap back.
+            const noWeapon0 = !bot.inventory.items().some((i) => /_sword|_axe/.test(i.name));
+            if (noWeapon0 && !groundDigs3) {
+              try {
+                const me0 = bot.entity.position.floored();
+                const dg0 = (b) =>
+                  b &&
+                  /dirt|grass|sand|gravel|clay|mud|snow|mycelium|podzol|coarse_dirt|rooted_dirt|farmland|moss|soul_sand|soul_soil/.test(
+                    b.name || ""
+                  );
+                const spots0 = [];
+                for (let dx = -14; dx <= 14; dx += 2) {
+                  for (let dz = -14; dz <= 14; dz += 2) {
+                    if (Math.abs(dx) < 4 && Math.abs(dz) < 4) continue;
+                    const c0 = bot.blockAt(me0.offset(dx, -1, dz));
+                    const c1 = bot.blockAt(me0.offset(dx, -2, dz));
+                    const h1 = bot.blockAt(me0.offset(dx, 0, dz));
+                    const h2 = bot.blockAt(me0.offset(dx, 1, dz));
+                    if (dg0(c0) && dg0(c1) && h1?.name === "air" && h2?.name === "air") {
+                      spots0.push(me0.offset(dx, 0, dz));
+                    }
+                  }
+                }
+                spots0.sort((a, b) => a.distanceTo(me0) - b.distanceTo(me0));
+                const spot0 = spots0[0];
+                if (spot0) {
+                  this.log(`[clear] naked night — straight to diggable @${spot0.x},${spot0.z}`);
+                  await executeAction(
+                    bot,
+                    { type: "goto", x: spot0.x, y: spot0.y, z: spot0.z, range: 1, timeoutMs: 12000 },
+                    this.mcData
+                  ).catch(() => {});
+                  const okS = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state).catch(() => false);
+                  if (okS) continue;
+                }
+              } catch {
+                /* fall through to the flee */
+              }
+            }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
