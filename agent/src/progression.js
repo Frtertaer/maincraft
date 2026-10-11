@@ -6473,6 +6473,9 @@ export async function ensureFed(bot, mcData, log, state = null) {
     // underground the climb paths above own the escape; a hostile on the
     // tile keeps the hold since shelter-first already owns that branch.
     if (state) state.foodHoldStreak = (state.foodHoldStreak || 0) + 1;
+    // starving digs crack stone by fist — the harvest gate refuses hand on
+    // stone, which is what kept every shaftUp/pocket-crack a no-op at food=0
+    bot._forceDig = true;
     const feetF = bot.entity.position.floored();
     // "underground" = solid roof in the column overhead, not just a dark head
     // cell — a cavern lit by a distant skylight crack still has no surface

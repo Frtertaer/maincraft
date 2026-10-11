@@ -416,8 +416,12 @@ export async function executeAction(bot, action, mcData) {
         if (!block || block.name === "air") return { ok: false, message: "block gone" };
         // forceDig bypasses the harvest gate for life-or-death tunneling —
         // vanilla still breaks stone bare-handed (slow, no drops), and the
-        // starvation-trap escapes dig exactly that kind of hole
-        if (!action.forceDig && !block.canHarvest(bot.heldItem?.type ?? null)) {
+        // starvation-trap escapes dig exactly that kind of hole. A starving
+        // bot (food<=5) forces it on every dig so shaftUp/stairwayUp also
+        // crack stone by fist — the y=33 pocket's shafts all died to this
+        // same gate ("cannot harvest stone with hand").
+        const starving = (bot.food ?? 20) <= 5;
+        if (!action.forceDig && !(starving && bot._forceDig) && !block.canHarvest(bot.heldItem?.type ?? null)) {
           return { ok: false, message: `cannot harvest ${block.name} with ${bot.heldItem?.name || "hand"}` };
         }
         const beforeType = block.type;
