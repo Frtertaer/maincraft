@@ -1430,6 +1430,21 @@ export class ClearRunner {
             this.state._corpse = null;
             corpseSaveFile(this.bot, null);
             this.log(`[clear] corpse run to ${cp.x | 0},${cp.y | 0},${cp.z | 0}`);
+            // a hostile parked on the drops is the re-death loop: walking
+            // back naked into the mob that killed you just feeds it again —
+            // skip guarded corpses and bail mid-vacuum when one closes in
+            const foeNear = (x, y, z, r) =>
+              Object.values(bot.entities || {}).some((e) => {
+                if (!e?.position || e === bot.entity) return false;
+                const n = String(e.name || e.displayName || "").toLowerCase();
+                const hostile =
+                  (e.kind === "Hostile mobs" && n !== "enderman") ||
+                  /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish|cave_spider|wolf/.test(n);
+                return hostile && Math.hypot(e.position.x - x, e.position.z - z) < r && Math.abs(e.position.y - y) < 12;
+              });
+            if (foeNear(cp.x, cp.y, cp.z, 12)) {
+              this.log(`[clear] corpse guarded by hostile — skipping`);
+            } else {
             try {
               await executeAction(
                 bot,
@@ -1440,6 +1455,10 @@ export class ClearRunner {
               while (Date.now() - vacT0 < 30000) {
                 const me = bot.entity?.position;
                 if (!me) break;
+                if (foeNear(me.x, me.y, me.z, 10)) {
+                  this.log(`[clear] corpse vacuum bail — hostile closing`);
+                  break;
+                }
                 const it = Object.values(bot.entities || {})
                   .filter(
                     (e) =>
@@ -1459,6 +1478,7 @@ export class ClearRunner {
               }
             } catch {
               /* corpse run best-effort */
+            }
             }
             continue;
           }
