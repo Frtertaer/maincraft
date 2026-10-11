@@ -6504,9 +6504,11 @@ export async function ensureFed(bot, mcData, log, state = null) {
           if (!wb || /air|cave_air|void_air|bedrock/.test(wb.name)) continue;
           const behind = bot.blockAt(feetF.offset(ddx * 2, dy, ddz * 2));
           if (behind && /water|lava|kelp|seagrass|bubble/.test(behind.name || "")) continue;
+          // forceDig: starving in a sealed grave has no pickaxe — vanilla
+          // still breaks stone bare-handed, the harvest gate was refusing
           const dg = await executeAction(
             bot,
-            { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 8000 },
+            { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 25000, forceDig: true },
             mcData
           ).catch(() => null);
           if (dg?.ok || bot.blockAt(wb.position)?.name === "air") cracked++;

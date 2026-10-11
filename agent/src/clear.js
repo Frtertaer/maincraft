@@ -2445,7 +2445,7 @@ export class ClearRunner {
                         this.log(`[clear] digging escape-tunnel ${wb.name}@${step} toward anchor`);
                         const dg = await executeAction(
                           bot,
-                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 25000 },
+                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 25000, forceDig: true },
                           this.mcData
                         ).catch((e) => {
                           this.log(`[clear] escape-tunnel dig fail: ${e?.message || e}`);
@@ -2494,7 +2494,7 @@ export class ClearRunner {
                       for (let t = 0; t < 4; t++) {
                         await executeAction(
                           bot,
-                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000 },
+                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000, forceDig: true },
                           this.mcData
                         ).catch(() => {});
                         if (bot.blockAt(wb.position)?.name === "air") break;

@@ -414,7 +414,10 @@ export async function executeAction(bot, action, mcData) {
         }
         block = bot.blockAt(block.position);
         if (!block || block.name === "air") return { ok: false, message: "block gone" };
-        if (!block.canHarvest(bot.heldItem?.type ?? null)) {
+        // forceDig bypasses the harvest gate for life-or-death tunneling —
+        // vanilla still breaks stone bare-handed (slow, no drops), and the
+        // starvation-trap escapes dig exactly that kind of hole
+        if (!action.forceDig && !block.canHarvest(bot.heldItem?.type ?? null)) {
           return { ok: false, message: `cannot harvest ${block.name} with ${bot.heldItem?.name || "hand"}` };
         }
         const beforeType = block.type;
