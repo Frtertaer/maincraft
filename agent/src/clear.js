@@ -240,24 +240,8 @@ export class ClearRunner {
               return /zombie|spider|creeper|husk|drowned|slime|skeleton|stray|pillager|vex|witch|phantom/.test(n) &&
                 e.position.distanceTo(this.bot.entity.position) < 20;
             });
-            // a bed anchoring respawns inside a starvation trap is camped
-            // too: the y=33 pocket loop — starving at 1hp underground, no
-            // food path, 8 straight /kill unsticks each landing back on the
-            // same bed. No camper needed — hunger is the killer. Break the
-            // anchor so the next respawn goes to world spawn where animals
-            // and daylight actually exist.
-            const starveTrap = (() => {
-              try {
-                const food0 = this.bot.food;
-                if (food0 == null || food0 > 4) return false;
-                const head2 = this.bot.blockAt(this.bot.entity.position.floored().offset(0, 2, 0));
-                return (head2?.skyLight ?? 15) < 4;
-              } catch {
-                return false;
-              }
-            })();
-            if ((campDeathsR >= 1 && bedCamper) || starveTrap) {
-              this._note(starveTrap ? "кровать в голодной ловушке — ломаю" : "кровать закемплена — ломаю до побега");
+            if (campDeathsR >= 1 && bedCamper) {
+              this._note("кровать закемплена — ломаю до побега");
               // the sprint kick below chains on this promise: sprinting first
               // moves the bot out of swing range mid-dig and the anchor
               // survives — the same race that kept the loop's own check from
@@ -275,6 +259,39 @@ export class ClearRunner {
           }
         } catch {
           /* bed-break best-effort — the flee still runs */
+        }
+        // Starvation-trap anchor: a bed keeping respawns inside an
+        // underground hunger trap is camped regardless of mobs (the y=33
+        // loop — 8 straight /kill unsticks landing back on the same bed at
+        // food=0 hp=1). The sync findBlock above fires before chunks load
+        // and missed this bed every respawn; hunt it asynchronously — the
+        // sprint kick may already be carrying the bot, so scan wide and
+        // walk back to dig.
+        try {
+          const foodAtRespawn = this.bot.food;
+          const headAtRespawn = this.bot.blockAt(this.bot.entity.position.floored().offset(0, 2, 0));
+          if (foodAtRespawn != null && foodAtRespawn <= 4 && (headAtRespawn?.skyLight ?? 15) < 4) {
+            this._pendingBedDig = (async () => {
+              try {
+                let bedT = null;
+                for (let tries = 0; tries < 10 && !bedT; tries++) {
+                  bedT = this.bot.findBlock({ matching: (b) => b && b.name.endsWith("_bed"), maxDistance: 14 });
+                  if (!bedT) await new Promise((r) => setTimeout(r, 1800));
+                }
+                if (!bedT) return;
+                this._note("кровать в голодной ловушке — ломаю якорь");
+                await executeAction(this.bot, { type: "goto", x: bedT.position.x, y: bedT.position.y, z: bedT.position.z, range: 2, timeoutMs: 12000 }, this.mcData).catch(() => {});
+                await executeAction(this.bot, { type: "dig", x: bedT.position.x, y: bedT.position.y, z: bedT.position.z, timeoutMs: 8000 }, this.mcData).catch(() => {});
+                if (this.bot.blockAt(bedT.position)?.name !== bedT.name) {
+                  this.log(`[clear] broke starve-trap bed — next respawn goes to world spawn`);
+                }
+              } finally {
+                this._pendingBedDig = null;
+              }
+            })();
+          }
+        } catch {
+          /* starve-trap bed hunt is best-effort */
         }
         // kick the sprint NOW — waiting for the next loop tick gives a
         // spawn-camping creeper its whole 1.5s fuse. A 1.5s burst is ~8
