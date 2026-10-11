@@ -103,9 +103,14 @@ export function phaseFromItems(m, dim = "", dragonPresent = false) {
     if (c("blaze_rod") >= 6 || c("blaze_powder") >= 6) return c("ender_pearl") >= 12 ? "eyes" : "pearls";
     return "blaze";
   }
-  if (c("ender_eye") >= 12) return "stronghold";
-  if (c("ender_pearl") >= 12 && rods >= 6) return "eyes";
-  if (rods >= 6) return "pearls";
+  // thrown eyes shatter (~20%): a run that lost 2 of 12 must stay in the
+  // stronghold/eyes nodes, not fall back to the overworld ladder
+  const eyes = c("ender_eye");
+  const pearls = c("ender_pearl");
+  const powder = c("blaze_rod") * 2 + c("blaze_powder");
+  if (eyes >= 12 || (eyes >= 8 && pearls === 0)) return "stronghold";
+  if (pearls + eyes >= 12 && powder + eyes >= 12) return "eyes";
+  if (rods >= 6 || powder + eyes >= 12 || eyes > 0) return "pearls";
   if (c((k) => k.includes("obsidian")) >= 10 && has(["flint_and_steel", "fire_charge"])) return "nether";
   if (has(["diamond_pickaxe"]) || (c("diamond") >= 3 && has(["iron_pickaxe", "diamond_pickaxe"]))) return "portal";
   if (has(["iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"])) return "diamond";
@@ -281,4 +286,26 @@ export function readiness(goal, m, armor) {
     need((c(/^bow$/) > 0 && c(/^arrow$/) >= 32) || c(/_bed$/) >= 4, "bow+32 arrows or 4 beds");
   }
   return { ready: missing.length === 0, missing };
+}
+
+// ---------- stronghold triangulation ----------
+
+// Two eye throws from separated points → stronghold xz. Rays nearly
+// parallel (<~3°) or crossing behind a thrower are rejected: they put the
+// estimate thousands of blocks off.
+export function intersectRays(r1, r2) {
+  if (!r1 || !r2) return null;
+  const det = -r1.dx * r2.dz + r2.dx * r1.dz;
+  if (Math.abs(det) < 0.05) return null;
+  const bx = r2.x - r1.x;
+  const bz = r2.z - r1.z;
+  const t1 = (-bx * r2.dz + r2.dx * bz) / det;
+  const t2 = (r1.dx * bz - r1.dz * bx) / det;
+  if (t1 <= 0 || t2 <= 0) return null;
+  return { x: r1.x + r1.dx * t1, z: r1.z + r1.dz * t1, t1, t2 };
+}
+
+// side step for the second throw: perpendicular to the first ray
+export function perpendicularPoint(r, dist = 100) {
+  return { x: r.x - r.dz * dist, z: r.z + r.dx * dist };
 }

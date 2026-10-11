@@ -26,6 +26,7 @@ import { readDecision, gateDecision, compactState, createController } from "./co
 import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
 import {
+  intersectRays, perpendicularPoint,
   phaseFromItems, capitalGap, assessRisk, deathHeat, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
 } from "./insurance.js";
 import fs from "fs";
@@ -904,6 +905,14 @@ const mkCtx = (world, over = {}) => ({
   check("method switches after deaths", pick.name === "bucket_cast", JSON.stringify(pick));
   check("method respects availability", pickMethod({ rec: {} }, "portal", [{ name: "a", cost: 1, available: false }, { name: "b", cost: 3 }]).name === "b");
   const full = { iron_sword: 1, iron_pickaxe: 1, bread: 12, cobblestone: 64, golden_helmet: 1 };
+  const ix = intersectRays({ x: 0, z: 0, dx: 1, dz: 0 }, { x: 100, z: -100, dx: 0, dz: 1 });
+  check("triangulate", ix && Math.abs(ix.x - 100) < 1e-6 && Math.abs(ix.z) < 1e-6, JSON.stringify(ix));
+  check("triangulate parallel rejected", intersectRays({ x: 0, z: 0, dx: 1, dz: 0 }, { x: 0, z: 50, dx: 1, dz: 0.01 }) === null);
+  check("triangulate behind rejected", intersectRays({ x: 0, z: 0, dx: -1, dz: 0 }, { x: 100, z: -100, dx: 0, dz: 1 }) === null);
+  const side = perpendicularPoint({ x: 0, z: 0, dx: 1, dz: 0 }, 100);
+  check("side point perpendicular", Math.abs(side.x) < 1e-9 && Math.abs(side.z - 100) < 1e-9);
+  check("eyes lost keeps stronghold", phaseFromItems({ ender_eye: 10 }) === "stronghold");
+  check("eyes mid-craft stays eyes", phaseFromItems({ ender_eye: 6, ender_pearl: 6, blaze_powder: 6 }) === "eyes");
   check("nether gate needs armor", !readiness("nether", full, 2).ready);
   check("nether gate ready", readiness("nether", full, armorPoints([{ name: "iron_chestplate" }, { name: "iron_leggings" }])).ready);
 }

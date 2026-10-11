@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
-import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints } from "./insurance.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints, intersectRays, perpendicularPoint } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -9816,39 +9816,103 @@ async function phaseEyes(bot, mcData, state, log) {
   };
 }
 
+// Throw one eye and read its flight: the entity moves ~12 blocks toward the
+// stronghold (and DOWN when the bot already stands above it). Picks the eye
+// back up when it drops instead of shattering.
+async function throwEyeRay(bot, mcData) {
+  const eye = bot.inventory.items().find((i) => i.name === "ender_eye");
+  if (!eye) return null;
+  await pt(bot.equip(eye, "hand"), 8000, "equip eye");
+  await bot.look(bot.entity.yaw, 0.3, true);
+  const me = bot.entity.position.clone();
+  const before = new Set(Object.values(bot.entities).filter((e) => /eye/i.test(String(e.name || ""))).map((e) => e.id));
+  bot.activateItem();
+  await sleep(150);
+  bot.deactivateItem();
+  const samples = [];
+  let id = null;
+  for (let i = 0; i < 14; i++) {
+    await sleep(200);
+    const e = id != null
+      ? bot.entities[id]
+      : Object.values(bot.entities).find((x) => /eye/i.test(String(x.name || "")) && !before.has(x.id) && x.position.distanceTo(me) < 20);
+    if (!e) {
+      if (id != null) break;
+      continue;
+    }
+    id = e.id;
+    samples.push(e.position.clone());
+  }
+  if (samples.length < 2) return null;
+  const a = samples[0];
+  const b = samples[samples.length - 1];
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const L = Math.hypot(dx, dz);
+  await sleep(1500);
+  await executeAction(bot, { type: "goto", x: b.x, y: b.y, z: b.z, range: 1, timeoutMs: 12000 }, mcData).catch(() => ({}));
+  if (L < 0.4) return { x: me.x, z: me.z, dx: 0, dz: 0, dy: b.y - a.y, below: true };
+  return { x: me.x, z: me.z, dx: dx / L, dz: dz / L, dy: b.y - a.y, below: b.y < a.y - 0.5 && L < 2 };
+}
+
 async function phaseStronghold(bot, mcData, state, log) {
-  // Throw eye and path roughly — mineflayer eye throw is complex; use explore + locate if op
-  // Fair: use ender eye item activate and follow
-  if (countItem(bot, "ender_eye") > 0) {
-    try {
-      const eye = bot.inventory.items().find((i) => i.name === "ender_eye");
-      if (eye) {
-        await pt(bot.equip(eye, "hand"), 8000, "equip");
-        // look up slightly and throw
-        await bot.look(bot.entity.yaw, -0.4, true);
-        bot.activateItem();
-        await sleep(200);
-        bot.deactivateItem();
-        // chase nearest eye entity
-        await sleep(1500);
-        const flying = Object.values(bot.entities).find((e) => /eye/i.test(String(e.name || "")));
-        if (flying) {
-          await executeAction(
-            bot,
-            {
-              type: "goto",
-              x: flying.position.x,
-              y: bot.entity.position.y,
-              z: flying.position.z,
-              range: 2,
-              timeoutMs: 60000,
-            },
-            mcData
-          );
-        }
+  const sh = (state.stronghold = state.stronghold || { rays: [], est: null, t0: Date.now() });
+  const me = bot.entity.position;
+  const eyes = countItem(bot, "ender_eye");
+  const frameNear = bot.findBlock({ matching: (b) => b && (b.name === "end_portal_frame" || b.name === "end_portal"), maxDistance: 48 });
+  if (!frameNear && !sh.est && eyes > 0) {
+    if (!sh.rays.length) {
+      const r = await throwEyeRay(bot, mcData).catch(() => null);
+      if (r && (r.dx || r.dz)) {
+        sh.rays.push(r);
+        sh.side = perpendicularPoint(r, 110);
+        log?.(`[stronghold] ray1 from ${r.x | 0},${r.z | 0} dir ${r.dx.toFixed(2)},${r.dz.toFixed(2)}`);
+        return { ok: true, phase: "stronghold", message: "eye ray 1", milestone: "EYE_RAY1" };
       }
-    } catch {
-      /* ignore */
+      return { ok: false, phase: "stronghold", message: "eye throw unread" };
+    }
+    const t = sh.side;
+    if (Math.hypot(t.x - me.x, t.z - me.z) > 10) {
+      const k = Math.min(1, 70 / Math.hypot(t.x - me.x, t.z - me.z));
+      await executeAction(bot, { type: "goto", x: me.x + (t.x - me.x) * k, y: me.y, z: me.z + (t.z - me.z) * k, range: 4, timeoutMs: 70000 }, mcData).catch(() => ({}));
+      return { ok: true, phase: "stronghold", message: `to 2nd throw point ${t.x | 0},${t.z | 0}` };
+    }
+    const r2 = await throwEyeRay(bot, mcData).catch(() => null);
+    const est = intersectRays(sh.rays[0], r2);
+    if (est) {
+      sh.est = { x: Math.round(est.x), z: Math.round(est.z) };
+      log?.(`[stronghold] triangulated ~${sh.est.x},${sh.est.z}`);
+      return { ok: true, phase: "stronghold", message: `triangulated ${sh.est.x},${sh.est.z}`, milestone: "STRONGHOLD_FIX" };
+    }
+    // ill-conditioned pair: keep the newer ray, side-step again
+    if (r2 && (r2.dx || r2.dz)) {
+      sh.rays = [r2];
+      sh.side = perpendicularPoint(r2, 110);
+    }
+    return { ok: false, phase: "stronghold", message: "triangulation failed — re-sidestep" };
+  }
+  if (!frameNear && sh.est) {
+    const d = Math.hypot(sh.est.x - me.x, sh.est.z - me.z);
+    if (d > 24) {
+      const k = Math.min(1, 80 / d);
+      await executeAction(bot, { type: "goto", x: me.x + (sh.est.x - me.x) * k, y: me.y, z: me.z + (sh.est.z - me.z) * k, range: 4, timeoutMs: 80000 }, mcData).catch(() => ({}));
+      // one refine throw on arrival keeps a 5° error from becoming 100 blocks
+      if (d < 120 && !sh.refined && eyes > 10) {
+        sh.refined = true;
+        const r3 = await throwEyeRay(bot, mcData).catch(() => null);
+        const est2 = intersectRays(sh.rays[0], r3);
+        if (est2) sh.est = { x: Math.round(est2.x), z: Math.round(est2.z) };
+      }
+      return { ok: true, phase: "stronghold", message: `to stronghold ~${sh.est.x},${sh.est.z} d=${d | 0}` };
+    }
+    // on top of it: strongholds sit y≈-40..40 — stair down while scanning
+    if (me.y > 20) {
+      const sd = await digStaircaseDown(bot, mcData, 10, 10).catch(() => null);
+      const bricks = bot.findBlock({ matching: (b) => b && /stone_bricks$/.test(b.name), maxDistance: 24 });
+      if (bricks) {
+        await executeAction(bot, { type: "goto", x: bricks.position.x, y: bricks.position.y, z: bricks.position.z, range: 2, timeoutMs: 40000 }, mcData).catch(() => ({}));
+      }
+      return { ok: true, phase: "stronghold", message: `descend to stronghold y=${sd?.y ?? me.y | 0}` };
     }
   }
   // look for stronghold blocks
@@ -9884,14 +9948,17 @@ async function phaseStronghold(bot, mcData, state, log) {
     }
     return { ok: true, phase: "stronghold", message: "at frames", milestone: "STRONGHOLD" };
   }
-  // wander
+  // inside the stronghold footprint: walk corridors around the fix
   const p = bot.entity.position;
-  await executeAction(
-    bot,
-    { type: "goto", x: p.x + (Math.random() - 0.5) * 80, y: p.y, z: p.z + (Math.random() - 0.5) * 80, range: 3, timeoutMs: 90000 },
-    mcData
-  );
-  return { ok: true, phase: "stronghold", message: "search stronghold" };
+  const cx = sh.est?.x ?? p.x;
+  const cz = sh.est?.z ?? p.z;
+  const bricks = bot.findBlocks({ matching: (b) => b && /stone_bricks$/.test(b.name), maxDistance: 32, count: 40 })
+    .filter((v) => Math.hypot(v.x - p.x, v.z - p.z) > 8);
+  const pick = bricks.length ? bricks[Math.floor(Math.random() * bricks.length)] : null;
+  const tx = pick ? pick.x : cx + (Math.random() - 0.5) * 60;
+  const tz = pick ? pick.z : cz + (Math.random() - 0.5) * 60;
+  await executeAction(bot, { type: "goto", x: tx, y: pick ? pick.y + 1 : p.y, z: tz, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
+  return { ok: true, phase: "stronghold", message: "search stronghold rooms" };
 }
 
 async function phaseDragon(bot, mcData, state, log) {
