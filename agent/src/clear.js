@@ -141,6 +141,10 @@ export class ClearRunner {
       this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
       if (p) {
         this.state._diedPos = { x: p.x, z: p.z };
+        // the whole kit drops where the death happened — keep the full spot
+        // (+dimension) so the respawn escape can walk back and vacuum it
+        // before the ~5min despawn instead of re-grinding the tool chain
+        this.state._corpse = { x: p.x, y: p.y, z: p.z, dim: String(this.bot.game?.dimension || ""), t: Date.now() };
         // a spawn camp is a place, not a moment — two deaths inside ~150m of
         // each other within 10min means re-entering that area is how the
         // loop dies; mark it and every flee/site pick steers away
@@ -1370,6 +1374,52 @@ export class ClearRunner {
           // until the server kicks for keepalive timeout (seen 11:49:18)
           await sleep(800);
           continue;
+        }
+        // Corpse run: the whole kit drops where the death happened and items
+        // despawn in ~5min of loaded time — walk back and vacuum the drops
+        // before re-grinding the tool chain. Runs after the escape block so
+        // it covers home respawns too; one shot only, the despawn timer
+        // beats retries.
+        if (this.state?._corpse && bot.entity) {
+          const cp = this.state._corpse;
+          const sameDim = String(bot.game?.dimension || "") === cp.dim;
+          if (!sameDim || Date.now() - cp.t >= 240000) {
+            this.state._corpse = null;
+          } else {
+            this.state._corpse = null;
+            this.log(`[clear] corpse run to ${cp.x | 0},${cp.y | 0},${cp.z | 0}`);
+            try {
+              await executeAction(
+                bot,
+                { type: "goto", x: cp.x, y: cp.y, z: cp.z, range: 2, timeoutMs: 60000 },
+                this.mcData
+              ).catch(() => {});
+              const vacT0 = Date.now();
+              while (Date.now() - vacT0 < 30000) {
+                const me = bot.entity?.position;
+                if (!me) break;
+                const it = Object.values(bot.entities || {})
+                  .filter(
+                    (e) =>
+                      e?.position &&
+                      e !== bot.entity &&
+                      e.name === "item" &&
+                      e.position.distanceTo(me) < 28
+                  )
+                  .sort((a, b) => a.position.distanceTo(me) - b.position.distanceTo(me))[0];
+                if (!it) break;
+                await executeAction(
+                  bot,
+                  { type: "goto", x: it.position.x, y: it.position.y, z: it.position.z, range: 1, timeoutMs: 8000 },
+                  this.mcData
+                ).catch(() => {});
+                await sleep(300);
+              }
+            } catch {
+              /* corpse run best-effort */
+            }
+            continue;
+          }
         }
         // Cornered by a melee mob it can't out-fight or out-run: a zombie in
         // melee reach on a fragile or starving bot is the seed's #1 killer

@@ -575,6 +575,36 @@ export function stashLoadFile(bot) {
   }
 }
 
+// lit portal positions outlive the process — a death or restart must reuse
+// the standing portal instead of re-mining 10 obsidian for a new frame
+const PORTAL_SITE_FILE = path.resolve(__dirname, "../../logs/portal-sites.json");
+
+export function portalSitesLoadFile(bot) {
+  try {
+    const a = JSON.parse(fs.readFileSync(PORTAL_SITE_FILE, "utf8"));
+    const all = Array.isArray(a) ? a.filter((p) => p && Number.isFinite(p.x)) : [];
+    const sp = bot?.spawnPoint;
+    if (!sp || !all.some((p) => p.sx != null)) return all;
+    return all.filter((p) => p.sx == null || Math.hypot(p.sx - sp.x, p.sz - sp.z) < 32);
+  } catch {
+    return [];
+  }
+}
+
+function portalSiteRecord(pos, bot) {
+  try {
+    const list = portalSitesLoadFile(bot);
+    if (list.some((p) => Math.hypot(p.x - pos.x, p.z - pos.z) < 16)) return;
+    const sp = bot?.spawnPoint;
+    const dim = String(bot?.game?.dimension || "");
+    list.push({ x: pos.x, y: pos.y, z: pos.z, ...(dim ? { dim } : {}), ...(sp ? { sx: Math.round(sp.x), sz: Math.round(sp.z) } : {}) });
+    fs.mkdirSync(path.dirname(PORTAL_SITE_FILE), { recursive: true });
+    fs.writeFileSync(PORTAL_SITE_FILE, JSON.stringify(list.slice(-8)));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // remembered productive log grounds — persisted like stash sites so a
 // process restart keeps the compass instead of re-blind-wandering
 const LOG_SITE_FILE = path.resolve(__dirname, "../../logs/log-sites.json");
@@ -8982,7 +9012,49 @@ async function phaseDiamond(bot, mcData, state, log) {
   return { ok: true, phase: "diamond", message: "diamond gear attempt", milestone: "DIAMOND_ORE" };
 }
 
+// Find a standing lit portal: the loaded area first, then every recorded
+// portal site near enough to walk to (verified by a real nether_portal
+// block within reach of the recorded point — stale entries skip fast).
+async function findStandingPortal(bot, mcData) {
+  let lit = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 96 });
+  if (lit) return lit;
+  const me0 = bot.entity.position;
+  const dim = String(bot.game?.dimension || "");
+  const sites = portalSitesLoadFile(bot)
+    .filter((p) => !p.dim || new RegExp(dim, "i").test(p.dim))
+    .map((p) => ({ p, d: Math.hypot(p.x - me0.x, p.z - me0.z) }))
+    .filter((e) => e.d <= 600)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 3);
+  for (const { p } of sites) {
+    await executeAction(
+      bot,
+      { type: "goto", x: p.x, y: p.y, z: p.z, range: 10, timeoutMs: 60000 },
+      mcData
+    ).catch(() => ({}));
+    lit = bot.findBlock({
+      matching: (b) => b?.name === "nether_portal" && Math.hypot(b.position.x - p.x, b.position.z - p.z) < 24,
+      maxDistance: 48,
+    });
+    if (lit) return lit;
+  }
+  return null;
+}
+
 async function phasePortal(bot, mcData, state, log) {
+  // a lit portal already standing beats re-mining obsidian — after a death
+  // the old frame is still in the world while the inventory is empty
+  const standing = await findStandingPortal(bot, mcData).catch(() => null);
+  if (standing) {
+    portalSiteRecord(standing.position.floored(), bot);
+    const en = await enterPortal(bot, mcData);
+    if (en.ok) return { ok: true, phase: "portal", message: "reusing lit portal", milestone: "PORTAL" };
+    state._portalReuseFails = (state._portalReuseFails || 0) + 1;
+    if (state._portalReuseFails <= 3) {
+      return { ok: true, phase: "portal", message: `portal reuse: ${en.message}` };
+    }
+    // same portal keeps refusing entry — fall through and build fresh
+  }
   // Need obsidian 10 + flint and steel
   if (countItem(bot, "obsidian") < 10) {
     // obsidian harvest needs a diamond pick — craft it from loose diamonds
@@ -9173,6 +9245,7 @@ async function phasePortal(bot, mcData, state, log) {
   if (!litPortal) {
     return { ok: true, phase: "portal", message: "portal: frame built, still unlit" };
   }
+  portalSiteRecord(litPortal.position.floored(), bot);
   // enter portal
   await executeAction(bot, { type: "goto", x: litPortal.position.x, y: litPortal.position.y, z: litPortal.position.z, range: 1 }, mcData);
   await sleep(4000);
@@ -9252,9 +9325,19 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
         back = await enterPortal(bot, mcData);
       }
     }
+    if (!back.ok) {
+      // a remembered standing portal beats building another: walk the
+      // recorded sites and enter whichever verifies, before mining a frame
+      const far = await findStandingPortal(bot, mcData).catch(() => null);
+      if (far) {
+        portalSiteRecord(far.position.floored(), bot);
+        back = await enterPortal(bot, mcData);
+      }
+    }
     if (!back.ok && countItem(bot, "obsidian") >= 10) {
       // portal lost/out of range — build a fresh frame instead of spinning
-      await buildAndLightPortal(bot, mcData).catch(() => null);
+      const built = await buildAndLightPortal(bot, mcData).catch(() => null);
+      if (built) portalSiteRecord(built.position.floored(), bot);
       back = await enterPortal(bot, mcData);
     }
     return { ok: true, phase: "nether", message: back.ok ? "re-entering portal" : `nether re-entry: ${back.message}` };
@@ -9510,6 +9593,8 @@ async function enterPortal(bot, mcData) {
   // stand ON the lowest portal block — the walkable floor of the interior.
   // (goto range 1 stopped at the rim and side-on approaches hit the frame)
   const floorPos = portals.reduce((a, b) => (b.y < a.y ? b : a));
+  // remember the lit portal's spot — a later death must find it again
+  portalSiteRecord(floorPos, bot);
   await executeAction(
     bot,
     { type: "goto", x: floorPos.x, y: floorPos.y, z: floorPos.z, range: 0, timeoutMs: 60000 },
