@@ -3113,7 +3113,15 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const hostile =
         e.kind === "Hostile mobs" && e.name !== "enderman" ||
         /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-      return hostile && e.position.distanceTo(bot.entity.position) < 40;
+      if (!hostile) return false;
+      const d = e.position.distanceTo(bot.entity.position);
+      if (d < 16) return true;
+      if (d >= 40) return false;
+      // 16-40m: only an exit-blocker when it can see the exit line — a
+      // drowned in the basin lake or a zombie sealed behind cave walls
+      // holds the pocket for the whole day otherwise; releasing at dawn
+      // out-runs it anyway
+      return bot.canSeeEntity?.(e) ?? true;
     });
   };
   // Standing on jungle canopy: every candidate column below is leaves —
