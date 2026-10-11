@@ -7793,6 +7793,13 @@ async function phaseWood(bot, mcData, state, log) {
               { type: "goto", x: tp.x, y: tp.y, z: tp.z, range: 6, timeoutMs: 45000 },
               mcData
             ).catch(() => null);
+            // unreachable trunk (cliff, water, canopy): ban its 32m cell, or
+            // the next step picks the same tree — 12 loops then a false trap
+            const d = bot.entity.position.distanceTo(tp);
+            if (d > 8 && state) {
+              (state.deadLogCells = state.deadLogCells || {})[`${Math.round(tp.x / 32)},${Math.round(tp.z / 32)}`] = Date.now();
+              return { ok: false, phase: "wood", message: `visible trunk unreachable (${Math.round(d)}m) — banned` };
+            }
             return { ok: true, phase: "wood", message: "zero-gain — to visible trunk" };
           }
         }
