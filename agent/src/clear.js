@@ -2427,18 +2427,27 @@ export class ClearRunner {
                     : [[0, Math.sign(dvz)], [Math.sign(dvx), 0]];
                 for (const [cx, cz] of cards) {
                   if (!cx && !cz) continue;
-                  for (const dy of [0, 1]) {
-                    const wb = bot.blockAt(me2.floored().offset(cx, dy, cz));
-                    if (!wb || /air|cave_air|void_air|bedrock|water|lava|torch|lantern/.test(wb.name || "")) continue;
-                    this.log(`[clear] digging mob-door ${wb.name} toward ${victim.name}`);
-                    for (let t = 0; t < 4; t++) {
-                      await executeAction(
-                        bot,
-                        { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000 },
-                        this.mcData
-                      ).catch(() => {});
-                      if (bot.blockAt(wb.position)?.name === "air") break;
+                  // tunnel along the mob's bearing — walls can be several
+                  // cells thick; keep digging until the corridor opens or
+                  // the mob is reachable through the hole
+                  for (let step = 1; step <= 4; step++) {
+                    let opened = true;
+                    for (const dy of [0, 1]) {
+                      const wb = bot.blockAt(me2.floored().offset(cx * step, dy, cz * step));
+                      if (!wb || /air|cave_air|void_air|torch|lantern/.test(wb.name || "")) continue;
+                      opened = false;
+                      if (/bedrock|water|lava|gravel|sand/.test(wb.name || "")) break;
+                      this.log(`[clear] digging mob-door ${wb.name}@${step} toward ${victim.name}`);
+                      for (let t = 0; t < 4; t++) {
+                        await executeAction(
+                          bot,
+                          { type: "dig", x: wb.position.x, y: wb.position.y, z: wb.position.z, timeoutMs: 20000 },
+                          this.mcData
+                        ).catch(() => {});
+                        if (bot.blockAt(wb.position)?.name === "air") break;
+                      }
                     }
+                    if (opened) break; // corridor open — step into it next round
                   }
                 }
               }
