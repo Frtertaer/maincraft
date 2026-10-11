@@ -240,8 +240,24 @@ export class ClearRunner {
               return /zombie|spider|creeper|husk|drowned|slime|skeleton|stray|pillager|vex|witch|phantom/.test(n) &&
                 e.position.distanceTo(this.bot.entity.position) < 20;
             });
-            if (campDeathsR >= 1 && bedCamper) {
-              this._note("кровать закемплена — ломаю до побега");
+            // a bed anchoring respawns inside a starvation trap is camped
+            // too: the y=33 pocket loop — starving at 1hp underground, no
+            // food path, 8 straight /kill unsticks each landing back on the
+            // same bed. No camper needed — hunger is the killer. Break the
+            // anchor so the next respawn goes to world spawn where animals
+            // and daylight actually exist.
+            const starveTrap = (() => {
+              try {
+                const food0 = this.bot.food;
+                if (food0 == null || food0 > 4) return false;
+                const head2 = this.bot.blockAt(this.bot.entity.position.floored().offset(0, 2, 0));
+                return (head2?.skyLight ?? 15) < 4;
+              } catch {
+                return false;
+              }
+            })();
+            if ((campDeathsR >= 1 && bedCamper) || starveTrap) {
+              this._note(starveTrap ? "кровать в голодной ловушке — ломаю" : "кровать закемплена — ломаю до побега");
               // the sprint kick below chains on this promise: sprinting first
               // moves the bot out of swing range mid-dig and the anchor
               // survives — the same race that kept the loop's own check from
