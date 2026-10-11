@@ -7007,8 +7007,19 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
               ?.name.replace("_log", "_planks") || "oak_planks";
           await ensureCraft(bot, mcData, logName, 4).catch(() => {});
         }
-        if (countItem(bot, (i) => i.name.endsWith("_planks")) < 3) log?.("[bed] wool ok but <3 planks");
-        if (countItem(bot, (i) => i.name.endsWith("_planks")) >= 3) {
+        // the bed recipe needs 3 planks of ONE wood type: 2 oak + 2 birch is
+        // "4 planks" yet matches no recipe — top up a single type from a log
+        const plankBy = () => {
+          const m = {};
+          for (const i of bot.inventory.items()) if (i.name.endsWith("_planks")) m[i.name] = (m[i.name] || 0) + i.count;
+          return m;
+        };
+        if (!Object.values(plankBy()).some((n) => n >= 3)) {
+          const lg = bot.inventory.items().find((i) => CRAFTABLE_LOG(i));
+          if (lg) await ensureCraft(bot, mcData, lg.name.replace(/_(log|wood|stem|hyphae)$/, "_planks").replace(/^stripped_/, ""), 4).catch(() => {});
+        }
+        if (!Object.values(plankBy()).some((n) => n >= 3)) log?.(`[bed] wool ok but no 3 same-type planks ${JSON.stringify(plankBy())}`);
+        if (Object.values(plankBy()).some((n) => n >= 3)) {
           // a bed needs 3 wool of ONE color — the first stack found can be a
           // lone gray among whites, and crafting "gray_bed" with 1 gray wool
           // just fails in silence forever (the "Шерсть есть" → "no bed" loop)
