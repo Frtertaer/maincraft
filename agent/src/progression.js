@@ -7609,21 +7609,20 @@ async function runTrekLeg(bot, mcData, state, p) {
   const [bx, bz] = state.trekDir;
   state.trekLegs -= 1;
   if (!state.trekLegs) state.trekDir = null;
-  try {
-    await executeAction(
-      bot,
-      { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
-      mcData
-    );
-  } catch {
-    const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
-    if (moved < 24) {
-      (state.logTrekFailed = state.logTrekFailed || {})[`${bx},${bz}`] = Date.now();
-      state.trekLegs = 0;
-      state.trekDir = null;
-    }
+  // goto usually RETURNS {ok:false} rather than throwing — judge the leg by
+  // distance actually covered (a 2s "leg" that moved 0m looped forever)
+  await executeAction(
+    bot,
+    { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
+    mcData
+  ).catch(() => ({}));
+  const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+  if (moved < 24) {
+    (state.logTrekFailed = state.logTrekFailed || {})[`${bx},${bz}`] = Date.now();
+    state.trekLegs = 0;
+    state.trekDir = null;
   }
-  return `trek for forest (leg ${state.trekLegs})`;
+  return `trek for forest (leg ${state.trekLegs}, moved ${Math.round(moved)}m)`;
 }
 
 // walk to the nearest remembered productive log site — a plain that
