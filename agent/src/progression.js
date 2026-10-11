@@ -3120,8 +3120,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       // 16-40m: only an exit-blocker when it can see the exit line — a
       // drowned in the basin lake or a zombie sealed behind cave walls
       // holds the pocket for the whole day otherwise; releasing at dawn
-      // out-runs it anyway
-      return bot.canSeeEntity?.(e) ?? true;
+      // out-runs it anyway. canSeeBlock on the head cell is the LOS proxy
+      // (mineflayer has no canSeeEntity)
+      const head = bot.blockAt(e.position.floored().offset(0, 1, 0)) || bot.blockAt(e.position.floored());
+      return head ? (bot.canSeeBlock?.(head) ?? true) : true;
     });
   };
   // Standing on jungle canopy: every candidate column below is leaves —
