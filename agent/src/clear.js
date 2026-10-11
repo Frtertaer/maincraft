@@ -839,6 +839,48 @@ export class ClearRunner {
                 this.log(`[clear] grave-first fail: ${errG?.message || errG}`);
               }
             }
+            // naked night respawn on diggable ground: the sprint lands inside
+            // the next shooter's LOS (the spawn-basin skeleton chain — every
+            // 15-34s death there was a flee through open ground). When the
+            // dirt under our feet digs 3 deep, seal NOW: a capped shaft is
+            // ~8s and breaks both melee and arrow LOS, which no flee leg can.
+            // Only an actual melee mob inside ~10m still wins the carve
+            // race — that keeps the grave-first/flee path for it. Ranged
+            // campers are the reason to dig, not to run.
+            const meleeNear = Object.values(bot.entities || {}).some((e) => {
+              if (!e?.position || e === bot.entity) return false;
+              const n = String(e.name || "").toLowerCase();
+              return (
+                /zombie|spider|husk|zombie_villager|silverfish|slime|vex|endermite|wolf|bee/.test(n) ||
+                /creeper/.test(n)
+              ) && e.position.distanceTo(bot.entity.position) < 10;
+            });
+            const groundDigs3 = (() => {
+              try {
+                const fb = bot.entity.position.floored();
+                const dg = (b) =>
+                  b &&
+                  /dirt|grass|sand|gravel|clay|mud|snow|mycelium|podzol|coarse_dirt|rooted_dirt|farmland|moss|soul_sand|soul_soil/.test(
+                    b.name || ""
+                  );
+                return (
+                  dg(bot.blockAt(fb.offset(0, -1, 0))) &&
+                  dg(bot.blockAt(fb.offset(0, -2, 0))) &&
+                  dg(bot.blockAt(fb.offset(0, -3, 0)))
+                );
+              } catch {
+                return false;
+              }
+            })();
+            if (groundDigs3 && !meleeNear) {
+              this.log(`[clear] night respawn on diggable ground — sealing under feet`);
+              try {
+                const okNow = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
+                if (okNow) continue;
+              } catch (errNow) {
+                this.log(`[clear] seal-now fail: ${errNow?.message || errNow}`);
+              }
+            }
             // sprint away FIRST — digging a pocket takes ~10s bare-handed and
             // a mob standing over the respawn kills us mid-dig (spawn-camp loop)
             const pf = bot.entity.position;
