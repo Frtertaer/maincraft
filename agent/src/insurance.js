@@ -212,8 +212,13 @@ export const siteKey = (pos, cell = 48) =>
 export function strategyLoad(bot) {
   const s = readJson(STRATEGY_FILE, {});
   const sp = bot?.spawnPoint;
-  if (sp && s.sx != null && Math.hypot(s.sx - sp.x, s.sz - sp.z) >= 32) return { sx: sp.x, sz: sp.z, rec: {} };
-  return { sx: s.sx ?? sp?.x ?? null, sz: s.sz ?? sp?.z ?? null, rec: s.rec || {} };
+  if (sp && s.sx != null && Math.hypot(s.sx - sp.x, s.sz - sp.z) >= 32) return { sx: sp.x, sz: sp.z, rec: {}, deaths: [] };
+  return {
+    sx: s.sx ?? sp?.x ?? null,
+    sz: s.sz ?? sp?.z ?? null,
+    rec: s.rec || {},
+    deaths: Array.isArray(s.deaths) ? s.deaths : [],
+  };
 }
 export function strategySave(s) {
   writeJson(STRATEGY_FILE, s);
