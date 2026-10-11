@@ -540,7 +540,9 @@ export class ClearRunner {
     // step against a wall clock: past the bound, log the hang and treat it as
     // a no-progress step so the loop keeps turning and the normal stuck
     // escalation can still recover.
-    const STEP_MS = 300000;
+    // below the 240s log-watchdog: a stuck step resolves "hung" and the loop
+    // moves on instead of the process being killed mid-work
+    const STEP_MS = 100000;
     const stepTO = (p) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), STEP_MS))]);
 
     try {
