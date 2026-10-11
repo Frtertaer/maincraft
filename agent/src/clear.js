@@ -1372,6 +1372,38 @@ export class ClearRunner {
                 [0, ring],
                 [0, -ring],
               ];
+              // deep camp: radial legs are directions with no destination —
+              // they only re-roll which part of the kill field we land in.
+              // A real anchor (home/stash/log-site) OUTSIDE the camp is a
+              // destination: prepend its bearing so pickDryDir can choose it
+              // when the corridor is clean; drowned deaths #9-13 all died to
+              // radial legs that re-entered the same basin ring
+              if ((this.state._deathPts || []).length >= 3) {
+                const czA = this.state?.campZone;
+                const anchors = [
+                  this.state?.home,
+                  ...(this.state?.logSites || []),
+                  this.state?.stash,
+                  ...(stashLoadFile(bot) || []),
+                ]
+                  .filter((a) => a && Number.isFinite(a.x) && Number.isFinite(a.z))
+                  .filter((a) => {
+                    const d = Math.hypot(a.x - pf.x, a.z - pf.z);
+                    if (d < 60) return false;
+                    if (czA && Math.hypot(a.x - czA.x, a.z - czA.z) < 120) return false;
+                    return true;
+                  })
+                  .sort((a, b) => Math.hypot(a.x - pf.x, a.z - pf.z) - Math.hypot(b.x - pf.x, b.z - pf.z));
+                const anchorOut = anchors[0];
+                if (anchorOut) {
+                  const adx = anchorOut.x - pf.x;
+                  const adz = anchorOut.z - pf.z;
+                  const an = Math.max(Math.abs(adx), Math.abs(adz)) || 1;
+                  const legLen = Math.min(300, Math.ceil(Math.hypot(adx, adz)));
+                  fleeDirs.unshift([Math.round((adx / an) * legLen), Math.round((adz / an) * legLen)]);
+                  this.log(`[clear] anchor-march candidate ${anchorOut.x | 0},${anchorOut.z | 0} (${this.deaths} deaths)`);
+                }
+              }
               // a camper reads the deterministic dry-dir exit — after a couple
               // of spawn-camp deaths, rotate the escape instead of running the
               // same bearing into the same arrow; still prefer the drier of
