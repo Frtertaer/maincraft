@@ -2408,6 +2408,32 @@ export class ClearRunner {
                   this.mcData
                 ).catch(() => {});
               }
+              // mob unreachable — the corridor's opens are drops the
+              // pathfinder refuses. Blunder toward the nearest anchor
+              // anyway: sprint+jump into whatever cell is open. A fall at
+              // 1hp is still the real respawn the trap needs; a corridor
+              // that keeps going is an actual exit.
+              const moved = bot.entity?.position ? me2.distanceTo(bot.entity.position) : 0;
+              if (moved < 1.5) {
+                const anchor = [
+                  ...(state?.home ? [state.home] : []),
+                  ...(state?.logSites || []),
+                  ...(stashLoadFile(bot) || []),
+                ]
+                  .filter(Boolean)
+                  .sort((a, b) => Math.hypot(a.x - me2.x, a.z - me2.z) - Math.hypot(b.x - me2.x, b.z - me2.z))[0];
+                if (anchor) {
+                  this.log(`[clear] blundering toward anchor @${anchor.x},${anchor.z}`);
+                  await bot.lookAt(me2.offset(anchor.x - me2.x, 0, anchor.z - me2.z)).catch(() => {});
+                  bot.setControlState("sprint", true);
+                  bot.setControlState("forward", true);
+                  bot.setControlState("jump", true);
+                  await sleep(6000);
+                  bot.setControlState("sprint", false);
+                  bot.setControlState("forward", false);
+                  bot.setControlState("jump", false);
+                }
+              }
             } catch {
               /* mob-assisted death is best-effort */
             }
