@@ -605,6 +605,38 @@ function portalSiteRecord(pos, bot) {
   }
 }
 
+// last death spot — the dropped kit despawns ~5min after the chunk unloads,
+// so the record is deliberately short-lived; spawn-tagged like the rest
+const CORPSE_FILE = path.resolve(__dirname, "../../logs/corpse.json");
+
+export function corpseLoadFile(bot) {
+  try {
+    const p = JSON.parse(fs.readFileSync(CORPSE_FILE, "utf8"));
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.t)) return null;
+    if (Date.now() - p.t >= 240000) return null;
+    const sp = bot?.spawnPoint;
+    if (sp && p.sx != null && Math.hypot(p.sx - sp.x, p.sz - sp.z) >= 32) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+export function corpseSaveFile(bot, corpse) {
+  try {
+    if (!corpse) {
+      fs.rmSync(CORPSE_FILE, { force: true });
+      return;
+    }
+    const sp = bot?.spawnPoint;
+    const rec = { ...corpse, ...(sp ? { sx: Math.round(sp.x), sz: Math.round(sp.z) } : {}) };
+    fs.mkdirSync(path.dirname(CORPSE_FILE), { recursive: true });
+    fs.writeFileSync(CORPSE_FILE, JSON.stringify(rec));
+  } catch {
+    /* non-fatal */
+  }
+}
+
 // remembered productive log grounds — persisted like stash sites so a
 // process restart keeps the compass instead of re-blind-wandering
 const LOG_SITE_FILE = path.resolve(__dirname, "../../logs/log-sites.json");

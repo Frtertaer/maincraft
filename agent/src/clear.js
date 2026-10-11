@@ -11,7 +11,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed } from "./progression.js";
+import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed, corpseLoadFile, corpseSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
 import { Vec3 } from "vec3";
 
@@ -143,8 +143,11 @@ export class ClearRunner {
         this.state._diedPos = { x: p.x, z: p.z };
         // the whole kit drops where the death happened — keep the full spot
         // (+dimension) so the respawn escape can walk back and vacuum it
-        // before the ~5min despawn instead of re-grinding the tool chain
+        // before the ~5min despawn instead of re-grinding the tool chain.
+        // Persisted too: a watchdog restart between death and respawn must
+        // not lose the drop site (despawn is ~5min, restart is seconds)
         this.state._corpse = { x: p.x, y: p.y, z: p.z, dim: String(this.bot.game?.dimension || ""), t: Date.now() };
+        corpseSaveFile(this.bot, this.state._corpse);
         // a spawn camp is a place, not a moment — two deaths inside ~150m of
         // each other within 10min means re-entering that area is how the
         // loop dies; mark it and every flee/site pick steers away
@@ -1380,13 +1383,21 @@ export class ClearRunner {
         // before re-grinding the tool chain. Runs after the escape block so
         // it covers home respawns too; one shot only, the despawn timer
         // beats retries.
+        if (!this.state?._corpse) {
+          const fromDisk = corpseLoadFile(this.bot);
+          if (fromDisk) this.state._corpse = fromDisk;
+        }
         if (this.state?._corpse && bot.entity) {
           const cp = this.state._corpse;
-          const sameDim = String(bot.game?.dimension || "") === cp.dim;
+          const dimNow = String(bot.game?.dimension || "");
+          const sameDim = !cp.dim || !dimNow || dimNow === cp.dim;
           if (!sameDim || Date.now() - cp.t >= 240000) {
+            this.log(`[clear] corpse skip: ${sameDim ? "stale" : `dim ${dimNow}!=${cp.dim}`}`);
             this.state._corpse = null;
+            corpseSaveFile(this.bot, null);
           } else {
             this.state._corpse = null;
+            corpseSaveFile(this.bot, null);
             this.log(`[clear] corpse run to ${cp.x | 0},${cp.y | 0},${cp.z | 0}`);
             try {
               await executeAction(
