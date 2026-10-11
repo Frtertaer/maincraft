@@ -9432,6 +9432,38 @@ async function netherGate(bot, mcData, state, log) {
   return { ok: true, phase: state.phase, message: `gate: prep (${miss})` };
 }
 
+// End gate: there is no retreat from the End without killing the dragon, and
+// a death there loses the kit in the void. Prep armor/food/blocks at the
+// stronghold; bounded at 20 min so a missing bow can't freeze the run.
+async function endGate(bot, mcData, state, log) {
+  const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+  const rd = readiness("end", itemsToMap(bot.inventory.items()), armorPoints(worn));
+  const now = Date.now();
+  if (rd.ready) return null;
+  state._endGateT0 = state._endGateT0 || now;
+  if (now - state._endGateT0 > 20 * 60000) {
+    if (!state._endGateOpenLogged) log?.(`[gate] end prep timed out — going anyway (missing ${rd.missing.join(",")})`);
+    state._endGateOpenLogged = true;
+    return null;
+  }
+  log?.(`[gate] end not ready: ${rd.missing.join(",")}`);
+  if (rd.missing.some((m) => m.startsWith("armor"))) {
+    await equipAllArmor(bot);
+    if ((await craftSpareArmor(bot, mcData, 0)) > 0) return { ok: true, phase: "stronghold", message: "end gate: armor crafted" };
+  }
+  if (rd.missing.some((m) => m.startsWith("food"))) {
+    const r = await ensureFed(bot, mcData, log, state).catch(() => ({ ok: false }));
+    if (r?.ok) return { ok: true, phase: "stronghold", message: `end gate: food ${r?.message || ""}` };
+  }
+  if (rd.missing.some((m) => m.startsWith("blocks"))) {
+    for (const blk of ["stone_bricks", "stone", "cobblestone"]) {
+      const r = await executeAction(bot, { type: "collect", block: blk, count: 32, maxDistance: 16 }, mcData).catch(() => ({ ok: false }));
+      if (r.ok) return { ok: true, phase: "stronghold", message: `end gate: blocks (${blk})` };
+    }
+  }
+  return { ok: true, phase: "stronghold", message: `end gate: prep (${rd.missing.join(",")})` };
+}
+
 async function phasePortal(bot, mcData, state, log) {
   // a lit portal already standing beats re-mining obsidian — after a death
   // the old frame is still in the world while the inventory is empty
@@ -9999,6 +10031,8 @@ async function phaseStronghold(bot, mcData, state, log) {
     }
     const open = bot.findBlock({ matching: (b) => b?.name === "end_portal", maxDistance: 12 });
     if (open) {
+      const gated = await endGate(bot, mcData, state, log);
+      if (gated) return gated;
       await executeAction(bot, { type: "goto", x: open.position.x, y: open.position.y, z: open.position.z, range: 0.5 }, mcData);
       await sleep(5000);
       return { ok: true, phase: "stronghold", message: "entered end", milestone: "ENTER_END" };

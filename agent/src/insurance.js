@@ -267,7 +267,7 @@ export function readiness(goal, m, armor) {
   const missing = [];
   const need = (cond, what) => { if (!cond) missing.push(what); };
   const food = c(/^(bread|cooked_\w+|baked_potato|golden_carrot|apple|carrot|melon_slice|pumpkin_pie|cookie)$/);
-  const blocks = c(/^(cobblestone|cobbled_deepslate|dirt|netherrack|blackstone|stone|deepslate|andesite|diorite|granite|tuff)$/);
+  const blocks = c(/^(cobblestone|cobbled_deepslate|dirt|netherrack|blackstone|stone|deepslate|andesite|diorite|granite|tuff|stone_bricks|end_stone)$/);
   const sword = c(/_(sword|axe)$/) > 0;
   const pick = c(/^(iron|diamond|netherite)_pickaxe$/) > 0;
   if (goal === "nether") {
