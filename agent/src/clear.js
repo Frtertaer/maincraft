@@ -13,6 +13,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed, corpseLoadFile, corpseSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
+import { equipAllArmor, craftSpareArmor } from "./progression.js";
+import {
+  assessRisk, armorPoints, deathHeat, itemsToMap, ledgerLoad, ledgerTotals, capitalGap, phaseRank,
+  strategyLoad, strategySave, strategyRecord, siteSpent, siteKey,
+} from "./insurance.js";
 import { Vec3 } from "vec3";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -163,6 +168,13 @@ export class ClearRunner {
           }
         }
         deathZonesSaveFile(this.bot, this.state._deathPts, this.state.campZone);
+        try {
+          const strat = strategyLoad(this.bot);
+          const ph = this.state?.phase || "?";
+          strategyRecord(strat, ph, "default", siteKey(p), "death");
+          strat.deaths = (strat.deaths || []).concat([{ x: p.x, z: p.z, t: Date.now(), phase: ph, dim: String(this.bot.game?.dimension || "") }]).slice(-200);
+          strategySave(strat);
+        } catch { /* ledger best-effort */ }
       }
     };
     this._respawnHandler = () => {
@@ -568,6 +580,111 @@ export class ClearRunner {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  // Risk governor: one danger read per loop, then the three insurance moves
+  // that are cheap enough to run every iteration — wear/craft armor, pull
+  // banked capital back into the pocket after a death, and walk off a site
+  // whose failure budget for the current phase is spent.
+  async _govern(bot, state) {
+    const now = Date.now();
+    const me = bot.entity?.position;
+    if (!me) return;
+    const dim = String(bot.game?.dimension || "");
+    const overworld = !/nether|end/i.test(dim);
+    const phase = state.phase || detectPhase(bot);
+    const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+    const armor = armorPoints(worn);
+    const items = bot.inventory.items();
+    const hostiles = [];
+    for (const e of Object.values(bot.entities || {})) {
+      if (!e?.position || e === bot.entity) continue;
+      const n = String(e.name || "").toLowerCase();
+      if (n === "enderman" || n === "zombified_piglin") continue;
+      if (!(e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|witch|drowned|pillager|phantom|blaze|ghast|hoglin|slime|stray|husk|bogged|piglin_brute/.test(n))) continue;
+      const d = e.position.distanceTo(me);
+      if (d < 32) hostiles.push({ name: n, d });
+    }
+    const sky = bot.blockAt(me.floored().offset(0, 1, 0))?.skyLight;
+    const strat = (this._strat = this._strat && now - (this._stratT || 0) < 30000 ? this._strat : strategyLoad(bot));
+    this._stratT = this._strat === strat ? this._stratT || now : now;
+    const heat = deathHeat((strat.deaths || []).filter((d) => !d.dim || d.dim === dim), me);
+    const risk = assessRisk({
+      tod: bot.time?.timeOfDay,
+      surface: sky == null ? true : sky >= 10,
+      hostiles,
+      hp: bot.health,
+      food: bot.food,
+      armor,
+      weapon: items.some((i) => /_(sword|axe)$/.test(i.name)),
+      shield: bot.inventory.slots[45]?.name === "shield",
+      heat,
+    });
+    state.risk = risk;
+    if (risk.level !== this._govLevel || now - (this._govLogT || 0) > 90000) {
+      this._govLevel = risk.level;
+      this._govLogT = now;
+      this.log(`[gov] risk=${risk.level} ${risk.danger} [${risk.reasons.join(",")}] armor=${armor} phase=${phase}`);
+    }
+
+    // progress credit for the site that produced it
+    if (this._govPhase && phaseRank(phase) > phaseRank(this._govPhase)) {
+      strategyRecord(strat, this._govPhase, "default", siteKey(me), "ok");
+      strategySave(strat);
+    }
+    this._govPhase = phase;
+
+    if (now - (this._govArmorT || 0) > 30000) {
+      this._govArmorT = now;
+      await equipAllArmor(bot).catch(() => {});
+      if (risk.level === "safe" || risk.level === "low") {
+        const made = await craftSpareArmor(bot, this.mcData, 3).catch(() => 0);
+        if (made) this.log(`[gov] crafted ${made} armor piece(s)`);
+      }
+    }
+
+    if (!overworld || risk.level === "high") return;
+
+    if (now - (this._govCapT || 0) > 180000) {
+      this._govCapT = now;
+      const chest = ledgerTotals(ledgerLoad(bot), me, 300);
+      const g = capitalGap(itemsToMap(items), chest);
+      if (g.gap > 0) {
+        this.log(`[gov] capital ${g.pocket}->${g.capital}: recovering banked kit`);
+        const rec = await Promise.race([
+          stashRecover(bot, this.mcData, this.log, state),
+          new Promise((res) => setTimeout(() => res({ ok: false, message: "timeout" }), 90000)),
+        ]).catch((err) => ({ ok: false, message: String(err?.message || err) }));
+        this.log(`[gov] capital recover: ${rec?.message}`);
+        await equipAllArmor(bot).catch(() => {});
+      }
+    }
+
+    const site = siteKey(me);
+    if (siteSpent(strat, phase, site) && now - (this._govRelocT || 0) > 300000) {
+      this._govRelocT = now;
+      const here = (strat.deaths || []).filter((d) => siteKey(d) === site);
+      const cx = here.length ? here.reduce((a, d) => a + d.x, 0) / here.length : me.x;
+      const cz = here.length ? here.reduce((a, d) => a + d.z, 0) / here.length : me.z;
+      let dx = me.x - cx;
+      let dz = me.z - cz;
+      const L = Math.hypot(dx, dz);
+      if (L < 4) {
+        const a = Math.random() * Math.PI * 2;
+        dx = Math.cos(a);
+        dz = Math.sin(a);
+      } else {
+        dx /= L;
+        dz /= L;
+      }
+      const tx = Math.round(me.x + dx * 96);
+      const tz = Math.round(me.z + dz * 96);
+      this.log(`[gov] RELOCATE site ${site} spent for ${phase} (${here.length} deaths) -> ${tx},${tz}`);
+      this._note(`Это место (${site}) уже ${here.length} раз убило меня на фазе ${phase} — меняю место.`);
+      strategyRecord(strat, phase, "default", site, "fail");
+      strategySave(strat);
+      await executeAction(bot, { type: "goto", x: tx, y: me.y, z: tz, range: 6, timeoutMs: 70000 }, this.mcData).catch(() => ({}));
     }
   }
 
@@ -2232,6 +2349,8 @@ export class ClearRunner {
             await ensureBedAndSleep(bot, this.mcData, this.log, this.state).catch(() => {});
           }
         }
+        await this._govern(bot, state).catch((err) => this.log(`[gov] err ${err?.message || err}`));
+        if (!bot.entity) continue;
         const phaseBefore = detectPhase(bot);
         const dimBefore = String(bot.game?.dimension || "");
         const deathsBefore = this.deaths;

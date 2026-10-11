@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,51 +64,43 @@ export function hasAny(bot, names) {
 
 export function detectPhase(bot) {
   const dim = String(bot.game?.dimension || "");
-  if (/end/i.test(dim)) {
-    const dragon = Object.values(bot.entities).find((e) => /dragon/i.test(mobName(e)));
-    if (!dragon) return "clear";
-    return "dragon";
-  }
-  if (/nether/i.test(dim)) {
-    if (countItem(bot, "blaze_rod") >= 6 || countItem(bot, "blaze_powder") >= 6) {
-      if (countItem(bot, "ender_pearl") >= 12) return "eyes";
-      return "pearls"; // still need pearls often from overworld endermen
-    }
-    return "blaze";
-  }
+  const dragon = /end/i.test(dim) && Object.values(bot.entities || {}).some((e) => /dragon/i.test(mobName(e)));
+  return phaseFromItems(itemsToMap(bot.inventory.items()), dim, dragon);
+}
 
-  const eyes = countItem(bot, "ender_eye");
-  const pearls = countItem(bot, "ender_pearl");
-  const rods = countItem(bot, "blaze_rod") + countItem(bot, "blaze_powder");
-  if (eyes >= 12) return "stronghold";
-  if (pearls >= 12 && rods >= 6) return "eyes";
-  if (rods >= 6) return "pearls";
-  if (countItem(bot, (i) => i.name.includes("obsidian")) >= 10 && hasAny(bot, ["flint_and_steel", "fire_charge"])) {
-    // portal may be built
-    return "nether";
+// Wear every armor piece carried — crafted plates used to sit in the pocket
+// (and drop on death) without ever counting toward defense.
+export async function equipAllArmor(bot) {
+  const slot = { helmet: "head", chestplate: "torso", leggings: "legs", boots: "feet" };
+  const tier = { leather: 1, golden: 2, chainmail: 3, iron: 4, diamond: 5, netherite: 6 };
+  const worn = (s) => bot.inventory.slots[{ head: 5, torso: 6, legs: 7, feet: 8 }[s]];
+  for (const [kind, dest] of Object.entries(slot)) {
+    const cands = bot.inventory.items().filter((i) => i.name.endsWith(`_${kind}`) && tier[i.name.split("_")[0]]);
+    if (!cands.length) continue;
+    cands.sort((x, y) => tier[y.name.split("_")[0]] - tier[x.name.split("_")[0]]);
+    const cur = worn(dest);
+    if (cur && tier[cur.name.split("_")[0]] >= tier[cands[0].name.split("_")[0]]) continue;
+    try {
+      await pt(bot.equip(cands[0], dest), 6000, "equip armor");
+    } catch { /* next tick */ }
   }
-  // Portal only with diamond pick (obsidian) or enough diamonds already
-  if (hasAny(bot, ["diamond_pickaxe"]) || (countItem(bot, "diamond") >= 3 && hasAny(bot, ["iron_pickaxe", "diamond_pickaxe"]))) {
-    return "portal";
+}
+
+// Armor before depth: chest(8) → legs(7) → helmet(5) → boots(4), keeping
+// `reserve` ingots for the bucket/flint the portal edge needs.
+export async function craftSpareArmor(bot, mcData, reserve = 3) {
+  const order = [["iron_chestplate", 8], ["iron_leggings", 7], ["iron_helmet", 5], ["iron_boots", 4]];
+  const wornOrHeld = (n) => hasAny(bot, [n]) || [5, 6, 7, 8].some((i) => bot.inventory.slots[i]?.name === n);
+  let made = 0;
+  for (const [name, cost] of order) {
+    if (wornOrHeld(name)) continue;
+    if (countItem(bot, "iron_ingot") < cost + reserve) break;
+    await ensureTable(bot, mcData).catch(() => {});
+    const r = await ensureCraft(bot, mcData, name, 1).catch(() => ({ ok: false }));
+    if (r?.ok) made += 1;
   }
-  // Mine diamonds only with at least iron pick
-  if (hasAny(bot, ["iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"])) {
-    return "diamond";
-  }
-  // Iron phase: stone pick + need iron tools/ingots/ore
-  const picks = bot.inventory.items().filter((i) => i.name.includes("pickaxe"));
-  if (
-    picks.some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) ||
-    countItem(bot, "iron_ingot") > 0 ||
-    countItem(bot, "raw_iron") > 0
-  ) {
-    return "iron";
-  }
-  // only advance past wood when inventory actually holds a pickaxe
-  if (picks.length > 0) {
-    return "stone";
-  }
-  return "wood";
+  if (made) await equipAllArmor(bot);
+  return made;
 }
 
 /**
@@ -1151,6 +1144,7 @@ export async function stashDeposit(bot, mcData, log, state) {
         }
         if (kitMoved >= 12) state.stashKitDone = `${chestBlock.position.x},${chestBlock.position.z}`;
       }
+      try { ledgerRecord(bot, chestBlock.position, chest.containerItems()); } catch { /* ledger best-effort */ }
     } finally {
       chest.close();
     }
@@ -1396,6 +1390,7 @@ export async function stashRecover(bot, mcData, log, state) {
     const stashKey = (p) => `${Math.round(p.x)},${Math.round(p.z)}`;
     const kill = (p) => {
       stashRemove(p, bot);
+      ledgerRecord(bot, p, []);
       if (!state) return;
       delete state._stashMiss[stashKey(p)];
       if (state.stash && Math.abs(state.stash.x - p.x) < 2 && Math.abs(state.stash.z - p.z) < 2) state.stash = null;
@@ -1479,6 +1474,7 @@ export async function stashRecover(bot, mcData, log, state) {
           // starvation raid re-walks 50m+ to the same proven-empty chest
           // (the @-54,-94 stash was raided twice in 6min, both empty)
           stashRemove(p, bot);
+          try { ledgerRecord(bot, b.position, chest.containerItems()); } catch { /* ledger best-effort */ }
         } finally {
           chest.close();
         }
@@ -8640,13 +8636,7 @@ async function phaseIron(bot, mcData, state, log) {
   if (!hasAny(bot, ["shield"])) {
     await ensureCraft(bot, mcData, "shield", 1);
   }
-  // armor if enough leftover iron
-  if (countItem(bot, "iron_ingot") >= 5 && !hasAny(bot, ["iron_chestplate"])) {
-    await ensureCraft(bot, mcData, "iron_chestplate", 1);
-  }
-  if (countItem(bot, "iron_ingot") >= 5 && !hasAny(bot, ["iron_helmet"])) {
-    await ensureCraft(bot, mcData, "iron_helmet", 1);
-  }
+  await craftSpareArmor(bot, mcData, 0);
   try {
     const pick = bot.inventory.items().find((i) => i.name === "iron_pickaxe");
     if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
@@ -9396,12 +9386,60 @@ async function findStandingPortal(bot, mcData) {
   return null;
 }
 
+// Readiness gate before the nether jump: a death on the other side costs the
+// whole kit, so the jump waits for armor/food/blocks. Bounded — after 25 min
+// of prep the gate opens anyway so a barren seed can't freeze the run.
+async function netherGate(bot, mcData, state, log) {
+  const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+  const rd = readiness("nether", itemsToMap(bot.inventory.items()), armorPoints(worn));
+  const now = Date.now();
+  if (rd.ready) {
+    state._netherGateT0 = null;
+    return null;
+  }
+  state._netherGateT0 = state._netherGateT0 || now;
+  if (now - state._netherGateT0 > 25 * 60000) {
+    if (!state._netherGateOpenLogged) log?.(`[gate] nether prep timed out — going anyway (missing ${rd.missing.join(",")})`);
+    state._netherGateOpenLogged = true;
+    return null;
+  }
+  const miss = rd.missing.join(",");
+  log?.(`[gate] nether not ready: ${miss}`);
+  if (rd.missing.some((m) => m.startsWith("armor"))) {
+    await equipAllArmor(bot);
+    if ((await craftSpareArmor(bot, mcData, 0)) > 0) return { ok: true, phase: state.phase, message: "gate: armor crafted" };
+    const raw = countItem(bot, "raw_iron");
+    if (raw > 0) {
+      const fuel = bot.inventory.items().find((i) => /^(coal|charcoal)$/.test(i.name) || /_planks$/.test(i.name));
+      if (fuel) {
+        const r = await executeAction(bot, { type: "smelt", input: "raw_iron", output: "iron_ingot", fuel: fuel.name, count: raw, timeoutMs: raw * 11000 + 20000 }, mcData).catch(() => ({ ok: false }));
+        if (r.ok) return { ok: true, phase: state.phase, message: "gate: smelted iron for armor" };
+      }
+    }
+    for (const ore of ["iron_ore", "deepslate_iron_ore"]) {
+      const r = await executeAction(bot, { type: "collect", block: ore, count: 6, maxDistance: 32 }, mcData).catch(() => ({ ok: false }));
+      if (r.ok) return { ok: true, phase: state.phase, message: `gate: mined ${ore}` };
+    }
+  }
+  if (rd.missing.some((m) => m.startsWith("food"))) {
+    const r = await ensureFed(bot, mcData, log, state).catch(() => ({ ok: false }));
+    return { ok: true, phase: state.phase, message: `gate: food ${r?.message || ""}` };
+  }
+  if (rd.missing.some((m) => m.startsWith("blocks"))) {
+    const r = await executeAction(bot, { type: "collect", block: "stone", count: 32, maxDistance: 16 }, mcData).catch(() => ({ ok: false }));
+    if (r.ok) return { ok: true, phase: state.phase, message: "gate: blocks" };
+  }
+  return { ok: true, phase: state.phase, message: `gate: prep (${miss})` };
+}
+
 async function phasePortal(bot, mcData, state, log) {
   // a lit portal already standing beats re-mining obsidian — after a death
   // the old frame is still in the world while the inventory is empty
   const standing = await findStandingPortal(bot, mcData).catch(() => null);
   if (standing) {
     portalSiteRecord(standing.position.floored(), bot);
+    const gated = await netherGate(bot, mcData, state, log);
+    if (gated) return gated;
     const en = await enterPortal(bot, mcData);
     if (en.ok) return { ok: true, phase: "portal", message: "reusing lit portal", milestone: "PORTAL" };
     state._portalReuseFails = (state._portalReuseFails || 0) + 1;
@@ -9667,6 +9705,8 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
   // portal and then explores the wrong world forever
   const dim = String(bot.game?.dimension || "");
   if (!/nether/i.test(dim)) {
+    const gated = await netherGate(bot, mcData, state, log);
+    if (gated) return gated;
     let back = await enterPortal(bot, mcData);
     if (!back.ok && hasAny(bot, ["flint_and_steel"])) {
       // an unlit frame may be standing nearby — spark it and retry

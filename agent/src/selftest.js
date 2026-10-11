@@ -25,6 +25,9 @@ import { legalVerbs, resolveVerb, parseInventory } from "./controller/verbs.js";
 import { readDecision, gateDecision, compactState, createController } from "./controller/index.js";
 import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
+import {
+  phaseFromItems, capitalGap, assessRisk, deathHeat, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
+} from "./insurance.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -866,6 +869,43 @@ const mkCtx = (world, over = {}) => ({
   check("respond returns reply", convoReply.say === "здорово" && convoReply.action === "wave" && convo.mood === "happy");
   const mapped = dialogueActionToAction(convoReply.action, { playerName: "Steve" });
   check("respond action maps", mapped?.type === "emote");
+}
+
+
+// --- Insurance architecture: capital phase, risk governor, strategy ledger ---
+{
+  check("phase wood empty", phaseFromItems({}) === "wood");
+  check("phase iron pick", phaseFromItems({ iron_pickaxe: 1 }) === "diamond");
+  check("phase portal", phaseFromItems({ iron_pickaxe: 1, diamond: 3 }) === "portal");
+  check("phase nether dim", phaseFromItems({ blaze_rod: 7 }, "minecraft:the_nether") === "pearls");
+  check("phase end dragon", phaseFromItems({}, "minecraft:the_end", true) === "dragon");
+  const g = capitalGap({ wooden_pickaxe: 1 }, { iron_pickaxe: 1, diamond: 2 });
+  check("capital gap after death", g.pocket === "stone" && g.capital === "diamond" && g.gap === 3, JSON.stringify(g));
+  const tot = ledgerTotals([{ x: 0, z: 0, items: { diamond: 2 } }, { x: 900, z: 0, items: { diamond: 9 } }], { x: 10, z: 0 }, 300);
+  check("ledger totals radius", tot.diamond === 2);
+  const calm = assessRisk({ tod: 1000, hostiles: [], hp: 20, food: 20, armor: 0, weapon: true });
+  const naked = assessRisk({ tod: 14000, hostiles: [{ name: "skeleton", d: 12 }, { name: "zombie", d: 5 }], hp: 20, food: 20, armor: 0, weapon: false, heat: 2 });
+  const armored = assessRisk({ tod: 14000, hostiles: [{ name: "skeleton", d: 12 }, { name: "zombie", d: 5 }], hp: 20, food: 20, armor: 15, weapon: true, shield: true });
+  check("risk calm safe", calm.level === "safe", JSON.stringify(calm));
+  check("risk naked night high", naked.level === "high", JSON.stringify(naked));
+  check("risk armor mitigates", armored.danger < naked.danger && armored.level !== "high", JSON.stringify(armored));
+  check("risk creeper close", assessRisk({ tod: 1000, hostiles: [{ name: "creeper", d: 3 }], hp: 20, weapon: true }).level !== "safe");
+  check("risk spider day neutral", assessRisk({ tod: 1000, hostiles: [{ name: "spider", d: 4 }], hp: 20, weapon: true }).level === "safe");
+  const now = Date.now();
+  check("death heat", deathHeat([{ x: 0, z: 0, t: now }, { x: 5, z: 5, t: now }, { x: 500, z: 0, t: now }, { x: 1, z: 1, t: now - 9e6 }], { x: 0, z: 0 }) === 2);
+  const s = { rec: {} };
+  const site = siteKey({ x: -180, z: 905 });
+  for (let i = 0; i < 2; i++) strategyRecord(s, "portal", "obsidian_mine", site, "death");
+  check("site not spent at 2 deaths", !siteSpent(s, "portal", site));
+  strategyRecord(s, "portal", "obsidian_mine", site, "death");
+  check("site spent at 3 deaths", siteSpent(s, "portal", site));
+  check("other site fresh", !siteSpent(s, "portal", siteKey({ x: 200, z: 905 })));
+  const pick = pickMethod(s, "portal", [{ name: "obsidian_mine", cost: 1 }, { name: "bucket_cast", cost: 1.5 }]);
+  check("method switches after deaths", pick.name === "bucket_cast", JSON.stringify(pick));
+  check("method respects availability", pickMethod({ rec: {} }, "portal", [{ name: "a", cost: 1, available: false }, { name: "b", cost: 3 }]).name === "b");
+  const full = { iron_sword: 1, iron_pickaxe: 1, bread: 12, cobblestone: 64, golden_helmet: 1 };
+  check("nether gate needs armor", !readiness("nether", full, 2).ready);
+  check("nether gate ready", readiness("nether", full, armorPoints([{ name: "iron_chestplate" }, { name: "iron_leggings" }])).ready);
 }
 
 console.log(
