@@ -733,24 +733,35 @@ export class ClearRunner {
       // drowning reflex: roaming food hunts/treks path through lakes and the
       // step never checks air ("OpusBot drowned" mid-hunt). Low air with the
       // head in water: cancel the current step and swim straight up.
+      // bot.oxygenLevel goes stale at the surface (logged air=8 every 10s
+      // while the server had Air=300) — judge by continuous submersion time:
+      // vanilla air lasts 15s, so >7s under with no surfacing is the alarm
       bot._airReflex = setInterval(() => {
         try {
           if (!bot.entity || bot.health <= 0) return;
-          const air = bot.oxygenLevel ?? 20;
           const head = bot.blockAt(bot.entity.position.offset(0, 1.62, 0).floored());
           const wet = /water|bubble_column|kelp|seagrass/.test(String(head?.name || ""));
-          if (wet && air <= 8) {
-            if (!bot._airSwim) {
-              bot._airSwim = true;
-              this.log(`[reflex] air=${air} underwater — cancel step, swim up`);
+          const now = Date.now();
+          if (!wet) {
+            bot._wetSince = 0;
+            if (bot._airSwim) {
+              bot._airSwim = false;
+              bot.setControlState("jump", false);
+            }
+            return;
+          }
+          bot._wetSince = bot._wetSince || now;
+          if (now - bot._wetSince < 7000) return;
+          if (!bot._airSwim) {
+            bot._airSwim = true;
+            this.log(`[reflex] submerged ${Math.round((now - bot._wetSince) / 1000)}s — swim up`);
+            if (now - (bot._airCancelAt || 0) > 30000) {
+              bot._airCancelAt = now;
               cancelSteps(bot);
             }
-            bot.setControlState("jump", true);
-            bot.look(bot.entity.yaw, Math.PI / 2, true).catch(() => {});
-          } else if (bot._airSwim && (!wet || air >= 18)) {
-            bot._airSwim = false;
-            bot.setControlState("jump", false);
           }
+          bot.setControlState("jump", true);
+          bot.look(bot.entity.yaw, Math.PI / 2, true).catch(() => {});
         } catch {
           /* ignore */
         }

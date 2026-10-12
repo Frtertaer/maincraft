@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
-import { phaseFromItems, itemsToMap, ledgerRecord, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget } from "./insurance.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, ledgerLoad, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1390,7 +1390,7 @@ async function farmTend(bot, mcData, log, state) {
   return { ate };
 }
 
-export async function stashRecover(bot, mcData, log, state) {
+export async function stashRecover(bot, mcData, log, state, opts = {}) {
   try {
     // candidates: the live state's stash, plus every disk-recorded chest —
     // restarts drop state.stash but the chests are still in the world
@@ -1403,8 +1403,17 @@ export async function stashRecover(bot, mcData, log, state) {
     const near = cands
       .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
       .filter((e) => e.d <= 300)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 4);
+      .sort((a, b) => a.d - b.d);
+    // starving: the ledger knows which chest holds the meat — the nearest
+    // one (cobble/andesite) fed nothing while 6 porkchops sat 60m further
+    if (opts.preferFood) {
+      const FOOD = /^(bread|cooked_\w+|baked_potato|golden_carrot|apple|carrot|potato|melon_slice|pumpkin_pie|cookie|beef|porkchop|mutton|chicken|rabbit|cod|salmon|rotten_flesh)$/;
+      const led = ledgerLoad(bot) || [];
+      const hasFood = (p) =>
+        led.some((e) => Math.abs(e.x - p.x) < 2 && Math.abs(e.z - p.z) < 2 && Object.keys(e.items || {}).some((k) => FOOD.test(k)));
+      near.sort((a, b) => (hasFood(b.p) ? 1 : 0) - (hasFood(a.p) ? 1 : 0) || a.d - b.d);
+    }
+    near.splice(4);
     if (!near.length) return { ok: false, message: "no stash" };
     let took = 0;
     // an unreachable chest keeps its point and gets re-raided every food
@@ -6160,7 +6169,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
       if (nearStash) {
         state.stashFoodAt = Date.now();
         log?.(`[food] starving — raiding stash @${nearStash.p.x},${nearStash.p.z} (${Math.round(nearStash.d)}m)`);
-        const rec = await stashRecover(bot, mcData, log, state);
+        const rec = await stashRecover(bot, mcData, log, state, { preferFood: true });
         log?.(`[food] stash raid: ${rec.message || rec.ok}`);
         if (rec.ok) return { ok: true, ate, message: "stash raid" };
       }
