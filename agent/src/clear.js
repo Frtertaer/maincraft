@@ -152,7 +152,7 @@ export class ClearRunner {
         // before the ~5min despawn instead of re-grinding the tool chain.
         // Persisted too: a watchdog restart between death and respawn must
         // not lose the drop site (despawn is ~5min, restart is seconds)
-        this.state._corpse = { x: p.x, y: p.y, z: p.z, dim: String(this.bot.game?.dimension || ""), t: Date.now() };
+        this.state._corpse = { x: p.x, y: p.y, z: p.z, dim: String(this.bot.game?.dimension || ""), t: Date.now(), killer: String(killer || "") };
         corpseSaveFile(this.bot, this.state._corpse);
         // a spawn camp is a place, not a moment — two deaths inside ~150m of
         // each other within 10min means re-entering that area is how the
@@ -1848,6 +1848,11 @@ export class ClearRunner {
             const cpFar = Math.hypot(cp.x - bot.entity.position.x, cp.z - bot.entity.position.z) > 40;
             if (foeNear(cp.x, cp.y, cp.z, 12)) {
               this.log(`[clear] corpse guarded by hostile — skipping`);
+            } else if (cpWet && /drowned/.test(cp.killer || "") && ![5, 6, 7, 8].some((sl) => bot.inventory.slots[sl])) {
+              // a drowned never leaves its pond and sees a naked swimmer in
+              // daylight too — the dawn walk back into -147,60,80 was the
+              // same water that just killed it; a wood-phase drop is 8 planks
+              this.log(`[clear] corpse skip: drowned pond, no armor`);
             } else if (nightCp && (cpWet || cpFar)) {
               // a naked night walk back into the lake where it just drowned
               // fed the drowned pack (00:56 death on the startup corpse run)
