@@ -2734,6 +2734,7 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
 }
 
 export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
+  const burrowDiedAt0 = state?._diedAt || 0;
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
   // sheltering is impossible while swimming — every riser cell is water.
@@ -5001,7 +5002,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // died inside the pocket and respawned somewhere else — the shelter is
     // gone with the corpse; abort so the runner can flee/re-gear instead of
     // standing naked on open ground for the rest of the night
-    if (state?._diedAt && Date.now() - state._diedAt < 6000) {
+    // the hold iteration can include a 20s+ strip mine — the 6s window
+    // missed a suffocation death and the dead burrow kept "holding" at the
+    // respawn instead of the corpse run; any new death since entry aborts
+    if (state?._diedAt && (state._diedAt !== burrowDiedAt0 || Date.now() - state._diedAt < 6000)) {
       log?.("[burrow] died mid-wait — aborting shelter");
       return false;
     }
