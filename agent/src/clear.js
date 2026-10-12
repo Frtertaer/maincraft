@@ -1795,8 +1795,17 @@ export class ClearRunner {
                   /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish|cave_spider|wolf/.test(n);
                 return hostile && Math.hypot(e.position.x - x, e.position.z - z) < r && Math.abs(e.position.y - y) < 12;
               });
+            const todCp = bot.time?.timeOfDay ?? 0;
+            const nightCp = todCp >= 12541 && todCp < 23000;
+            const cpCell = bot.blockAt(new Vec3(Math.floor(cp.x), Math.floor(cp.y), Math.floor(cp.z)));
+            const cpWet = /water|kelp|seagrass|bubble/.test(String(cpCell?.name || "")) || cp.cause === "drowned";
+            const cpFar = Math.hypot(cp.x - bot.entity.position.x, cp.z - bot.entity.position.z) > 40;
             if (foeNear(cp.x, cp.y, cp.z, 12)) {
               this.log(`[clear] corpse guarded by hostile — skipping`);
+            } else if (nightCp && (cpWet || cpFar)) {
+              // a naked night walk back into the lake where it just drowned
+              // fed the drowned pack (00:56 death on the startup corpse run)
+              this.log(`[clear] corpse skip: night + ${cpWet ? "water" : "far"}`);
             } else {
             try {
               await executeAction(

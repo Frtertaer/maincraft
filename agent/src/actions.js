@@ -1508,6 +1508,9 @@ function setupMovements(bot, mcData) {
   const movements = new Movements(bot, mcData);
   movements.canDig = true;
   movements.allowSprinting = true;
+  // default liquidCost=1 makes a lake a free shortcut: 3 drownings + a
+  // drowned kill in one hour all came from paths routed through water
+  movements.liquidCost = 8;
   movements._ours = true;
   bot.pathfinder.setMovements(movements);
   // mineflayer-tool bug: equipForBlock recurses forever when the bot owns no
