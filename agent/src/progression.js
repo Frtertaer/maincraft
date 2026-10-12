@@ -7785,6 +7785,16 @@ async function runTrekLeg(bot, mcData, state, p) {
 async function gotoLogSite(bot, mcData, state, p) {
   const dead = state?.deadLogCells || {};
   const cellOf = (x, z) => `${Math.round(x / 32)},${Math.round(z / 32)}`;
+  // a site on a drowned pond's shore kept pulling every zero-gain step back
+  // into the water (flood basin marked, then drowned @-147,60,80 next to the
+  // -133,65 site) — flood basins and multi-death rings disqualify a site
+  const fz = state?.floodZone;
+  let rings = [];
+  try {
+    rings = deathClusters(strategyLoad(bot).deaths);
+  } catch {
+    /* ledger optional */
+  }
   const site = (state?.logSites || [])
     .map((s) => ({ s, d: Math.hypot(s.x - p.x, s.z - p.z) }))
     .filter(
@@ -7792,6 +7802,8 @@ async function gotoLogSite(bot, mcData, state, p) {
         e.d > 30 &&
         e.d < 400 &&
         !dead[cellOf(e.s.x, e.s.z)] &&
+        !(fz && Math.hypot(e.s.x - fz.x, e.s.z - fz.z) < (fz.r || 60)) &&
+        !rings.some((c) => Math.hypot(e.s.x - c.x, e.s.z - c.z) < 48) &&
         !(state?.campZone && Math.hypot(e.s.x - state.campZone.x, e.s.z - state.campZone.z) < 150) &&
         // a remembered site inside a proven dead zone is bait — every gather
         // there died. Skip it; the committed trek carries the bot to new land
