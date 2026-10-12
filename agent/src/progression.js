@@ -725,6 +725,30 @@ export function corpseSaveFile(bot, corpse) {
 // remembered productive log grounds — persisted like stash sites so a
 // process restart keeps the compass instead of re-blind-wandering
 const LOG_SITE_FILE = path.resolve(__dirname, "../../logs/log-sites.json");
+// beds this bot placed+claimed: the "steal a placed bed" scan (72m) used to
+// dig the bot's own spawn anchor once it roamed >12m away, and the next
+// death respawned at the camped world spawn
+const MY_BEDS_FILE = path.resolve(__dirname, "../../logs/my-beds.json");
+function myBeds() {
+  try {
+    const a = JSON.parse(fs.readFileSync(MY_BEDS_FILE, "utf8"));
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  }
+}
+export function myBedRecord(pos) {
+  try {
+    const a = myBeds().filter((b) => Math.hypot(b.x - pos.x, b.z - pos.z) > 2 || Math.abs(b.y - pos.y) > 2);
+    a.push({ x: pos.x, y: pos.y, z: pos.z, t: Date.now() });
+    fs.writeFileSync(MY_BEDS_FILE, JSON.stringify(a.slice(-12)));
+  } catch {
+    /* best effort */
+  }
+}
+export function isMyBed(pos) {
+  return myBeds().some((b) => Math.abs(b.x - pos.x) <= 1 && Math.abs(b.y - pos.y) <= 1 && Math.abs(b.z - pos.z) <= 1);
+}
 
 export function logSitesLoadFile(bot) {
   try {
@@ -2706,6 +2730,7 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
             await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "claim bed").catch(() => {});
             bedOk = true;
             log?.(`[home] bed claimed inside the seal @${hx},${deep.y},${hz}`);
+            myBedRecord(bb.position);
           }
         }
       }
@@ -6903,7 +6928,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // Range mirrors the hunt reach — a bed 40m away beats crafting one.
       try {
         const steal = bot.findBlock({
-          matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+          matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")) && !isMyBed(b.position),
           // village beds sit up to ~70m from a central signature — a 48m
           // scan from the bot misses an edge house that a raid walk finds
           maxDistance: 72,
@@ -7126,6 +7151,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   try {
     await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "activate bed");
     log?.(`[bed] spawn point claimed @${bb.position.x},${bb.position.y},${bb.position.z}`);
+    myBedRecord(bb.position);
     // wall the claim in while it's safe: a hostile inside ~12m makes standing
     // still to build deadlier than a bare bed. The porch keeps the spawn
     // point valid even fully skirted.
