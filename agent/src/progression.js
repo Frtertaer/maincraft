@@ -2220,7 +2220,7 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
       const below = bot.blockAt(f.offset(sx, -1, sz));
       if (!cell || !below || below.name === "air") continue;
       if (cell.name !== "air") continue; // already walled
-      const solid = bot.inventory.items().find(isSolidItem);
+      const solid = (bot.inventory.items().find((i) => isSolidItem(i) && !/wool$|_log$|planks$/.test(i.name)) || bot.inventory.items().find(isSolidItem));
       if (!solid) return false;
       try {
         await pt(bot.equip(solid, "hand"), 6000, "equip-seal");
@@ -2228,7 +2228,7 @@ async function stripMine(bot, mcData, steps = 20, log = null, preferDir = null) 
         const above = bot.blockAt(f.offset(sx, 1, sz));
         const base = bot.blockAt(f.offset(sx, 0, sz));
         if (above?.name === "air" && base && base.name !== "air") {
-          const solid2 = bot.inventory.items().find(isSolidItem);
+          const solid2 = (bot.inventory.items().find((i) => isSolidItem(i) && !/wool$|_log$|planks$/.test(i.name)) || bot.inventory.items().find(isSolidItem));
           if (solid2) {
             await pt(bot.equip(solid2, "hand"), 6000, "equip-seal2").catch(() => {});
             await pt(bot.placeBlock(base, new Vec3(0, 1, 0)), 8000, "seal2").catch(() => {});
@@ -3101,7 +3101,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   const SEAL_RANK = [
     /^(dirt|grass_block|coarse_dirt|podzol|rooted_dirt|mud|clay|sand|red_sand|gravel)$/,
     /^(cobblestone|cobbled_deepslate|stone|deepslate|andesite|diorite|granite|tuff|netherrack|blackstone|basalt|sandstone|red_sandstone|dirt_path)$/,
-    /_log$|_stem$|_wood$|_hyphae$|planks|bricks?$|wool$|terracotta|concrete$/,
+    /bricks?$|terracotta|concrete$/,
+    /_log$|_stem$|_wood$|_hyphae$|planks/,
   ];
   const refreshSolid = () => {
     // always re-find: items() hands out fresh objects, the old ref's count
@@ -3114,7 +3115,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
         return solid;
       }
     }
-    solid = items.find((i) => !SEAL_BAD.test(i.name)) || items[0] || null;
+    // wool is the bed (3 black wool went into a shaft cap while the
+    // bot held planks for the bed) — only when nothing else is left
+    solid = items.find((i) => !SEAL_BAD.test(i.name) && !/wool$/.test(i.name)) ||
+      items.find((i) => !SEAL_BAD.test(i.name)) || items[0] || null;
     return solid;
   };
   let solid = null;
@@ -9113,7 +9117,7 @@ async function sealCellToward(bot, mcData, mobPos) {
     const below = bot.blockAt(f.offset(sx, -1, sz));
     if (!cell || !below || below.name === "air") continue;
     if (cell.name !== "air") continue;
-    const solid = bot.inventory.items().find(isSolidItem);
+    const solid = (bot.inventory.items().find((i) => isSolidItem(i) && !/wool$|_log$|planks$/.test(i.name)) || bot.inventory.items().find(isSolidItem));
     if (!solid) return false;
     try {
       await pt(bot.equip(solid, "hand"), 6000, "equip-seal");
@@ -9121,7 +9125,7 @@ async function sealCellToward(bot, mcData, mobPos) {
       const above = bot.blockAt(f.offset(sx, 1, sz));
       const base = bot.blockAt(f.offset(sx, 0, sz));
       if (above?.name === "air" && base && base.name !== "air") {
-        const solid2 = bot.inventory.items().find(isSolidItem);
+        const solid2 = (bot.inventory.items().find((i) => isSolidItem(i) && !/wool$|_log$|planks$/.test(i.name)) || bot.inventory.items().find(isSolidItem));
         if (solid2) {
           await pt(bot.equip(solid2, "hand"), 6000, "equip-seal2").catch(() => {});
           await pt(bot.placeBlock(base, new Vec3(0, 1, 0)), 8000, "seal2").catch(() => {});
