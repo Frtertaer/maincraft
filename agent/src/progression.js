@@ -2086,8 +2086,10 @@ async function surfaceForAir(bot, mcData, log, state = null) {
     }
     return best;
   };
+  const stalled = stallWatch(bot);
   try {
     while (Date.now() - t0 < 30000) {
+      if (stalled()) await swimUnstick(bot, mcData, log);
       const feet = bot.entity.position.floored();
       const head = bot.blockAt(feet.offset(0, 1, 0));
       const under = bot.blockAt(feet.offset(0, -1, 0));
@@ -2583,9 +2585,54 @@ export function pickDryDir(bot, dirs, bias = null) {
 // a shaft is water, a pocket wall is water. Scan outward rings for the
 // nearest column whose surface is dry solid with air above, then swim at it
 // with the same look+jump+forward steering surfaceForAir uses on lips
+// Swim stall: pressing forward with zero horizontal travel for 3s means the
+// hitbox is wedged on a block the client believes is there — a 2-high lip
+// it straddles, or a ghost block from a refused place. Live: x=-150.023
+// held to 14 digits for 6+ minutes of "still submerged" in a 2-deep pond.
+function stallWatch(bot, ms = 3000) {
+  let ref = bot.entity.position.clone();
+  let t = Date.now();
+  return () => {
+    const q = bot.entity.position;
+    if (Math.hypot(q.x - ref.x, q.z - ref.z) > 0.25) {
+      ref = q.clone();
+      t = Date.now();
+      return false;
+    }
+    if (Date.now() - t < ms) return false;
+    ref = q.clone();
+    t = Date.now();
+    return true;
+  };
+}
+
+// dig every client-solid cell touching the widened hitbox: a real dirt lip
+// opens into a 1-high step, a ghost block gets corrected by the server ack
+async function swimUnstick(bot, mcData, log) {
+  const p = bot.entity.position;
+  let dug = 0;
+  for (let x = Math.floor(p.x - 0.7); x <= Math.floor(p.x + 0.7); x++)
+    for (let z = Math.floor(p.z - 0.7); z <= Math.floor(p.z + 0.7); z++)
+      for (let y = Math.floor(p.y); y <= Math.floor(p.y) + 2; y++) {
+        const b = bot.blockAt(new Vec3(x, y, z));
+        if (!b || b.boundingBox !== "block" || !diggableBlock(bot, b)) continue;
+        const r = await executeAction(bot, { type: "dig", x, y, z, timeoutMs: 5000 }, mcData).catch(() => ({ ok: false }));
+        if (r.ok) dug += 1;
+      }
+  log?.(`[water] swim stalled @${Math.floor(p.x)},${Math.floor(p.y)},${Math.floor(p.z)} — cleared ${dug} wedge cells`);
+  return dug;
+}
+
 export async function swimToLand(bot, mcData, log, ms = 40000, state = null) {
   const t0 = Date.now();
+  const stalled = stallWatch(bot);
+  const banned = new Set();
+  let lastBest = null;
   while (Date.now() - t0 < ms) {
+    if (stalled()) {
+      if (lastBest) banned.add(`${lastBest.x},${lastBest.y},${lastBest.z}`);
+      await swimUnstick(bot, mcData, log);
+    }
     const p = bot.entity.position.floored();
     const inCell = bot.blockAt(p);
     const underCell = bot.blockAt(p.offset(0, -1, 0));
@@ -2620,6 +2667,7 @@ export async function swimToLand(bot, mcData, log, ms = 40000, state = null) {
         for (let dy = -2; dy <= 1; dy += 1) {
           const b = bot.blockAt(new Vec3(p.x + dx * 2, surfY + dy, p.z + dz * 2));
           if (!b || b.boundingBox !== "block" || isWet(b)) continue;
+          if (banned.has(`${b.position.x},${b.position.y},${b.position.z}`)) continue;
           const a1 = bot.blockAt(b.position.offset(0, 1, 0));
           const a2 = bot.blockAt(b.position.offset(0, 2, 0));
           if (!a1 || !a2 || !/air|cave_air|void_air|snow|grass|fern|tall_grass|short_grass/.test(a1.name)) continue;
@@ -2654,6 +2702,7 @@ export async function swimToLand(bot, mcData, log, ms = 40000, state = null) {
       await sleep(400);
       continue;
     }
+    lastBest = best;
     const dx = best.x + 0.5 - bot.entity.position.x;
     const dz = best.z + 0.5 - bot.entity.position.z;
     bot.look(Math.atan2(-dx, -dz), 0, true);
