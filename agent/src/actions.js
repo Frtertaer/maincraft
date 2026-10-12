@@ -978,7 +978,7 @@ async function boundedCombat(bot, action) {
   // prey hunts legitimately pass 48-60m (food field reach) — the old 32 cap
   // made every chicken past 32m "no safe target nearby" while starving
   const maxDistance = finiteNumber(action.maxDistance, 16, 3, 60);
-  const maxDurationMs = finiteNumber(action.maxDurationMs ?? action.timeoutMs, 12000, 1000, 30000);
+  const maxDurationMs = finiteNumber(action.maxDurationMs ?? action.timeoutMs, 12000, 1000, 60000);
   const cooldownMs = finiteNumber(action.cooldownMs, 700, 450, 1500);
   const fleeAtHealth = finiteNumber(action.fleeAtHealth, 6, 1, 19);
   const options = {
