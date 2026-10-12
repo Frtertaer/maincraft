@@ -2127,7 +2127,9 @@ export class ClearRunner {
         // seal (spawn density beats walking).
         const daylight = !nightSoon && (bot.time?.timeOfDay ?? 0) < 12541;
         const needsShelter =
-          nightSoon || (this.deaths > 0 && (daylight ? hardThreat() : hostileNow));
+          // a fresh process has deaths=0 — the old gate let it walk out of a
+          // daytime pocket into the skeleton parked 5m off (lost the bed)
+          nightSoon || (daylight ? hardThreat() : this.deaths > 0 && hostileNow);
         if (
           surfacePhase &&
           needsShelter &&
