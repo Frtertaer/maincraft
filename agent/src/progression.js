@@ -2880,7 +2880,11 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
   // sheltering is impossible while swimming — every riser cell is water.
   // Get to shore first; only then does the column/pocket search mean anything
   const inCell = bot.blockAt(bot.entity.position.floored());
-  if (inCell?.name === "water" || /kelp|seagrass/.test(inCell?.name || "")) {
+  const underCell = bot.blockAt(bot.entity.position.floored().offset(0, -1, 0));
+  // 1-deep wading over solid ground (the flooded flats around spawn) is not
+  // open water — surfacing there just burned the whole shelter window
+  const deepWater = /water|kelp|seagrass|bubble/.test(underCell?.name || "") || underCell?.boundingBox !== "block";
+  if ((inCell?.name === "water" || /kelp|seagrass/.test(inCell?.name || "")) && deepWater) {
     // surfaceForAir, not swimToLand: underground a flooded cave has no
     // shore within reach — the land swim drowned the bot at y=13. Climb a
     // ceiling/air pocket first; the land scan stays as its fallback
