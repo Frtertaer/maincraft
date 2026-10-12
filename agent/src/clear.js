@@ -2380,6 +2380,8 @@ export class ClearRunner {
           try {
             const sd = await stashDeposit(bot, this.mcData, this.log, this.state);
             if (sd?.ok && /stashed/.test(sd.message)) this.log(`[clear] ${sd.message}`);
+            // silent failures hid that nothing was banked for 15h of play
+            else if (sd && !sd.ok) this.log(`[stash] deposit failed: ${sd.message || "?"}`);
           } catch {
             /* stash err — continue */
           }
