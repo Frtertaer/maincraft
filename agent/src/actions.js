@@ -901,9 +901,23 @@ export async function executeAction(bot, action, mcData) {
         if (bot.heldItem?.name !== item.name) {
           return { ok: false, message: `equip desync: held=${bot.heldItem?.name || "empty"} want=${item.name}` };
         }
-        await bot.placeBlock(ref, direction);
+        const isAir = (b) => !b || ["air", "cave_air", "void_air"].includes(b.name);
+        try {
+          await bot.placeBlock(ref, direction);
+        } catch (e) {
+          // "Server refused … still air" is often just a late block update or
+          // a click while moving/falling: settle, recheck, retry once
+          if (!/refused|timeout|did not fire/i.test(String(e?.message || e))) throw e;
+          for (const k of ["forward", "back", "left", "right", "sprint", "jump"]) bot.setControlState(k, false);
+          await new Promise((r) => setTimeout(r, 450));
+          if (isAir(bot.blockAt(target))) {
+            if (bot.heldItem?.name !== item.name) throw e;
+            await bot.lookAt(ref.position.offset(0.5 + direction.x * 0.5, 0.5 + direction.y * 0.5, 0.5 + direction.z * 0.5), true).catch(() => {});
+            await bot.placeBlock(ref, direction);
+          }
+        }
         const placed = bot.blockAt(target);
-        if (!placed || ["air", "cave_air", "void_air"].includes(placed.name)) {
+        if (isAir(placed)) {
           return { ok: false, message: `${item.name} placement was not confirmed` };
         }
         return { ok: true, message: `placed ${placed.name} at ${formatPos(target)}` };
