@@ -2071,6 +2071,8 @@ async function surfaceForAir(bot, mcData, log, state = null) {
   const PASS = /air|cave_air|void_air|water|bubble_column|kelp|seagrass|snow|snow_layer|grass|fern|vine|tall_grass|short_grass/;
   // climbable lip: a solid block whose top is at or ~1 above the water line
   // with passable room for the body — a jump from the surface grabs it
+  const banned = new Set();
+  let lastShore = null;
   const findShore = () => {
     const p = bot.entity.position.floored();
     let best = null;
@@ -2084,6 +2086,11 @@ async function surfaceForAir(bot, mcData, log, state = null) {
           const a1 = bot.blockAt(b.position.offset(0, 1, 0));
           const a2 = bot.blockAt(b.position.offset(0, 2, 0));
           if (!a1 || !a2 || !PASS.test(a1.name) || !PASS.test(a2.name)) continue;
+          // a submerged floor is not a shore: the pond bed one cell over
+          // (water on top) won this scan and the bot swam at it for 5 restarts
+          // at HP 1 while a dry lip sat 1 block west
+          if (WET.test(a1.name)) continue;
+          if (banned.has(`${b.position.x},${b.position.y},${b.position.z}`)) continue;
           // the lip can't be a wall — reject tops the swim can't mount
           if (b.position.y + 1 - bot.entity.position.y > 1.4) continue;
           const d = Math.hypot(dx, dz);
@@ -2099,7 +2106,10 @@ async function surfaceForAir(bot, mcData, log, state = null) {
   const stalled = stallWatch(bot);
   try {
     while (Date.now() - t0 < 30000) {
-      if (stalled()) await swimUnstick(bot, mcData, log);
+      if (stalled()) {
+        if (lastShore) banned.add(`${lastShore.x},${lastShore.y},${lastShore.z}`);
+        await swimUnstick(bot, mcData, log);
+      }
       const feet = bot.entity.position.floored();
       const head = bot.blockAt(feet.offset(0, 1, 0));
       const under = bot.blockAt(feet.offset(0, -1, 0));
@@ -2107,6 +2117,7 @@ async function surfaceForAir(bot, mcData, log, state = null) {
       const swimming = WET.test(String(under?.name || ""));
       if (!headWet && !swimming) return { ok: true };
       const shore = findShore();
+      lastShore = shore;
       if (shore) {
         // a lip exists — swim at it; close in with a sprint-jump to mount
         const cx = shore.x + 0.5;
