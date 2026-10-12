@@ -5861,7 +5861,10 @@ async function cookFoodStock(bot, mcData, log) {
 }
 
 export async function ensureFed(bot, mcData, log, state = null) {
-  if (bot.food == null || bot.food >= 14) return { ok: true, ate: false };
+  // vanilla regen needs food >= 18: a bot parked at HP 1 / food 12 never
+  // healed (whole night at 1.0f). Wounded, eat up to the regen line
+  const wounded = (bot.health ?? 20) < 12;
+  if (bot.food == null || bot.food >= (wounded ? 18 : 14)) return { ok: true, ate: false };
   let ate = false;
   // eat whatever's edible, preferring cooked/carried food
   for (let i = 0; i < 6 && bot.food < 19; i++) {

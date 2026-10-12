@@ -2027,7 +2027,7 @@ export class ClearRunner {
         // hit: phase work pauses until it eats something real.
         // gated on the bail too — an underground starving loop was doing
         // nothing but 45s starve-walk pathfinder timeouts through rock
-        if (bot.food != null && bot.food < 14 && (this._starveBail || 0) < 2 && Date.now() - (this._lastFood || 0) > 25000) {
+        if (bot.food != null && bot.food < ((bot.health ?? 20) < 12 ? 18 : 14) && (this._starveBail || 0) < 2 && Date.now() - (this._lastFood || 0) > 25000) {
           this._lastFood = Date.now();
           try {
             const fed = await ensureFed(bot, this.mcData, this.log, this.state);
