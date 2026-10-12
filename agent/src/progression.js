@@ -7796,7 +7796,11 @@ async function phaseWood(bot, mcData, state, log) {
             // unreachable trunk (cliff, water, canopy): ban its 32m cell, or
             // the next step picks the same tree — 12 loops then a false trap
             const d = bot.entity.position.distanceTo(tp);
-            if (d > 8 && state) {
+            // reached but the next gather still yields 0 (camp-filtered, fenced,
+            // village beam): a second visit to the same cell bans it as well
+            const tk = `${Math.round(tp.x / 32)},${Math.round(tp.z / 32)}`;
+            const visits = state ? ((state.trunkVisits = state.trunkVisits || {})[tk] = (state.trunkVisits[tk] || 0) + 1) : 0;
+            if ((d > 8 || visits >= 3) && state) {
               (state.deadLogCells = state.deadLogCells || {})[`${Math.round(tp.x / 32)},${Math.round(tp.z / 32)}`] = Date.now();
               return { ok: false, phase: "wood", message: `visible trunk unreachable (${Math.round(d)}m) — banned` };
             }
