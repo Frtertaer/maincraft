@@ -388,6 +388,13 @@ async function ensurePickaxe(bot, mcData) {
   if (!bot._inShelter && wood < plankNeed) await punchNearbyLogs(bot, mcData, 3).catch(() => null);
   if (plankNeed > 0) await ensurePlanks(bot, mcData, Math.max(needSticks ? 5 : 3, plankNeed));
   if (needSticks) await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
+  // the 2x2 stick craft hits the stale-inventory "missing ingredient" class
+  // (8 oak planks held, both attempts failed, no pickaxe for the night):
+  // let the server resend slots and try once more before giving up
+  if (needSticks && countItem(bot, "stick") < 2) {
+    await sleep(1500);
+    await ensureCraft(bot, mcData, "stick", 4).catch(() => null);
+  }
   if (hasStone) {
     const r = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch((e) => ({ ok: false, message: String(e?.message || e) }));
     if (r.ok) {
