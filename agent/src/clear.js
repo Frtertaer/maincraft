@@ -730,6 +730,32 @@ export class ClearRunner {
         }
       }, 600);
       bot.once("end", () => clearInterval(bot._headReflex));
+      // drowning reflex: roaming food hunts/treks path through lakes and the
+      // step never checks air ("OpusBot drowned" mid-hunt). Low air with the
+      // head in water: cancel the current step and swim straight up.
+      bot._airReflex = setInterval(() => {
+        try {
+          if (!bot.entity || bot.health <= 0) return;
+          const air = bot.oxygenLevel ?? 20;
+          const head = bot.blockAt(bot.entity.position.offset(0, 1.62, 0).floored());
+          const wet = /water|bubble_column|kelp|seagrass/.test(String(head?.name || ""));
+          if (wet && air <= 8) {
+            if (!bot._airSwim) {
+              bot._airSwim = true;
+              this.log(`[reflex] air=${air} underwater — cancel step, swim up`);
+              cancelSteps(bot);
+            }
+            bot.setControlState("jump", true);
+            bot.look(bot.entity.yaw, Math.PI / 2, true).catch(() => {});
+          } else if (bot._airSwim && (!wet || air >= 18)) {
+            bot._airSwim = false;
+            bot.setControlState("jump", false);
+          }
+        } catch {
+          /* ignore */
+        }
+      }, 300);
+      bot.once("end", () => clearInterval(bot._airReflex));
     }
     const stepTO = async (fn) => {
       let timer;
