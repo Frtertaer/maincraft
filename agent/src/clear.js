@@ -747,6 +747,7 @@ export class ClearRunner {
             if (bot._airSwim) {
               bot._airSwim = false;
               bot.setControlState("jump", false);
+              bot.setControlState("forward", false);
             }
             return;
           }
@@ -760,6 +761,51 @@ export class ClearRunner {
               cancelSteps(bot);
             }
           }
+          // a solid ceiling over the head (overhang, own pillar block) made
+          // "swim up" a no-op: drowned at y59 under a solid y61 with Air=-1.
+          // Dig the lid when air is right above it, else swim sideways to the
+          // nearest column that opens to air within 2 blocks
+          const hp = bot.entity.position.offset(0, 1.62, 0).floored();
+          let lid = null;
+          for (let dy = 1; dy <= 3; dy++) {
+            const b = bot.blockAt(hp.offset(0, dy, 0));
+            if (!b) break;
+            if (/water|bubble_column|kelp|seagrass/.test(b.name)) continue;
+            if (b.boundingBox === "block") lid = b;
+            break;
+          }
+          if (lid && !bot._lidDig && now - bot._wetSince > 9000) {
+            const above = bot.blockAt(lid.position.offset(0, 1, 0));
+            if (above && above.boundingBox !== "block" && !/bedrock|obsidian/.test(lid.name) && lid.position.distanceTo(bot.entity.position) < 4.5) {
+              bot._lidDig = true;
+              this.log(`[reflex] ceiling ${lid.name} over the swim — digging it`);
+              Promise.race([bot.dig(lid, true), new Promise((r) => setTimeout(r, 5000))])
+                .catch(() => {})
+                .finally(() => (bot._lidDig = false));
+            } else {
+              let best = null;
+              for (let dx = -3; dx <= 3; dx++)
+                for (let dz = -3; dz <= 3; dz++) {
+                  if (!dx && !dz) continue;
+                  for (let dy = 0; dy <= 2; dy++) {
+                    const c = bot.blockAt(hp.offset(dx, dy, dz));
+                    if (c && /^(air|cave_air)$/.test(c.name)) {
+                      const d = Math.hypot(dx, dz) + dy;
+                      if (!best || d < best.d) best = { dx, dz, d };
+                      break;
+                    }
+                  }
+                }
+              if (best) {
+                const yaw = Math.atan2(-best.dx, -best.dz);
+                bot.look(yaw, 0.3, true).catch(() => {});
+                bot.setControlState("forward", true);
+                bot.setControlState("jump", true);
+                return;
+              }
+            }
+          }
+          bot.setControlState("forward", false);
           bot.setControlState("jump", true);
           bot.look(bot.entity.yaw, Math.PI / 2, true).catch(() => {});
         } catch {
