@@ -46,11 +46,20 @@ export function installStepGuards(bot) {
   if (!bot || bot._stepGuards) return;
   bot._stepGuards = true;
   const cancelled = () => new Error("step cancelled (watchdog)");
+  // fire-and-forget callers (bot.look(...) without await in surfaceForAir)
+  // turned the stale-step rejection into an unhandled rejection that killed
+  // the process — 3 crash/reconnect loops at HP 1 in a pond. Awaiting
+  // callers still see the rejection; unawaited ones no longer crash.
+  const rejected = () => {
+    const p = Promise.reject(cancelled());
+    p.catch(() => {});
+    return p;
+  };
   for (const k of ASYNC) {
     const orig = bot[k];
     if (typeof orig !== "function") continue;
     bot[k] = function (...a) {
-      if (stepStale(bot)) return Promise.reject(cancelled());
+      if (stepStale(bot)) return rejected();
       return orig.apply(this, a);
     };
   }
@@ -70,7 +79,7 @@ export function installStepGuards(bot) {
       pf[k] = function (...a) {
         // setGoal(null) is a stop — always allowed
         if (stepStale(bot) && !(k === "setGoal" && a[0] == null)) {
-          if (k === "goto") return Promise.reject(cancelled());
+          if (k === "goto") return rejected();
           throw cancelled();
         }
         return orig.apply(this, a);
