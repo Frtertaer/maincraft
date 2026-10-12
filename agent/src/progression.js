@@ -3128,7 +3128,15 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       const hostile =
         e.kind === "Hostile mobs" && e.name !== "enderman" ||
         /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex/.test(n);
-      return hostile && e.position.distanceTo(bot.entity.position) < 40;
+      if (!hostile) return false;
+      // cave mobs 25-30 blocks BELOW the pocket (zombie y35, skeleton y31 vs
+      // bot y61) kept the 3D <40m test true all day and the hold burned the
+      // whole morning — a mob that far down can't reach a surface pocket
+      const me = bot.entity.position;
+      const dy = Math.abs(e.position.y - me.y);
+      const dh = Math.hypot(e.position.x - me.x, e.position.z - me.z);
+      if (dy > 10 && dh > 8) return false;
+      return e.position.distanceTo(me) < 40;
     });
   };
   // Standing on jungle canopy: every candidate column below is leaves —
