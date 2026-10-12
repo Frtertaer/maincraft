@@ -4372,6 +4372,21 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
       });
       if (close) {
         log?.(`[burrow] ${close.name} too close to shaft mouth — aborting dig`);
+        // hop ~9m away from the camper so the caller's next attempt mouths
+        // a fresh shaft instead of digging under the same mob forever —
+        // "waiting out the night" retries the same cell each step
+        try {
+          const ax = feet.x + 0.5 - close.position.x;
+          const az = feet.z + 0.5 - close.position.z;
+          const an = Math.max(Math.abs(ax), Math.abs(az)) || 1;
+          const hx = Math.round(feet.x + (ax / an) * 9);
+          const hz = Math.round(feet.z + (az / an) * 9);
+          await executeAction(
+            bot,
+            { type: "goto", x: hx, y: feet.y, z: hz, range: 1, timeoutMs: 6000 },
+            mcData
+          ).catch(() => ({ ok: false }));
+        } catch { /* hop is best-effort */ }
         return false;
       }
     }
