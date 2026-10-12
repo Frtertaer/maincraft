@@ -1852,7 +1852,7 @@ export class ClearRunner {
             const cpFar = Math.hypot(cp.x - bot.entity.position.x, cp.z - bot.entity.position.z) > 40;
             if (foeNear(cp.x, cp.y, cp.z, 12)) {
               this.log(`[clear] corpse guarded by hostile — skipping`);
-            } else if (cpWet && /drowned/.test(cp.killer || "") && ![5, 6, 7, 8].some((sl) => bot.inventory.slots[sl])) {
+            } else if (cpWet && (/drowned/.test(cp.killer || "") || (cpCell?.skyLight ?? 15) < 8) && ![5, 6, 7, 8].some((sl) => bot.inventory.slots[sl])) {
               // a drowned never leaves its pond and sees a naked swimmer in
               // daylight too — the dawn walk back into -147,60,80 was the
               // same water that just killed it; a wood-phase drop is 8 planks
