@@ -6222,7 +6222,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
         if (!bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))) {
           try {
             const vb2 = bot.findBlock?.({
-              matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+              matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")) && !isMyBed(b.position),
               // a village spans ~60-80m — a bed at the edge sits past a
               // 48m scan from the signature block, so widen to the raid reach
               maxDistance: 72,
