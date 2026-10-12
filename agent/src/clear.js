@@ -2678,6 +2678,8 @@ export class ClearRunner {
           if (
             state.stuckCycles >= 3 &&
             (state.unstickKills || 0) < 6 &&
+            // open sky is never a trap — walking away beats a death
+            (bot.blockAt(bot.entity.position.floored())?.skyLight ?? 0) < 12 &&
             ["wood", "stone", "iron"].includes(phaseAfter)
           ) {
             this.log("[clear] hard trap — walking into a mob for a real respawn");

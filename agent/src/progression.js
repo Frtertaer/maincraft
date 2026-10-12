@@ -7491,9 +7491,13 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
   {
     const feet0 = bot.entity.position.floored();
     let roofed = false;
-    for (let dy = 2; dy <= 48; dy++) {
+    // a tree canopy is not a roof: standing under leaves at y=76 read as a
+    // sealed pocket, every step returned "climbed out" in 1s and the stuck
+    // counter walked the bot into a mob on open surface
+    const skyHere = bot.blockAt(feet0)?.skyLight ?? 0;
+    for (let dy = 2; dy <= 48 && skyHere < 12; dy++) {
       const b = bot.blockAt(feet0.offset(0, dy, 0));
-      if (b && !/^(air|cave_air|void_air)$/.test(b.name)) { roofed = true; break; }
+      if (b && !/^(air|cave_air|void_air)$|leaves|_log$|_wood$|vine|snow$/.test(b.name)) { roofed = true; break; }
     }
     if (roofed) {
       // shaft first: a 1x1 column straight up is the fastest way out of a
