@@ -1,3 +1,4 @@
+import { stepStale } from "./stepctl.js";
 import pkgPathfinder from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
 
@@ -264,6 +265,10 @@ function normalizeEntityName(value) {
  * Execute one high-level action. Returns { ok, message }.
  */
 export async function executeAction(bot, action, mcData) {
+  // an orphaned (watchdog-cancelled) step must not keep acting: its own
+  // pre-checks (harvest, path) ran before any guarded bot call and kept it
+  // fighting the next step over the held item
+  if (stepStale(arguments[0])) return { ok: false, message: "step cancelled (watchdog)" };
   if (!action || typeof action !== "object") {
     return { ok: false, message: "empty action" };
   }
@@ -1503,6 +1508,9 @@ function setupMovements(bot, mcData) {
   const movements = new Movements(bot, mcData);
   movements.canDig = true;
   movements.allowSprinting = true;
+  // default liquidCost=1 makes a lake a free shortcut: 3 drownings + a
+  // drowned kill in one hour all came from paths routed through water
+  movements.liquidCost = 8;
   movements._ours = true;
   bot.pathfinder.setMovements(movements);
   // mineflayer-tool bug: equipForBlock recurses forever when the bot owns no

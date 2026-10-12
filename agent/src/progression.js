@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, ledgerLoad, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,51 +64,43 @@ export function hasAny(bot, names) {
 
 export function detectPhase(bot) {
   const dim = String(bot.game?.dimension || "");
-  if (/end/i.test(dim)) {
-    const dragon = Object.values(bot.entities).find((e) => /dragon/i.test(mobName(e)));
-    if (!dragon) return "clear";
-    return "dragon";
-  }
-  if (/nether/i.test(dim)) {
-    if (countItem(bot, "blaze_rod") >= 6 || countItem(bot, "blaze_powder") >= 6) {
-      if (countItem(bot, "ender_pearl") >= 12) return "eyes";
-      return "pearls"; // still need pearls often from overworld endermen
-    }
-    return "blaze";
-  }
+  const dragon = /end/i.test(dim) && Object.values(bot.entities || {}).some((e) => /dragon/i.test(mobName(e)));
+  return phaseFromItems(itemsToMap(bot.inventory.items()), dim, dragon);
+}
 
-  const eyes = countItem(bot, "ender_eye");
-  const pearls = countItem(bot, "ender_pearl");
-  const rods = countItem(bot, "blaze_rod") + countItem(bot, "blaze_powder");
-  if (eyes >= 12) return "stronghold";
-  if (pearls >= 12 && rods >= 6) return "eyes";
-  if (rods >= 6) return "pearls";
-  if (countItem(bot, (i) => i.name.includes("obsidian")) >= 10 && hasAny(bot, ["flint_and_steel", "fire_charge"])) {
-    // portal may be built
-    return "nether";
+// Wear every armor piece carried — crafted plates used to sit in the pocket
+// (and drop on death) without ever counting toward defense.
+export async function equipAllArmor(bot) {
+  const slot = { helmet: "head", chestplate: "torso", leggings: "legs", boots: "feet" };
+  const tier = { leather: 1, golden: 2, chainmail: 3, iron: 4, diamond: 5, netherite: 6 };
+  const worn = (s) => bot.inventory.slots[{ head: 5, torso: 6, legs: 7, feet: 8 }[s]];
+  for (const [kind, dest] of Object.entries(slot)) {
+    const cands = bot.inventory.items().filter((i) => i.name.endsWith(`_${kind}`) && tier[i.name.split("_")[0]]);
+    if (!cands.length) continue;
+    cands.sort((x, y) => tier[y.name.split("_")[0]] - tier[x.name.split("_")[0]]);
+    const cur = worn(dest);
+    if (cur && tier[cur.name.split("_")[0]] >= tier[cands[0].name.split("_")[0]]) continue;
+    try {
+      await pt(bot.equip(cands[0], dest), 6000, "equip armor");
+    } catch { /* next tick */ }
   }
-  // Portal only with diamond pick (obsidian) or enough diamonds already
-  if (hasAny(bot, ["diamond_pickaxe"]) || (countItem(bot, "diamond") >= 3 && hasAny(bot, ["iron_pickaxe", "diamond_pickaxe"]))) {
-    return "portal";
+}
+
+// Armor before depth: chest(8) → legs(7) → helmet(5) → boots(4), keeping
+// `reserve` ingots for the bucket/flint the portal edge needs.
+export async function craftSpareArmor(bot, mcData, reserve = 3) {
+  const order = [["iron_chestplate", 8], ["iron_leggings", 7], ["iron_helmet", 5], ["iron_boots", 4]];
+  const wornOrHeld = (n) => hasAny(bot, [n]) || [5, 6, 7, 8].some((i) => bot.inventory.slots[i]?.name === n);
+  let made = 0;
+  for (const [name, cost] of order) {
+    if (wornOrHeld(name)) continue;
+    if (countItem(bot, "iron_ingot") < cost + reserve) break;
+    await ensureTable(bot, mcData).catch(() => {});
+    const r = await ensureCraft(bot, mcData, name, 1).catch(() => ({ ok: false }));
+    if (r?.ok) made += 1;
   }
-  // Mine diamonds only with at least iron pick
-  if (hasAny(bot, ["iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"])) {
-    return "diamond";
-  }
-  // Iron phase: stone pick + need iron tools/ingots/ore
-  const picks = bot.inventory.items().filter((i) => i.name.includes("pickaxe"));
-  if (
-    picks.some((i) => /^(stone|iron|diamond|netherite)_pickaxe$/.test(i.name)) ||
-    countItem(bot, "iron_ingot") > 0 ||
-    countItem(bot, "raw_iron") > 0
-  ) {
-    return "iron";
-  }
-  // only advance past wood when inventory actually holds a pickaxe
-  if (picks.length > 0) {
-    return "stone";
-  }
-  return "wood";
+  if (made) await equipAllArmor(bot);
+  return made;
 }
 
 /**
@@ -152,8 +145,21 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         // a dry shore cell while the air is full — the drowned@(-18,62,31)
         // kill came from exactly this resurface-then-wander cycle
         if (sw.ok) {
+          // every next goal step (wood prereq, food hunt) re-entered the same
+          // lake: "surfaced for air" alternated 8x in 30s and the old cycle
+          // ended in a drowning. Third surfacing inside 2min = a water region —
+          // spend a real swim budget for shore and mark the basin
+          const nowW = Date.now();
+          state.wetSurf = (state.wetSurf || []).filter((t) => nowW - t < 120000);
+          state.wetSurf.push(nowW);
           const f2 = bot.entity.position.floored();
-          if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
+          if (state.wetSurf.length >= 3) {
+            state.wetSurf = [];
+            state.floodZone = { x: f2.x, z: f2.z, r: 60 };
+            log?.("[water] repeated surfacing — swimming for real shore, basin marked");
+            const landed = await swimToLand(bot, mcData, log, 45000, state).catch(() => false);
+            if (landed) return { ok: true, phase, message: "water region — swam to land" };
+          } else if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
             await swimToLand(bot, mcData, log, 10000, state).catch(() => {});
           }
         }
@@ -732,6 +738,30 @@ export function corpseSaveFile(bot, corpse) {
 // remembered productive log grounds — persisted like stash sites so a
 // process restart keeps the compass instead of re-blind-wandering
 const LOG_SITE_FILE = path.resolve(__dirname, "../../logs/log-sites.json");
+// beds this bot placed+claimed: the "steal a placed bed" scan (72m) used to
+// dig the bot's own spawn anchor once it roamed >12m away, and the next
+// death respawned at the camped world spawn
+const MY_BEDS_FILE = path.resolve(__dirname, "../../logs/my-beds.json");
+function myBeds() {
+  try {
+    const a = JSON.parse(fs.readFileSync(MY_BEDS_FILE, "utf8"));
+    return Array.isArray(a) ? a : [];
+  } catch {
+    return [];
+  }
+}
+export function myBedRecord(pos) {
+  try {
+    const a = myBeds().filter((b) => Math.hypot(b.x - pos.x, b.z - pos.z) > 2 || Math.abs(b.y - pos.y) > 2);
+    a.push({ x: pos.x, y: pos.y, z: pos.z, t: Date.now() });
+    fs.writeFileSync(MY_BEDS_FILE, JSON.stringify(a.slice(-12)));
+  } catch {
+    /* best effort */
+  }
+}
+export function isMyBed(pos) {
+  return myBeds().some((b) => Math.abs(b.x - pos.x) <= 1 && Math.abs(b.y - pos.y) <= 1 && Math.abs(b.z - pos.z) <= 1);
+}
 
 export function logSitesLoadFile(bot) {
   try {
@@ -1151,6 +1181,7 @@ export async function stashDeposit(bot, mcData, log, state) {
         }
         if (kitMoved >= 12) state.stashKitDone = `${chestBlock.position.x},${chestBlock.position.z}`;
       }
+      try { ledgerRecord(bot, chestBlock.position, chest.containerItems()); } catch { /* ledger best-effort */ }
     } finally {
       chest.close();
     }
@@ -1401,7 +1432,7 @@ async function farmTend(bot, mcData, log, state) {
   return { ate };
 }
 
-export async function stashRecover(bot, mcData, log, state) {
+export async function stashRecover(bot, mcData, log, state, opts = {}) {
   try {
     // candidates: the live state's stash, plus every disk-recorded chest —
     // restarts drop state.stash but the chests are still in the world
@@ -1414,8 +1445,17 @@ export async function stashRecover(bot, mcData, log, state) {
     const near = cands
       .map((p) => ({ p, d: Math.hypot(p.x - me.x, p.z - me.z) }))
       .filter((e) => e.d <= 300)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, 4);
+      .sort((a, b) => a.d - b.d);
+    // starving: the ledger knows which chest holds the meat — the nearest
+    // one (cobble/andesite) fed nothing while 6 porkchops sat 60m further
+    if (opts.preferFood) {
+      const FOOD = /^(bread|cooked_\w+|baked_potato|golden_carrot|apple|carrot|potato|melon_slice|pumpkin_pie|cookie|beef|porkchop|mutton|chicken|rabbit|cod|salmon|rotten_flesh)$/;
+      const led = ledgerLoad(bot) || [];
+      const hasFood = (p) =>
+        led.some((e) => Math.abs(e.x - p.x) < 2 && Math.abs(e.z - p.z) < 2 && Object.keys(e.items || {}).some((k) => FOOD.test(k)));
+      near.sort((a, b) => (hasFood(b.p) ? 1 : 0) - (hasFood(a.p) ? 1 : 0) || a.d - b.d);
+    }
+    near.splice(4);
     if (!near.length) return { ok: false, message: "no stash" };
     let took = 0;
     // an unreachable chest keeps its point and gets re-raided every food
@@ -1425,6 +1465,7 @@ export async function stashRecover(bot, mcData, log, state) {
     const stashKey = (p) => `${Math.round(p.x)},${Math.round(p.z)}`;
     const kill = (p) => {
       stashRemove(p, bot);
+      ledgerRecord(bot, p, []);
       if (!state) return;
       delete state._stashMiss[stashKey(p)];
       if (state.stash && Math.abs(state.stash.x - p.x) < 2 && Math.abs(state.stash.z - p.z) < 2) state.stash = null;
@@ -1508,6 +1549,7 @@ export async function stashRecover(bot, mcData, log, state) {
           // starvation raid re-walks 50m+ to the same proven-empty chest
           // (the @-54,-94 stash was raided twice in 6min, both empty)
           stashRemove(p, bot);
+          try { ledgerRecord(bot, b.position, chest.containerItems()); } catch { /* ledger best-effort */ }
         } finally {
           chest.close();
         }
@@ -2739,6 +2781,7 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
             await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "claim bed").catch(() => {});
             bedOk = true;
             log?.(`[home] bed claimed inside the seal @${hx},${deep.y},${hz}`);
+            myBedRecord(bb.position);
           }
         }
       }
@@ -2767,6 +2810,7 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
 }
 
 export async function burrowForNight(bot, mcData, log, force = false, _depth = 0, state = null) {
+  const burrowDiedAt0 = state?._diedAt || 0;
   const tod = bot.time?.timeOfDay;
   if (!force && (tod == null || tod < 12541)) return false;
   // sheltering is impossible while swimming — every riser cell is water.
@@ -5059,7 +5103,10 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // died inside the pocket and respawned somewhere else — the shelter is
     // gone with the corpse; abort so the runner can flee/re-gear instead of
     // standing naked on open ground for the rest of the night
-    if (state?._diedAt && Date.now() - state._diedAt < 6000) {
+    // the hold iteration can include a 20s+ strip mine — the 6s window
+    // missed a suffocation death and the dead burrow kept "holding" at the
+    // respawn instead of the corpse run; any new death since entry aborts
+    if (state?._diedAt && (state._diedAt !== burrowDiedAt0 || Date.now() - state._diedAt < 6000)) {
       log?.("[burrow] died mid-wait — aborting shelter");
       return false;
     }
@@ -6189,7 +6236,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
       if (nearStash) {
         state.stashFoodAt = Date.now();
         log?.(`[food] starving — raiding stash @${nearStash.p.x},${nearStash.p.z} (${Math.round(nearStash.d)}m)`);
-        const rec = await stashRecover(bot, mcData, log, state);
+        const rec = await stashRecover(bot, mcData, log, state, { preferFood: true });
         log?.(`[food] stash raid: ${rec.message || rec.ok}`);
         if (rec.ok) return { ok: true, ate, message: "stash raid" };
       }
@@ -6251,7 +6298,7 @@ export async function ensureFed(bot, mcData, log, state = null) {
         if (!bot.inventory.items().some((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name))) {
           try {
             const vb2 = bot.findBlock?.({
-              matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+              matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")) && !isMyBed(b.position),
               // a village spans ~60-80m — a bed at the edge sits past a
               // 48m scan from the signature block, so widen to the raid reach
               maxDistance: 72,
@@ -6957,7 +7004,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // Range mirrors the hunt reach — a bed 40m away beats crafting one.
       try {
         const steal = bot.findBlock({
-          matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")),
+          matching: (b) => b && (bot.isABed?.(b) || b.name.endsWith("_bed")) && !isMyBed(b.position),
           // village beds sit up to ~70m from a central signature — a 48m
           // scan from the bot misses an edge house that a raid walk finds
           maxDistance: 72,
@@ -7065,7 +7112,19 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
               ?.name.replace("_log", "_planks") || "oak_planks";
           await ensureCraft(bot, mcData, logName, 4).catch(() => {});
         }
-        if (countItem(bot, (i) => i.name.endsWith("_planks")) >= 3) {
+        // the bed recipe needs 3 planks of ONE wood type: 2 oak + 2 birch is
+        // "4 planks" yet matches no recipe — top up a single type from a log
+        const plankBy = () => {
+          const m = {};
+          for (const i of bot.inventory.items()) if (i.name.endsWith("_planks")) m[i.name] = (m[i.name] || 0) + i.count;
+          return m;
+        };
+        if (!Object.values(plankBy()).some((n) => n >= 3)) {
+          const lg = bot.inventory.items().find((i) => CRAFTABLE_LOG(i));
+          if (lg) await ensureCraft(bot, mcData, lg.name.replace(/_(log|wood|stem|hyphae)$/, "_planks").replace(/^stripped_/, ""), 4).catch(() => {});
+        }
+        if (!Object.values(plankBy()).some((n) => n >= 3)) log?.(`[bed] wool ok but no 3 same-type planks ${JSON.stringify(plankBy())}`);
+        if (Object.values(plankBy()).some((n) => n >= 3)) {
           // a bed needs 3 wool of ONE color — the first stack found can be a
           // lone gray among whites, and crafting "gray_bed" with 1 gray wool
           // just fails in silence forever (the "Шерсть есть" → "no bed" loop)
@@ -7076,8 +7135,11 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
           const colorWool = Object.keys(byColor).find((n) => byColor[n] >= 3);
           if (colorWool) {
             const t = await ensureTable(bot, mcData);
-            if (t.ok)
-              await ensureCraft(bot, mcData, `${colorWool.replace("_wool", "")}_bed`, 1).catch(() => {});
+            const bedName = `${colorWool.replace("_wool", "")}_bed`;
+            const cr = t.ok
+              ? await ensureCraft(bot, mcData, bedName, 1).catch((e) => ({ ok: false, message: String(e?.message || e) }))
+              : { ok: false, message: `table: ${t.message || "failed"}` };
+            if (!cr?.ok) log?.(`[bed] craft ${bedName} failed: ${cr?.message || "?"}`);
           }
         }
       }
@@ -7090,6 +7152,13 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // recorded deaths and the night loop kept landing in the same bowl.
       // Carrying the bed out of the zone beats claiming it here
       const bedZones = campZonesFor(bot, state);
+      const todC = bot.time?.timeOfDay ?? 0;
+      if (posInCamp(p, bedZones, 100) && todC >= 11000 && todC < 23000) {
+        // a 120m carry started at dusk lands the naked bot on open ground at
+        // nightfall (5 skeleton deaths in 3 min) — hold the bed, shelter first
+        log?.(`[bed] dusk (tod=${todC}) — bed carry deferred to morning`);
+        return { ok: false, message: "bed carry deferred (dusk)" };
+      }
       if (posInCamp(p, bedZones, 100)) {
         // "carrying the bed out" must actually CARRY — the old bare refusal
         // left the bot standing in the kill ring with the bed in the bag
@@ -7158,6 +7227,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   try {
     await pt(Promise.resolve(bot.activateBlock(bb)), 6000, "activate bed");
     log?.(`[bed] spawn point claimed @${bb.position.x},${bb.position.y},${bb.position.z}`);
+    myBedRecord(bb.position);
     // wall the claim in while it's safe: a hostile inside ~12m makes standing
     // still to build deadlier than a bare bed. The porch keeps the spawn
     // point valid even fully skirted.
@@ -7630,6 +7700,9 @@ export async function punchNearbyLogs(bot, mcData, need = 6, state = null) {
     { type: "dig", x: block.position.x, y: block.position.y, z: block.position.z },
     mcData
   );
+  // the single-trunk dig path also yields logs — remember the ground too,
+  // otherwise log-sites.json stayed empty and every post-death trek was blind
+  if (dig.ok && state) logSiteRecord(block.position, bot, state);
   if (!dig.ok && /no path|timeout/i.test(String(dig.message || "")) && state) {
     state.badDig = state.badDig || new Map();
     const k = `${block.position.x},${block.position.y},${block.position.z}`;
@@ -7645,21 +7718,20 @@ async function runTrekLeg(bot, mcData, state, p) {
   const [bx, bz] = state.trekDir;
   state.trekLegs -= 1;
   if (!state.trekLegs) state.trekDir = null;
-  try {
-    await executeAction(
-      bot,
-      { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
-      mcData
-    );
-  } catch {
-    const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
-    if (moved < 24) {
-      (state.logTrekFailed = state.logTrekFailed || {})[`${bx},${bz}`] = Date.now();
-      state.trekLegs = 0;
-      state.trekDir = null;
-    }
+  // goto usually RETURNS {ok:false} rather than throwing — judge the leg by
+  // distance actually covered (a 2s "leg" that moved 0m looped forever)
+  await executeAction(
+    bot,
+    { type: "goto", x: p.x + bx * 60, y: p.y, z: p.z + bz * 60, range: 5, timeoutMs: 25000 },
+    mcData
+  ).catch(() => ({}));
+  const moved = Math.hypot(bot.entity.position.x - p.x, bot.entity.position.z - p.z);
+  if (moved < 24) {
+    (state.logTrekFailed = state.logTrekFailed || {})[`${bx},${bz}`] = Date.now();
+    state.trekLegs = 0;
+    state.trekDir = null;
   }
-  return `trek for forest (leg ${state.trekLegs})`;
+  return `trek for forest (leg ${state.trekLegs}, moved ${Math.round(moved)}m)`;
 }
 
 // walk to the nearest remembered productive log site — a plain that
@@ -7827,6 +7899,17 @@ async function phaseWood(bot, mcData, state, log) {
               { type: "goto", x: tp.x, y: tp.y, z: tp.z, range: 6, timeoutMs: 45000 },
               mcData
             ).catch(() => null);
+            // unreachable trunk (cliff, water, canopy): ban its 32m cell, or
+            // the next step picks the same tree — 12 loops then a false trap
+            const d = bot.entity.position.distanceTo(tp);
+            // reached but the next gather still yields 0 (camp-filtered, fenced,
+            // village beam): a second visit to the same cell bans it as well
+            const tk = `${Math.round(tp.x / 32)},${Math.round(tp.z / 32)}`;
+            const visits = state ? ((state.trunkVisits = state.trunkVisits || {})[tk] = (state.trunkVisits[tk] || 0) + 1) : 0;
+            if ((d > 8 || visits >= 3) && state) {
+              (state.deadLogCells = state.deadLogCells || {})[`${Math.round(tp.x / 32)},${Math.round(tp.z / 32)}`] = Date.now();
+              return { ok: false, phase: "wood", message: `visible trunk unreachable (${Math.round(d)}m) — banned` };
+            }
             return { ok: true, phase: "wood", message: "zero-gain — to visible trunk" };
           }
         }
@@ -7913,6 +7996,7 @@ async function phaseWood(bot, mcData, state, log) {
         }
       }
     }
+    if (now > logs && state) logSiteRecord(bot.entity.position.floored(), bot, state);
     return {
       ok: rr.ok || now > logs,
       phase: "wood",
@@ -8694,13 +8778,7 @@ async function phaseIron(bot, mcData, state, log) {
   if (!hasAny(bot, ["shield"])) {
     await ensureCraft(bot, mcData, "shield", 1);
   }
-  // armor if enough leftover iron
-  if (countItem(bot, "iron_ingot") >= 5 && !hasAny(bot, ["iron_chestplate"])) {
-    await ensureCraft(bot, mcData, "iron_chestplate", 1);
-  }
-  if (countItem(bot, "iron_ingot") >= 5 && !hasAny(bot, ["iron_helmet"])) {
-    await ensureCraft(bot, mcData, "iron_helmet", 1);
-  }
+  await craftSpareArmor(bot, mcData, 0);
   try {
     const pick = bot.inventory.items().find((i) => i.name === "iron_pickaxe");
     if (pick) await pt(bot.equip(pick, "hand"), 8000, "equip");
@@ -9450,12 +9528,92 @@ async function findStandingPortal(bot, mcData) {
   return null;
 }
 
+// Readiness gate before the nether jump: a death on the other side costs the
+// whole kit, so the jump waits for armor/food/blocks. Bounded — after 25 min
+// of prep the gate opens anyway so a barren seed can't freeze the run.
+async function netherGate(bot, mcData, state, log) {
+  const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+  const rd = readiness("nether", itemsToMap(bot.inventory.items()), armorPoints(worn));
+  const now = Date.now();
+  if (rd.ready) {
+    state._netherGateT0 = null;
+    return null;
+  }
+  state._netherGateT0 = state._netherGateT0 || now;
+  if (now - state._netherGateT0 > 25 * 60000) {
+    if (!state._netherGateOpenLogged) log?.(`[gate] nether prep timed out — going anyway (missing ${rd.missing.join(",")})`);
+    state._netherGateOpenLogged = true;
+    return null;
+  }
+  const miss = rd.missing.join(",");
+  log?.(`[gate] nether not ready: ${miss}`);
+  if (rd.missing.some((m) => m.startsWith("armor"))) {
+    await equipAllArmor(bot);
+    if ((await craftSpareArmor(bot, mcData, 0)) > 0) return { ok: true, phase: state.phase, message: "gate: armor crafted" };
+    const raw = countItem(bot, "raw_iron");
+    if (raw > 0) {
+      const fuel = bot.inventory.items().find((i) => /^(coal|charcoal)$/.test(i.name) || /_planks$/.test(i.name));
+      if (fuel) {
+        const r = await executeAction(bot, { type: "smelt", input: "raw_iron", output: "iron_ingot", fuel: fuel.name, count: raw, timeoutMs: raw * 11000 + 20000 }, mcData).catch(() => ({ ok: false }));
+        if (r.ok) return { ok: true, phase: state.phase, message: "gate: smelted iron for armor" };
+      }
+    }
+    for (const ore of ["iron_ore", "deepslate_iron_ore"]) {
+      const r = await executeAction(bot, { type: "collect", block: ore, count: 6, maxDistance: 32 }, mcData).catch(() => ({ ok: false }));
+      if (r.ok) return { ok: true, phase: state.phase, message: `gate: mined ${ore}` };
+    }
+  }
+  if (rd.missing.some((m) => m.startsWith("food"))) {
+    const r = await ensureFed(bot, mcData, log, state).catch(() => ({ ok: false }));
+    return { ok: true, phase: state.phase, message: `gate: food ${r?.message || ""}` };
+  }
+  if (rd.missing.some((m) => m.startsWith("blocks"))) {
+    const r = await executeAction(bot, { type: "collect", block: "stone", count: 32, maxDistance: 16 }, mcData).catch(() => ({ ok: false }));
+    if (r.ok) return { ok: true, phase: state.phase, message: "gate: blocks" };
+  }
+  return { ok: true, phase: state.phase, message: `gate: prep (${miss})` };
+}
+
+// End gate: there is no retreat from the End without killing the dragon, and
+// a death there loses the kit in the void. Prep armor/food/blocks at the
+// stronghold; bounded at 20 min so a missing bow can't freeze the run.
+async function endGate(bot, mcData, state, log) {
+  const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+  const rd = readiness("end", itemsToMap(bot.inventory.items()), armorPoints(worn));
+  const now = Date.now();
+  if (rd.ready) return null;
+  state._endGateT0 = state._endGateT0 || now;
+  if (now - state._endGateT0 > 20 * 60000) {
+    if (!state._endGateOpenLogged) log?.(`[gate] end prep timed out — going anyway (missing ${rd.missing.join(",")})`);
+    state._endGateOpenLogged = true;
+    return null;
+  }
+  log?.(`[gate] end not ready: ${rd.missing.join(",")}`);
+  if (rd.missing.some((m) => m.startsWith("armor"))) {
+    await equipAllArmor(bot);
+    if ((await craftSpareArmor(bot, mcData, 0)) > 0) return { ok: true, phase: "stronghold", message: "end gate: armor crafted" };
+  }
+  if (rd.missing.some((m) => m.startsWith("food"))) {
+    const r = await ensureFed(bot, mcData, log, state).catch(() => ({ ok: false }));
+    if (r?.ok) return { ok: true, phase: "stronghold", message: `end gate: food ${r?.message || ""}` };
+  }
+  if (rd.missing.some((m) => m.startsWith("blocks"))) {
+    for (const blk of ["stone_bricks", "stone", "cobblestone"]) {
+      const r = await executeAction(bot, { type: "collect", block: blk, count: 32, maxDistance: 16 }, mcData).catch(() => ({ ok: false }));
+      if (r.ok) return { ok: true, phase: "stronghold", message: `end gate: blocks (${blk})` };
+    }
+  }
+  return { ok: true, phase: "stronghold", message: `end gate: prep (${rd.missing.join(",")})` };
+}
+
 async function phasePortal(bot, mcData, state, log) {
   // a lit portal already standing beats re-mining obsidian — after a death
   // the old frame is still in the world while the inventory is empty
   const standing = await findStandingPortal(bot, mcData).catch(() => null);
   if (standing) {
     portalSiteRecord(standing.position.floored(), bot);
+    const gated = await netherGate(bot, mcData, state, log);
+    if (gated) return gated;
     const en = await enterPortal(bot, mcData);
     if (en.ok) return { ok: true, phase: "portal", message: "reusing lit portal", milestone: "PORTAL" };
     state._portalReuseFails = (state._portalReuseFails || 0) + 1;
@@ -9721,6 +9879,8 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
   // portal and then explores the wrong world forever
   const dim = String(bot.game?.dimension || "");
   if (!/nether/i.test(dim)) {
+    const gated = await netherGate(bot, mcData, state, log);
+    if (gated) return gated;
     let back = await enterPortal(bot, mcData);
     if (!back.ok && hasAny(bot, ["flint_and_steel"])) {
       // an unlit frame may be standing nearby — spark it and retry
@@ -9763,6 +9923,7 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
     maxDistance: 64,
   });
   if (brick) {
+    sitesAdd(bot, "fortress", brick.position);
     await executeAction(
       bot,
       { type: "goto", x: brick.position.x, y: brick.position.y, z: brick.position.z, range: 2, timeoutMs: 90000 },
@@ -9770,46 +9931,102 @@ async function phaseNetherBlaze(bot, mcData, state, log) {
     );
     return { ok: true, phase: "blaze", message: "goto fortress", milestone: "FORTRESS" };
   }
-  // random explore
   const p = bot.entity.position;
-  const ang = Math.random() * Math.PI * 2;
-  const nx = p.x + Math.cos(ang) * 40;
-  const nz = p.z + Math.sin(ang) * 40;
-  await executeAction(bot, { type: "goto", x: nx, y: p.y, z: nz, range: 3, timeoutMs: 60000 }, mcData);
+  const known = sitesLoad(bot, "fortress").sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
+  if (known && Math.hypot(known.x - p.x, known.z - p.z) > 24) {
+    const d = Math.hypot(known.x - p.x, known.z - p.z);
+    const k = Math.min(1, 60 / d);
+    await executeAction(bot, { type: "goto", x: p.x + (known.x - p.x) * k, y: known.y, z: p.z + (known.z - p.z) * k, range: 3, timeoutMs: 70000 }, mcData).catch(() => ({}));
+    return { ok: true, phase: "blaze", message: `back to known fortress ${known.x},${known.z} d=${d | 0}` };
+  }
+  // systematic sweep around the arrival portal
+  const sw = (state.netherSweep = state.netherSweep || { o: { x: Math.round(p.x), z: Math.round(p.z) }, k: 0 });
+  const tgt = sweepTarget(sw.o, sw.k);
+  if (Math.hypot(tgt.x - p.x, tgt.z - p.z) < 8 || (sw.tries = (sw.tries || 0) + 1) > 3) {
+    sw.k += 1;
+    sw.tries = 0;
+  }
+  const t2 = sweepTarget(sw.o, sw.k);
+  const dd = Math.hypot(t2.x - p.x, t2.z - p.z) || 1;
+  const kk = Math.min(1, 48 / dd);
+  await executeAction(bot, { type: "goto", x: p.x + (t2.x - p.x) * kk, y: p.y, z: p.z + (t2.z - p.z) * kk, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
   // fight piglins/ghasts if attacked
   await executeAction(bot, { type: "attack", maxDurationMs: 8000, maxDistance: 16 }, mcData);
   return { ok: true, phase: "nether", message: "explore nether", milestone: "NETHER_EXPLORE" };
 }
 
+async function pickupDrops(bot, mcData, re, radius = 16) {
+  for (let i = 0; i < 4; i++) {
+    const drop = Object.values(bot.entities).find((e) => {
+      if (e?.name !== "item" || e.position.distanceTo(bot.entity.position) > radius) return false;
+      try { return re.test(String(e.getDroppedItem?.()?.name || "")); } catch { return false; }
+    });
+    if (!drop) return i;
+    await executeAction(bot, { type: "goto", x: drop.position.x, y: drop.position.y, z: drop.position.z, range: 0.5, timeoutMs: 12000 }, mcData).catch(() => ({}));
+    await sleep(400);
+  }
+  return 4;
+}
+
+// Pearl strategies, cheapest first:
+//  barter — in the Nether with gold + golden helmet, toss gold at piglins
+//  hunt   — endermen anywhere loaded (Nether warped/soul valleys, overworld
+//           nights); kill then pick the pearl up
+//  sweep  — overworld surface spokes from base at night to load new spawns
 async function phasePearls(bot, mcData, state, log) {
-  // Prefer overworld endermen
   const dim = String(bot.game?.dimension || "");
+  const me = bot.entity.position;
+  const enderman = Object.values(bot.entities)
+    .filter((e) => mobName(e) === "enderman" && e.position.distanceTo(me) < 40)
+    .sort((x, y) => x.position.distanceTo(me) - y.position.distanceTo(me))[0];
+  const worn = [5, 6, 7, 8].map((s) => bot.inventory.slots[s]).filter(Boolean);
+  const armor = armorPoints(worn);
+  if (enderman && (armor >= 7 || bot.health >= 16)) {
+    const before = countItem(bot, "ender_pearl");
+    await executeAction(bot, { type: "attack", name: "enderman", maxDurationMs: 30000, maxDistance: 32 }, mcData).catch(() => ({}));
+    await pickupDrops(bot, mcData, /^ender_pearl$/, 20);
+    const got = countItem(bot, "ender_pearl") - before;
+    return { ok: true, phase: "pearls", message: `hunt enderman +${got} (pearls=${countItem(bot, "ender_pearl")})`, milestone: got > 0 ? "PEARL" : "ENDERMAN" };
+  }
   if (/nether/i.test(dim)) {
-    // go back through portal if we have enough rods
+    const gold = countItem(bot, "gold_ingot");
+    const piglin = Object.values(bot.entities).find((e) => mobName(e) === "piglin" && e.position.distanceTo(me) < 24);
+    if (gold >= 1 && piglin) {
+      if (!bot.inventory.slots[5] || bot.inventory.slots[5].name !== "golden_helmet") {
+        if (countItem(bot, "golden_helmet") < 1 && gold >= 6) await ensureCraft(bot, mcData, "golden_helmet", 1).catch(() => null);
+        const gh = bot.inventory.items().find((i) => i.name === "golden_helmet");
+        if (gh) await pt(bot.equip(gh, "head"), 8000, "equip golden helmet").catch(() => null);
+      }
+      if (bot.inventory.slots[5]?.name === "golden_helmet") {
+        await executeAction(bot, { type: "goto", x: piglin.position.x, y: piglin.position.y, z: piglin.position.z, range: 3, timeoutMs: 20000 }, mcData).catch(() => ({}));
+        await bot.lookAt(piglin.position.offset(0, 1.2, 0), true).catch(() => null);
+        const g = bot.inventory.items().find((i) => i.name === "gold_ingot");
+        if (g) await bot.toss(g.type, null, Math.min(4, g.count)).catch(() => null);
+        await sleep(9000);
+        await pickupDrops(bot, mcData, /^ender_pearl$/, 12);
+        return { ok: true, phase: "pearls", message: `barter gold (left ${countItem(bot, "gold_ingot")}, pearls=${countItem(bot, "ender_pearl")})`, milestone: "BARTER" };
+      }
+    }
+    // no barter possible here: go home through the portal
     const portal = bot.findBlock({ matching: (b) => b?.name === "nether_portal", maxDistance: 64 });
     if (portal) {
-      await executeAction(
-        bot,
-        { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1 },
-        mcData
-      );
+      await executeAction(bot, { type: "goto", x: portal.position.x, y: portal.position.y, z: portal.position.z, range: 1 }, mcData);
       await sleep(4000);
     }
     return { ok: true, phase: "pearls", message: "return overworld for pearls" };
   }
-  const enderman = Object.values(bot.entities).find((e) => mobName(e) === "enderman");
-  if (enderman) {
-    await executeAction(bot, { type: "attack", name: "enderman", maxDurationMs: 25000, maxDistance: 24 }, mcData);
-    return { ok: true, phase: "pearls", message: "hunt enderman", milestone: "ENDERMAN" };
-  }
-  // wander night-ish
-  const p = bot.entity.position;
-  await executeAction(
-    bot,
-    { type: "goto", x: p.x + (Math.random() - 0.5) * 60, y: p.y, z: p.z + (Math.random() - 0.5) * 60, range: 2 },
-    mcData
-  );
-  return { ok: true, phase: "pearls", message: "search endermen" };
+  // overworld: endermen spawn in darkness on the surface — scout at night
+  // only when armored, otherwise let the clear loop's shelter handle night
+  const tod = bot.time?.timeOfDay ?? 0;
+  const night = tod > 13000 && tod < 23000;
+  if (night && armor < 7) return { ok: false, phase: "pearls", message: "night, armor<7: not hunting" };
+  const sw = (state.pearlSweep = state.pearlSweep || { o: { x: Math.round(me.x), z: Math.round(me.z) }, k: 0 });
+  sw.k += 1;
+  const t = sweepTarget(sw.o, sw.k, 40, 8);
+  const d = Math.hypot(t.x - me.x, t.z - me.z) || 1;
+  const k = Math.min(1, 50 / d);
+  await executeAction(bot, { type: "goto", x: me.x + (t.x - me.x) * k, y: me.y, z: me.z + (t.z - me.z) * k, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
+  return { ok: true, phase: "pearls", message: `scout endermen ${night ? "night" : "day"} k=${sw.k}` };
 }
 
 async function phaseEyes(bot, mcData, state, log) {
@@ -9830,39 +10047,103 @@ async function phaseEyes(bot, mcData, state, log) {
   };
 }
 
+// Throw one eye and read its flight: the entity moves ~12 blocks toward the
+// stronghold (and DOWN when the bot already stands above it). Picks the eye
+// back up when it drops instead of shattering.
+async function throwEyeRay(bot, mcData) {
+  const eye = bot.inventory.items().find((i) => i.name === "ender_eye");
+  if (!eye) return null;
+  await pt(bot.equip(eye, "hand"), 8000, "equip eye");
+  await bot.look(bot.entity.yaw, 0.3, true);
+  const me = bot.entity.position.clone();
+  const before = new Set(Object.values(bot.entities).filter((e) => /eye/i.test(String(e.name || ""))).map((e) => e.id));
+  bot.activateItem();
+  await sleep(150);
+  bot.deactivateItem();
+  const samples = [];
+  let id = null;
+  for (let i = 0; i < 14; i++) {
+    await sleep(200);
+    const e = id != null
+      ? bot.entities[id]
+      : Object.values(bot.entities).find((x) => /eye/i.test(String(x.name || "")) && !before.has(x.id) && x.position.distanceTo(me) < 20);
+    if (!e) {
+      if (id != null) break;
+      continue;
+    }
+    id = e.id;
+    samples.push(e.position.clone());
+  }
+  if (samples.length < 2) return null;
+  const a = samples[0];
+  const b = samples[samples.length - 1];
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const L = Math.hypot(dx, dz);
+  await sleep(1500);
+  await executeAction(bot, { type: "goto", x: b.x, y: b.y, z: b.z, range: 1, timeoutMs: 12000 }, mcData).catch(() => ({}));
+  if (L < 0.4) return { x: me.x, z: me.z, dx: 0, dz: 0, dy: b.y - a.y, below: true };
+  return { x: me.x, z: me.z, dx: dx / L, dz: dz / L, dy: b.y - a.y, below: b.y < a.y - 0.5 && L < 2 };
+}
+
 async function phaseStronghold(bot, mcData, state, log) {
-  // Throw eye and path roughly — mineflayer eye throw is complex; use explore + locate if op
-  // Fair: use ender eye item activate and follow
-  if (countItem(bot, "ender_eye") > 0) {
-    try {
-      const eye = bot.inventory.items().find((i) => i.name === "ender_eye");
-      if (eye) {
-        await pt(bot.equip(eye, "hand"), 8000, "equip");
-        // look up slightly and throw
-        await bot.look(bot.entity.yaw, -0.4, true);
-        bot.activateItem();
-        await sleep(200);
-        bot.deactivateItem();
-        // chase nearest eye entity
-        await sleep(1500);
-        const flying = Object.values(bot.entities).find((e) => /eye/i.test(String(e.name || "")));
-        if (flying) {
-          await executeAction(
-            bot,
-            {
-              type: "goto",
-              x: flying.position.x,
-              y: bot.entity.position.y,
-              z: flying.position.z,
-              range: 2,
-              timeoutMs: 60000,
-            },
-            mcData
-          );
-        }
+  const sh = (state.stronghold = state.stronghold || { rays: [], est: null, t0: Date.now() });
+  const me = bot.entity.position;
+  const eyes = countItem(bot, "ender_eye");
+  const frameNear = bot.findBlock({ matching: (b) => b && (b.name === "end_portal_frame" || b.name === "end_portal"), maxDistance: 48 });
+  if (!frameNear && !sh.est && eyes > 0) {
+    if (!sh.rays.length) {
+      const r = await throwEyeRay(bot, mcData).catch(() => null);
+      if (r && (r.dx || r.dz)) {
+        sh.rays.push(r);
+        sh.side = perpendicularPoint(r, 110);
+        log?.(`[stronghold] ray1 from ${r.x | 0},${r.z | 0} dir ${r.dx.toFixed(2)},${r.dz.toFixed(2)}`);
+        return { ok: true, phase: "stronghold", message: "eye ray 1", milestone: "EYE_RAY1" };
       }
-    } catch {
-      /* ignore */
+      return { ok: false, phase: "stronghold", message: "eye throw unread" };
+    }
+    const t = sh.side;
+    if (Math.hypot(t.x - me.x, t.z - me.z) > 10) {
+      const k = Math.min(1, 70 / Math.hypot(t.x - me.x, t.z - me.z));
+      await executeAction(bot, { type: "goto", x: me.x + (t.x - me.x) * k, y: me.y, z: me.z + (t.z - me.z) * k, range: 4, timeoutMs: 70000 }, mcData).catch(() => ({}));
+      return { ok: true, phase: "stronghold", message: `to 2nd throw point ${t.x | 0},${t.z | 0}` };
+    }
+    const r2 = await throwEyeRay(bot, mcData).catch(() => null);
+    const est = intersectRays(sh.rays[0], r2);
+    if (est) {
+      sh.est = { x: Math.round(est.x), z: Math.round(est.z) };
+      log?.(`[stronghold] triangulated ~${sh.est.x},${sh.est.z}`);
+      return { ok: true, phase: "stronghold", message: `triangulated ${sh.est.x},${sh.est.z}`, milestone: "STRONGHOLD_FIX" };
+    }
+    // ill-conditioned pair: keep the newer ray, side-step again
+    if (r2 && (r2.dx || r2.dz)) {
+      sh.rays = [r2];
+      sh.side = perpendicularPoint(r2, 110);
+    }
+    return { ok: false, phase: "stronghold", message: "triangulation failed — re-sidestep" };
+  }
+  if (!frameNear && sh.est) {
+    const d = Math.hypot(sh.est.x - me.x, sh.est.z - me.z);
+    if (d > 24) {
+      const k = Math.min(1, 80 / d);
+      await executeAction(bot, { type: "goto", x: me.x + (sh.est.x - me.x) * k, y: me.y, z: me.z + (sh.est.z - me.z) * k, range: 4, timeoutMs: 80000 }, mcData).catch(() => ({}));
+      // one refine throw on arrival keeps a 5° error from becoming 100 blocks
+      if (d < 120 && !sh.refined && eyes > 10) {
+        sh.refined = true;
+        const r3 = await throwEyeRay(bot, mcData).catch(() => null);
+        const est2 = intersectRays(sh.rays[0], r3);
+        if (est2) sh.est = { x: Math.round(est2.x), z: Math.round(est2.z) };
+      }
+      return { ok: true, phase: "stronghold", message: `to stronghold ~${sh.est.x},${sh.est.z} d=${d | 0}` };
+    }
+    // on top of it: strongholds sit y≈-40..40 — stair down while scanning
+    if (me.y > 20) {
+      const sd = await digStaircaseDown(bot, mcData, 10, 10).catch(() => null);
+      const bricks = bot.findBlock({ matching: (b) => b && /stone_bricks$/.test(b.name), maxDistance: 24 });
+      if (bricks) {
+        await executeAction(bot, { type: "goto", x: bricks.position.x, y: bricks.position.y, z: bricks.position.z, range: 2, timeoutMs: 40000 }, mcData).catch(() => ({}));
+      }
+      return { ok: true, phase: "stronghold", message: `descend to stronghold y=${sd?.y ?? me.y | 0}` };
     }
   }
   // look for stronghold blocks
@@ -9892,20 +10173,25 @@ async function phaseStronghold(bot, mcData, state, log) {
     }
     const open = bot.findBlock({ matching: (b) => b?.name === "end_portal", maxDistance: 12 });
     if (open) {
+      const gated = await endGate(bot, mcData, state, log);
+      if (gated) return gated;
       await executeAction(bot, { type: "goto", x: open.position.x, y: open.position.y, z: open.position.z, range: 0.5 }, mcData);
       await sleep(5000);
       return { ok: true, phase: "stronghold", message: "entered end", milestone: "ENTER_END" };
     }
     return { ok: true, phase: "stronghold", message: "at frames", milestone: "STRONGHOLD" };
   }
-  // wander
+  // inside the stronghold footprint: walk corridors around the fix
   const p = bot.entity.position;
-  await executeAction(
-    bot,
-    { type: "goto", x: p.x + (Math.random() - 0.5) * 80, y: p.y, z: p.z + (Math.random() - 0.5) * 80, range: 3, timeoutMs: 90000 },
-    mcData
-  );
-  return { ok: true, phase: "stronghold", message: "search stronghold" };
+  const cx = sh.est?.x ?? p.x;
+  const cz = sh.est?.z ?? p.z;
+  const bricks = bot.findBlocks({ matching: (b) => b && /stone_bricks$/.test(b.name), maxDistance: 32, count: 40 })
+    .filter((v) => Math.hypot(v.x - p.x, v.z - p.z) > 8);
+  const pick = bricks.length ? bricks[Math.floor(Math.random() * bricks.length)] : null;
+  const tx = pick ? pick.x : cx + (Math.random() - 0.5) * 60;
+  const tz = pick ? pick.z : cz + (Math.random() - 0.5) * 60;
+  await executeAction(bot, { type: "goto", x: tx, y: pick ? pick.y + 1 : p.y, z: tz, range: 3, timeoutMs: 60000 }, mcData).catch(() => ({}));
+  return { ok: true, phase: "stronghold", message: "search stronghold rooms" };
 }
 
 async function phaseDragon(bot, mcData, state, log) {

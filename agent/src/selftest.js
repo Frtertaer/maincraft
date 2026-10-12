@@ -25,6 +25,10 @@ import { legalVerbs, resolveVerb, parseInventory } from "./controller/verbs.js";
 import { readDecision, gateDecision, compactState, createController } from "./controller/index.js";
 import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
+import {
+  intersectRays, perpendicularPoint, sweepTarget,
+  phaseFromItems, capitalGap, assessRisk, deathHeat, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
+} from "./insurance.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -866,6 +870,75 @@ const mkCtx = (world, over = {}) => ({
   check("respond returns reply", convoReply.say === "здорово" && convoReply.action === "wave" && convo.mood === "happy");
   const mapped = dialogueActionToAction(convoReply.action, { playerName: "Steve" });
   check("respond action maps", mapped?.type === "emote");
+}
+
+
+// --- Insurance architecture: capital phase, risk governor, strategy ledger ---
+{
+  check("phase wood empty", phaseFromItems({}) === "wood");
+  check("phase iron pick", phaseFromItems({ iron_pickaxe: 1 }) === "diamond");
+  check("phase portal", phaseFromItems({ iron_pickaxe: 1, diamond: 3 }) === "portal");
+  check("phase nether dim", phaseFromItems({ blaze_rod: 7 }, "minecraft:the_nether") === "pearls");
+  check("phase end dragon", phaseFromItems({}, "minecraft:the_end", true) === "dragon");
+  const g = capitalGap({ wooden_pickaxe: 1 }, { iron_pickaxe: 1, diamond: 2 });
+  check("capital gap after death", g.pocket === "stone" && g.capital === "diamond" && g.gap === 3, JSON.stringify(g));
+  const tot = ledgerTotals([{ x: 0, z: 0, items: { diamond: 2 } }, { x: 900, z: 0, items: { diamond: 9 } }], { x: 10, z: 0 }, 300);
+  check("ledger totals radius", tot.diamond === 2);
+  const calm = assessRisk({ tod: 1000, hostiles: [], hp: 20, food: 20, armor: 0, weapon: true });
+  const naked = assessRisk({ tod: 14000, hostiles: [{ name: "skeleton", d: 12 }, { name: "zombie", d: 5 }], hp: 20, food: 20, armor: 0, weapon: false, heat: 2 });
+  const armored = assessRisk({ tod: 14000, hostiles: [{ name: "skeleton", d: 12 }, { name: "zombie", d: 5 }], hp: 20, food: 20, armor: 15, weapon: true, shield: true });
+  check("risk calm safe", calm.level === "safe", JSON.stringify(calm));
+  check("risk naked night high", naked.level === "high", JSON.stringify(naked));
+  check("risk armor mitigates", armored.danger < naked.danger && armored.level !== "high", JSON.stringify(armored));
+  check("risk creeper close", assessRisk({ tod: 1000, hostiles: [{ name: "creeper", d: 3 }], hp: 20, weapon: true }).level !== "safe");
+  check("risk spider day neutral", assessRisk({ tod: 1000, hostiles: [{ name: "spider", d: 4 }], hp: 20, weapon: true }).level === "safe");
+  const now = Date.now();
+  check("death heat", deathHeat([{ x: 0, z: 0, t: now }, { x: 5, z: 5, t: now }, { x: 500, z: 0, t: now }, { x: 1, z: 1, t: now - 9e6 }], { x: 0, z: 0 }) === 2);
+  const s = { rec: {} };
+  const site = siteKey({ x: -180, z: 905 });
+  for (let i = 0; i < 2; i++) strategyRecord(s, "portal", "obsidian_mine", site, "death");
+  check("site not spent at 2 deaths", !siteSpent(s, "portal", site));
+  strategyRecord(s, "portal", "obsidian_mine", site, "death");
+  check("site spent at 3 deaths", siteSpent(s, "portal", site));
+  check("other site fresh", !siteSpent(s, "portal", siteKey({ x: 200, z: 905 })));
+  const pick = pickMethod(s, "portal", [{ name: "obsidian_mine", cost: 1 }, { name: "bucket_cast", cost: 1.5 }]);
+  check("method switches after deaths", pick.name === "bucket_cast", JSON.stringify(pick));
+  check("method respects availability", pickMethod({ rec: {} }, "portal", [{ name: "a", cost: 1, available: false }, { name: "b", cost: 3 }]).name === "b");
+  const full = { iron_sword: 1, iron_pickaxe: 1, bread: 12, cobblestone: 64, golden_helmet: 1 };
+  const ix = intersectRays({ x: 0, z: 0, dx: 1, dz: 0 }, { x: 100, z: -100, dx: 0, dz: 1 });
+  check("triangulate", ix && Math.abs(ix.x - 100) < 1e-6 && Math.abs(ix.z) < 1e-6, JSON.stringify(ix));
+  check("triangulate parallel rejected", intersectRays({ x: 0, z: 0, dx: 1, dz: 0 }, { x: 0, z: 50, dx: 1, dz: 0.01 }) === null);
+  check("triangulate behind rejected", intersectRays({ x: 0, z: 0, dx: -1, dz: 0 }, { x: 100, z: -100, dx: 0, dz: 1 }) === null);
+  const side = perpendicularPoint({ x: 0, z: 0, dx: 1, dz: 0 }, 100);
+  check("side point perpendicular", Math.abs(side.x) < 1e-9 && Math.abs(side.z - 100) < 1e-9);
+  check("eyes lost keeps stronghold", phaseFromItems({ ender_eye: 10 }) === "stronghold");
+  check("eyes mid-craft stays eyes", phaseFromItems({ ender_eye: 6, ender_pearl: 6, blaze_powder: 6 }) === "eyes");
+  const sw0 = sweepTarget({ x: 0, z: 0 }, 0);
+  const sw8 = sweepTarget({ x: 0, z: 0 }, 8);
+  check("sweep grows rings", Math.hypot(sw8.x, sw8.z) > Math.hypot(sw0.x, sw0.z) + 40, JSON.stringify([sw0, sw8]));
+  {
+    const { runStep, cancelSteps, stepStale, installStepGuards } = await import("./stepctl.js");
+    const fake = { _stepGen: 0, dig: async () => "dug" };
+    installStepGuards(fake);
+    let staleSeen = null;
+    let digErr = null;
+    const p = runStep(fake, async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      staleSeen = stepStale(fake);
+      try {
+        await fake.dig();
+      } catch (e) {
+        digErr = e.message;
+      }
+    });
+    cancelSteps(fake);
+    await p;
+    check("stepctl: orphaned step sees itself stale", staleSeen === true);
+    check("stepctl: orphan's dig refused", /cancelled/.test(digErr || ""), String(digErr));
+    check("stepctl: main context unaffected", stepStale(fake) === false && (await fake.dig()) === "dug");
+  }
+  check("nether gate needs armor", !readiness("nether", full, 2).ready);
+  check("nether gate ready", readiness("nether", full, armorPoints([{ name: "iron_chestplate" }, { name: "iron_leggings" }])).ready);
 }
 
 console.log(

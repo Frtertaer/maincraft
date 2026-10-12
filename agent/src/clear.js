@@ -11,8 +11,14 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { installStepGuards, runStep, cancelSteps } from "./stepctl.js";
 import { progressionStep, detectPhase, countItem, PHASES, bossObjectiveStep, BOSS_OBJECTIVES, burrowForNight, pickDryDir, fertileDir, punchNearbyLogs, ensureBedAndSleep, ensureFed, stashDeposit, stashRecover, stashLoadFile, logSitesLoadFile, deathZonesLoadFile, deathZonesSaveFile, homeLoadFile, swimToLand, panicPillar, panicBurrow, protectBed, corpseLoadFile, corpseSaveFile } from "./progression.js";
 import { executeAction } from "./actions.js";
+import { equipAllArmor, craftSpareArmor } from "./progression.js";
+import {
+  assessRisk, armorPoints, deathHeat, itemsToMap, ledgerLoad, ledgerTotals, capitalGap, phaseRank,
+  strategyLoad, strategySave, strategyRecord, siteSpent, siteKey,
+} from "./insurance.js";
 import { Vec3 } from "vec3";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -138,7 +144,7 @@ export class ClearRunner {
           else if (near.length) cause = ` mob:${near.join(",")}`;
         } catch {}
       }
-      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
+      this._note(`Я погиб (смерть #${this.deaths}) — фаза ${this._phaseSeen || this.state?.phase}${killer ? ` [${killer}]` : ""}${cause}${at}`);
       if (p) {
         this.state._diedPos = { x: p.x, z: p.z };
         // the whole kit drops where the death happened — keep the full spot
@@ -163,6 +169,13 @@ export class ClearRunner {
           }
         }
         deathZonesSaveFile(this.bot, this.state._deathPts, this.state.campZone);
+        try {
+          const strat = strategyLoad(this.bot);
+          const ph = this._phaseSeen || this.state?.phase || "?";
+          strategyRecord(strat, ph, "default", siteKey(p), "death");
+          strat.deaths = (strat.deaths || []).concat([{ x: p.x, z: p.z, t: Date.now(), phase: ph, dim: String(this.bot.game?.dimension || "") }]).slice(-200);
+          strategySave(strat);
+        } catch { /* ledger best-effort */ }
       }
     };
     this._respawnHandler = () => {
@@ -571,6 +584,112 @@ export class ClearRunner {
     }
   }
 
+  // Risk governor: one danger read per loop, then the three insurance moves
+  // that are cheap enough to run every iteration — wear/craft armor, pull
+  // banked capital back into the pocket after a death, and walk off a site
+  // whose failure budget for the current phase is spent.
+  async _govern(bot, state) {
+    try { if (bot.entity && bot.health > 0) this._phaseSeen = detectPhase(bot); } catch { /* keep last */ }
+    const now = Date.now();
+    const me = bot.entity?.position;
+    if (!me) return;
+    const dim = String(bot.game?.dimension || "");
+    const overworld = !/nether|end/i.test(dim);
+    const phase = state.phase || detectPhase(bot);
+    const worn = [5, 6, 7, 8].map((i) => bot.inventory.slots[i]).filter(Boolean);
+    const armor = armorPoints(worn);
+    const items = bot.inventory.items();
+    const hostiles = [];
+    for (const e of Object.values(bot.entities || {})) {
+      if (!e?.position || e === bot.entity) continue;
+      const n = String(e.name || "").toLowerCase();
+      if (n === "enderman" || n === "zombified_piglin") continue;
+      if (!(e.kind === "Hostile mobs" || /zombie|skeleton|creeper|spider|witch|drowned|pillager|phantom|blaze|ghast|hoglin|slime|stray|husk|bogged|piglin_brute/.test(n))) continue;
+      const d = e.position.distanceTo(me);
+      if (d < 32) hostiles.push({ name: n, d });
+    }
+    const sky = bot.blockAt(me.floored().offset(0, 1, 0))?.skyLight;
+    const strat = (this._strat = this._strat && now - (this._stratT || 0) < 30000 ? this._strat : strategyLoad(bot));
+    this._stratT = this._strat === strat ? this._stratT || now : now;
+    const heat = deathHeat((strat.deaths || []).filter((d) => !d.dim || d.dim === dim), me);
+    const risk = assessRisk({
+      tod: bot.time?.timeOfDay,
+      surface: sky == null ? true : sky >= 10,
+      hostiles,
+      hp: bot.health,
+      food: bot.food,
+      armor,
+      weapon: items.some((i) => /_(sword|axe)$/.test(i.name)),
+      shield: bot.inventory.slots[45]?.name === "shield",
+      heat,
+    });
+    state.risk = risk;
+    if (risk.level !== this._govLevel || now - (this._govLogT || 0) > 90000) {
+      this._govLevel = risk.level;
+      this._govLogT = now;
+      this.log(`[gov] risk=${risk.level} ${risk.danger} [${risk.reasons.join(",")}] armor=${armor} phase=${phase}`);
+    }
+
+    // progress credit for the site that produced it
+    if (this._govPhase && phaseRank(phase) > phaseRank(this._govPhase)) {
+      strategyRecord(strat, this._govPhase, "default", siteKey(me), "ok");
+      strategySave(strat);
+    }
+    this._govPhase = phase;
+
+    if (now - (this._govArmorT || 0) > 30000) {
+      this._govArmorT = now;
+      await equipAllArmor(bot).catch(() => {});
+      if (risk.level === "safe" || risk.level === "low") {
+        const made = await craftSpareArmor(bot, this.mcData, 3).catch(() => 0);
+        if (made) this.log(`[gov] crafted ${made} armor piece(s)`);
+      }
+    }
+
+    if (!overworld || risk.level === "high") return;
+
+    if (now - (this._govCapT || 0) > 180000) {
+      this._govCapT = now;
+      const chest = ledgerTotals(ledgerLoad(bot), me, 300);
+      const g = capitalGap(itemsToMap(items), chest);
+      if (g.gap > 0) {
+        this.log(`[gov] capital ${g.pocket}->${g.capital}: recovering banked kit`);
+        const rec = await Promise.race([
+          stashRecover(bot, this.mcData, this.log, state),
+          new Promise((res) => setTimeout(() => res({ ok: false, message: "timeout" }), 90000)),
+        ]).catch((err) => ({ ok: false, message: String(err?.message || err) }));
+        this.log(`[gov] capital recover: ${rec?.message}`);
+        await equipAllArmor(bot).catch(() => {});
+      }
+    }
+
+    const site = siteKey(me);
+    if (siteSpent(strat, phase, site) && now - (this._govRelocT || 0) > 300000) {
+      this._govRelocT = now;
+      const here = (strat.deaths || []).filter((d) => siteKey(d) === site);
+      const cx = here.length ? here.reduce((a, d) => a + d.x, 0) / here.length : me.x;
+      const cz = here.length ? here.reduce((a, d) => a + d.z, 0) / here.length : me.z;
+      let dx = me.x - cx;
+      let dz = me.z - cz;
+      const L = Math.hypot(dx, dz);
+      if (L < 4) {
+        const a = Math.random() * Math.PI * 2;
+        dx = Math.cos(a);
+        dz = Math.sin(a);
+      } else {
+        dx /= L;
+        dz /= L;
+      }
+      const tx = Math.round(me.x + dx * 96);
+      const tz = Math.round(me.z + dz * 96);
+      this.log(`[gov] RELOCATE site ${site} spent for ${phase} (${here.length} deaths) -> ${tx},${tz}`);
+      this._note(`Это место (${site}) уже ${here.length} раз убило меня на фазе ${phase} — меняю место.`);
+      strategyRecord(strat, phase, "default", site, "fail");
+      strategySave(strat);
+      await executeAction(bot, { type: "goto", x: tx, y: me.y, z: tz, range: 6, timeoutMs: 70000 }, this.mcData).catch(() => ({}));
+    }
+  }
+
   async _loop() {
     const { bot, state } = this;
     let lastMilestone = null;
@@ -586,7 +705,125 @@ export class ClearRunner {
     // below the 240s log-watchdog: a stuck step resolves "hung" and the loop
     // moves on instead of the process being killed mid-work
     const STEP_MS = 100000;
-    const stepTO = (p) => Promise.race([p, new Promise((res) => setTimeout(() => res(null), STEP_MS))]);
+    installStepGuards(bot);
+    // suffocation reflex: a falling block (gravel/sand) or a mis-placed plug
+    // in the head cell killed the bot mid strip-mine ("suffocated in a wall")
+    // while every routine was busy elsewhere — clear the head cell first
+    if (!bot._headReflex) {
+      bot._headReflex = setInterval(async () => {
+        try {
+          if (!bot.entity || bot.health <= 0 || bot._headDigging) return;
+          const head = bot.blockAt(bot.entity.position.offset(0, 1.62, 0).floored());
+          if (!head || head.boundingBox !== "block" || /bedrock|barrier|end_portal_frame/.test(head.name)) return;
+          bot._headDigging = true;
+          this.log(`[reflex] head inside ${head.name} — digging out`);
+          try {
+            await bot.tool?.equipForBlock?.(head).catch(() => {});
+          } catch {
+            /* best effort */
+          }
+          await Promise.race([bot.dig(head, true), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
+        } catch {
+          /* ignore */
+        } finally {
+          bot._headDigging = false;
+        }
+      }, 600);
+      bot.once("end", () => clearInterval(bot._headReflex));
+      // drowning reflex: roaming food hunts/treks path through lakes and the
+      // step never checks air ("OpusBot drowned" mid-hunt). Low air with the
+      // head in water: cancel the current step and swim straight up.
+      // bot.oxygenLevel goes stale at the surface (logged air=8 every 10s
+      // while the server had Air=300) — judge by continuous submersion time:
+      // vanilla air lasts 15s, so >7s under with no surfacing is the alarm
+      bot._airReflex = setInterval(() => {
+        try {
+          if (!bot.entity || bot.health <= 0) return;
+          const head = bot.blockAt(bot.entity.position.offset(0, 1.62, 0).floored());
+          const wet = /water|bubble_column|kelp|seagrass/.test(String(head?.name || ""));
+          const now = Date.now();
+          if (!wet) {
+            bot._wetSince = 0;
+            if (bot._airSwim) {
+              bot._airSwim = false;
+              bot.setControlState("jump", false);
+              bot.setControlState("forward", false);
+            }
+            return;
+          }
+          bot._wetSince = bot._wetSince || now;
+          if (now - bot._wetSince < 7000) return;
+          if (!bot._airSwim) {
+            bot._airSwim = true;
+            this.log(`[reflex] submerged ${Math.round((now - bot._wetSince) / 1000)}s — swim up`);
+            if (now - (bot._airCancelAt || 0) > 30000) {
+              bot._airCancelAt = now;
+              cancelSteps(bot);
+            }
+          }
+          // a solid ceiling over the head (overhang, own pillar block) made
+          // "swim up" a no-op: drowned at y59 under a solid y61 with Air=-1.
+          // Dig the lid when air is right above it, else swim sideways to the
+          // nearest column that opens to air within 2 blocks
+          const hp = bot.entity.position.offset(0, 1.62, 0).floored();
+          let lid = null;
+          for (let dy = 1; dy <= 3; dy++) {
+            const b = bot.blockAt(hp.offset(0, dy, 0));
+            if (!b) break;
+            if (/water|bubble_column|kelp|seagrass/.test(b.name)) continue;
+            if (b.boundingBox === "block") lid = b;
+            break;
+          }
+          if (lid && !bot._lidDig && now - bot._wetSince > 9000) {
+            const above = bot.blockAt(lid.position.offset(0, 1, 0));
+            if (above && above.boundingBox !== "block" && !/bedrock|obsidian/.test(lid.name) && lid.position.distanceTo(bot.entity.position) < 4.5) {
+              bot._lidDig = true;
+              this.log(`[reflex] ceiling ${lid.name} over the swim — digging it`);
+              Promise.race([bot.dig(lid, true), new Promise((r) => setTimeout(r, 5000))])
+                .catch(() => {})
+                .finally(() => (bot._lidDig = false));
+            } else {
+              let best = null;
+              for (let dx = -3; dx <= 3; dx++)
+                for (let dz = -3; dz <= 3; dz++) {
+                  if (!dx && !dz) continue;
+                  for (let dy = 0; dy <= 2; dy++) {
+                    const c = bot.blockAt(hp.offset(dx, dy, dz));
+                    if (c && /^(air|cave_air)$/.test(c.name)) {
+                      const d = Math.hypot(dx, dz) + dy;
+                      if (!best || d < best.d) best = { dx, dz, d };
+                      break;
+                    }
+                  }
+                }
+              if (best) {
+                const yaw = Math.atan2(-best.dx, -best.dz);
+                bot.look(yaw, 0.3, true).catch(() => {});
+                bot.setControlState("forward", true);
+                bot.setControlState("jump", true);
+                return;
+              }
+            }
+          }
+          bot.setControlState("forward", false);
+          bot.setControlState("jump", true);
+          bot.look(bot.entity.yaw, Math.PI / 2, true).catch(() => {});
+        } catch {
+          /* ignore */
+        }
+      }, 300);
+      bot.once("end", () => clearInterval(bot._airReflex));
+    }
+    const stepTO = async (fn) => {
+      let timer;
+      const r = await Promise.race([
+        runStep(bot, fn),
+        new Promise((res) => (timer = setTimeout(() => res(null), STEP_MS))),
+      ]);
+      clearTimeout(timer);
+      if (r === null) cancelSteps(bot);
+      return r;
+    };
 
     try {
       while (this.running && bot.entity && Date.now() - state.t0 < this.maxMs) {
@@ -1616,8 +1853,17 @@ export class ClearRunner {
                   /zombie|skeleton|creeper|spider|witch|husk|drowned|stray|slime|phantom|pillager|vex|silverfish|cave_spider|wolf/.test(n);
                 return hostile && Math.hypot(e.position.x - x, e.position.z - z) < r && Math.abs(e.position.y - y) < 12;
               });
+            const todCp = bot.time?.timeOfDay ?? 0;
+            const nightCp = todCp >= 12541 && todCp < 23000;
+            const cpCell = bot.blockAt(new Vec3(Math.floor(cp.x), Math.floor(cp.y), Math.floor(cp.z)));
+            const cpWet = /water|kelp|seagrass|bubble/.test(String(cpCell?.name || "")) || cp.cause === "drowned";
+            const cpFar = Math.hypot(cp.x - bot.entity.position.x, cp.z - bot.entity.position.z) > 40;
             if (foeNear(cp.x, cp.y, cp.z, 12)) {
               this.log(`[clear] corpse guarded by hostile — skipping`);
+            } else if (nightCp && (cpWet || cpFar)) {
+              // a naked night walk back into the lake where it just drowned
+              // fed the drowned pack (00:56 death on the startup corpse run)
+              this.log(`[clear] corpse skip: night + ${cpWet ? "water" : "far"}`);
             } else {
             try {
               await executeAction(
@@ -2244,6 +2490,8 @@ export class ClearRunner {
             await ensureBedAndSleep(bot, this.mcData, this.log, this.state).catch(() => {});
           }
         }
+        await this._govern(bot, state).catch((err) => this.log(`[gov] err ${err?.message || err}`));
+        if (!bot.entity) continue;
         const phaseBefore = detectPhase(bot);
         const dimBefore = String(bot.game?.dimension || "");
         const deathsBefore = this.deaths;
@@ -2259,7 +2507,7 @@ export class ClearRunner {
           // Epilogue boss objectives (wither/warden): self-contained prep + fight.
           state.objective = nextObj;
           try {
-            step = (await stepTO(bossObjectiveStep(bot, this.mcData, state, nextObj, this.log))) ||
+            step = (await stepTO(() => bossObjectiveStep(bot, this.mcData, state, nextObj, this.log))) ||
               { ok: false, phase: phaseBefore, message: "boss step hung" };
             if (step.message === "boss step hung") this.log("[clear] STEP_HUNG boss — watchdog fired");
           } catch (err) {
@@ -2277,7 +2525,7 @@ export class ClearRunner {
           // stalls at 1hp between them (the y~52 stall). The food run IS the
           // productive step until hunger clears.
           try {
-            const fed = await stepTO(ensureFed(bot, this.mcData, this.log, state));
+            const fed = await stepTO(() => ensureFed(bot, this.mcData, this.log, state));
             if (fed == null) {
               step = { ok: false, phase: phaseBefore, message: "food: hung" };
               this.log("[clear] STEP_HUNG ensureFed — watchdog fired");
@@ -2289,7 +2537,7 @@ export class ClearRunner {
           }
         } else {
           try {
-            step = await stepTO(progressionStep(bot, this.mcData, state, this.log));
+            step = await stepTO(() => progressionStep(bot, this.mcData, state, this.log));
             if (step == null) {
               step = { ok: false, phase: phaseBefore, message: "step hung" };
               this.log(`[clear] STEP_HUNG ${phaseBefore} — watchdog fired`);
@@ -2421,6 +2669,14 @@ export class ClearRunner {
           // since /kill is denied for a non-op player and silently no-ops.
           // The respawn handler above re-gears from the stash chest. Surface
           // phases only — a nether/end kill strands the run.
+          // a bot that keeps covering ground (forest trek, sheep chase) is
+          // not trapped — only cycles spent within ~24m count toward suicide
+          {
+            const here = bot.entity.position;
+            const a = state.stuckAnchor;
+            state.stuckAnchor = { x: here.x, z: here.z };
+            if (a && Math.hypot(here.x - a.x, here.z - a.z) > 24) state.stuckCycles = 0;
+          }
           state.stuckCycles = (state.stuckCycles || 0) + 1;
           if (
             state.stuckCycles >= 3 &&
