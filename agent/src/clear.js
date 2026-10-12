@@ -706,6 +706,31 @@ export class ClearRunner {
     // moves on instead of the process being killed mid-work
     const STEP_MS = 100000;
     installStepGuards(bot);
+    // suffocation reflex: a falling block (gravel/sand) or a mis-placed plug
+    // in the head cell killed the bot mid strip-mine ("suffocated in a wall")
+    // while every routine was busy elsewhere — clear the head cell first
+    if (!bot._headReflex) {
+      bot._headReflex = setInterval(async () => {
+        try {
+          if (!bot.entity || bot.health <= 0 || bot._headDigging) return;
+          const head = bot.blockAt(bot.entity.position.offset(0, 1.62, 0).floored());
+          if (!head || head.boundingBox !== "block" || /bedrock|barrier|end_portal_frame/.test(head.name)) return;
+          bot._headDigging = true;
+          this.log(`[reflex] head inside ${head.name} — digging out`);
+          try {
+            await bot.tool?.equipForBlock?.(head).catch(() => {});
+          } catch {
+            /* best effort */
+          }
+          await Promise.race([bot.dig(head, true), new Promise((r) => setTimeout(r, 4000))]).catch(() => {});
+        } catch {
+          /* ignore */
+        } finally {
+          bot._headDigging = false;
+        }
+      }, 600);
+      bot.once("end", () => clearInterval(bot._headReflex));
+    }
     const stepTO = async (fn) => {
       let timer;
       const r = await Promise.race([
