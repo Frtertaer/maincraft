@@ -1080,7 +1080,19 @@ async function stashFindOrPlaceChest(bot, mcData, state) {
   // recorded stash position first — verify it still holds a chest
   if (state?.stash) {
     const b = bot.blockAt(new Vec3(state.stash.x, state.stash.y, state.stash.z));
-    if (b && b.name === "chest") return b;
+    if (b && b.name === "chest") {
+      // a loaded-but-distant chest made every deposit an "open chest timeout"
+      // (openChest never walks). Walk in when close, else bank another time
+      const d = b.position.distanceTo(bot.entity.position);
+      if (d <= 4.5) return b;
+      if (d > 48) return null;
+      await executeAction(
+        bot,
+        { type: "goto", x: b.position.x, y: b.position.y, z: b.position.z, range: 2, timeoutMs: 20000 },
+        mcData
+      ).catch(() => {});
+      return b.position.distanceTo(bot.entity.position) <= 4.5 ? b : null;
+    }
     state.stash = null; // chest is gone — forget and re-place below
   }
   // a chest from an earlier run near enough to inspect (blockAt needs loaded chunks)
