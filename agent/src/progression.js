@@ -6254,10 +6254,16 @@ export async function ensureFed(bot, mcData, log, state = null) {
       for (const s of state.logSites || []) anchors.push(s);
       if (state.stash) anchors.push(state.stash);
       for (const s of stashLoadFile(bot)) anchors.push(s);
+      // an anchor already marched to in the last 15min was hunted empty —
+      // the bot shuttled between the same three barren points at HP 0.6
+      const visited = (state.foodVisited ||= {});
+      const akey = (a) => `${Math.round(a.x / 16)},${Math.round(a.z / 16)}`;
       const tgt = anchors
         .filter((a) => a && Math.hypot(a.x - mp.x, a.z - mp.z) > 36 && clearOfKill(a))
+        .filter((a) => Date.now() - (visited[akey(a)] || 0) > 15 * 60000)
         .sort((a, b) => Math.hypot(a.x - mp.x, a.z - mp.z) - Math.hypot(b.x - mp.x, b.z - mp.z))[0];
       if (tgt) {
+        visited[akey(tgt)] = Date.now();
         state.foodExpeditionAt = Date.now();
         log?.(
           `[food] hungry (food=${Math.floor(bot.food)}) — sprinting to fertile ground @${Math.round(tgt.x)},${Math.round(tgt.z)} (${Math.round(Math.hypot(tgt.x - mp.x, tgt.z - mp.z))}m)`
