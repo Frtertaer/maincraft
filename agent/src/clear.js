@@ -123,7 +123,11 @@ export class ClearRunner {
     this._deathHandler = () => {
       this.deaths += 1;
       this.state._diedAt = Date.now();
-      const killer = this.combat?.getStats?.().lastTarget || "";
+      // lastTarget is the last mob fought, not the killer: a bot that drowned
+      // in a flooded hole 8min after a creeper fight was logged [creeper],
+      // so the drowned-corpse skip never fired and it swam back in
+      const drownedNow = !!this.bot._wetSince && Date.now() - this.bot._wetSince > 8000;
+      const killer = drownedNow ? "drowned(water)" : this.combat?.getStats?.().lastTarget || "";
       const p = this.bot.entity?.position;
       const at = p ? ` @${p.x | 0},${p.y | 0},${p.z | 0}` : "";
       // empty lastTarget + no engaged mob means the kill came from the
