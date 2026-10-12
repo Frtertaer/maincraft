@@ -145,8 +145,21 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
         // a dry shore cell while the air is full — the drowned@(-18,62,31)
         // kill came from exactly this resurface-then-wander cycle
         if (sw.ok) {
+          // every next goal step (wood prereq, food hunt) re-entered the same
+          // lake: "surfaced for air" alternated 8x in 30s and the old cycle
+          // ended in a drowning. Third surfacing inside 2min = a water region —
+          // spend a real swim budget for shore and mark the basin
+          const nowW = Date.now();
+          state.wetSurf = (state.wetSurf || []).filter((t) => nowW - t < 120000);
+          state.wetSurf.push(nowW);
           const f2 = bot.entity.position.floored();
-          if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
+          if (state.wetSurf.length >= 3) {
+            state.wetSurf = [];
+            state.floodZone = { x: f2.x, z: f2.z, r: 60 };
+            log?.("[water] repeated surfacing — swimming for real shore, basin marked");
+            const landed = await swimToLand(bot, mcData, log, 45000, state).catch(() => false);
+            if (landed) return { ok: true, phase, message: "water region — swam to land" };
+          } else if (wetCell(bot.blockAt(f2.offset(0, -1, 0)))) {
             await swimToLand(bot, mcData, log, 10000, state).catch(() => {});
           }
         }
