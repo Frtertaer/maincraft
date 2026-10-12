@@ -247,7 +247,10 @@ export async function progressionStep(bot, mcData, state, log = () => {}) {
               // through rock until sky, then walk the log sites
               await stairwayUp(bot, mcData, 14, log);
             }
-            await gotoLogSite(bot, mcData, state, bot.entity.position.floored());
+            // every remembered site filtered out (flood basin, death ring) =
+            // the bot stood in a treeless field forever; walk to new ground
+            const went = await gotoLogSite(bot, mcData, state, bot.entity.position.floored());
+            if (!went) await wander(bot, mcData, 56).catch(() => {});
           }
         }
         return {
