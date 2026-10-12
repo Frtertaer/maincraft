@@ -1321,7 +1321,19 @@ export class ClearRunner {
             const closeCamper =
               respawnHostiles.some((e) => dist(e) < 10) ||
               respawnHostiles.some((e) => isRanged(e) && dist(e) < 16);
-            if (diggableHere(bot.blockAt(pf.floored().offset(0, -1, 0))) && closeCamper && !meleeSwarm && !creepNear) {
+            // a lone SLOW melee camper (zombie/husk — drowned on land too;
+            // spiders and creepers excluded: one sprints, one explodes) is
+            // out-walkable in daylight — the 3-5s grave dig under its swing
+            // is a death sentence (deaths #3-5 all died mid-dig). No second
+            // hostile within 24m and nothing ranged watching = sprint it.
+            const slowMelee = respawnHostiles.filter(
+              (e) => /zombie|husk|drowned/.test(String(e.name || "")) && dist(e) < 10
+            );
+            const outwalkable =
+              slowMelee.length === 1 &&
+              !respawnHostiles.some((e) => e !== slowMelee[0] && dist(e) < 24) &&
+              !respawnHostiles.some((e) => isRanged(e) && dist(e) < 26);
+            if (diggableHere(bot.blockAt(pf.floored().offset(0, -1, 0))) && closeCamper && !meleeSwarm && !creepNear && !outwalkable) {
               this.log(`[clear] naked day respawn into close camper — grave first`);
               try {
                 const okG = await burrowForNight(bot, this.mcData, this.log, false, 0, this.state);
@@ -1333,7 +1345,7 @@ export class ClearRunner {
                 this.log(`[clear] respawn grave fail: ${errG?.message || errG}`);
               }
             }
-            if (!respawnHostile || creepNear || meleeSwarm || (bareHands && packNear48)) {
+            if (!respawnHostile || creepNear || meleeSwarm || outwalkable || (bareHands && packNear48)) {
               // a bed-side respawn under repeat kills is the bed camping us:
               // every death lands at the same anchor in the same mob pocket.
               // Dig it up — the item can be re-placed on safe ground later,
