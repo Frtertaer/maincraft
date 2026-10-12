@@ -7052,7 +7052,13 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
   // Not night: still worth claiming the spawn point — a placed+activated bed
   // moves every future respawn here and ends the world-spawn death camp.
   const dayClaimOnly = tod != null && tod < 12541;
-  const woolCount = () => countItem(bot, (i) => /(?:^|_)wool$/.test(i.name));
+  // a bed needs 3 wool of ONE colour: white x2 + black x1 read as "wool ok"
+  // and every craft attempt failed — count the best single colour
+  const woolCount = () => {
+    const by = {};
+    for (const i of bot.inventory.items()) if (/(?:^|_)wool$/.test(i.name)) by[i.name] = (by[i.name] || 0) + i.count;
+    return Math.max(0, ...Object.values(by));
+  };
   const bedItem = () =>
     bot.inventory.items().find((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name));
   const bedBlock = () =>
