@@ -1136,12 +1136,24 @@ export async function stashDeposit(bot, mcData, log, state) {
     // Once ≥3 wool is held it stays in hand for the imminent craft.
     const bedless = !(state?.home?.claimed);
     const woolHeld = bedless ? countItem(bot, (i) => /(?:^|_)wool$/.test(i.name)) : 0;
-    const surplus = bot.inventory.items().filter((i) => {
-      if (!bedless) return i.count > stashKeepCount(i.name);
-      if (/_bed$/.test(i.name) && !/bedrock/.test(i.name)) return false;
-      if (/(?:^|_)wool$/.test(i.name) && woolHeld >= 3) return false;
-      return i.count > stashKeepCount(i.name);
-    });
+    // keep counts are per item NAME, not per stack: tools never stack, so a
+    // per-slot `count > keep` test never banked a spare pickaxe — the second
+    // stone_pickaxe died in the bag with the first one
+    const keptBy = {};
+    const giveOf = (i) => {
+      const k = stashKeepCount(i.name);
+      const have = keptBy[i.name] || 0;
+      const keepHere = Math.max(0, Math.min(i.count, k - have));
+      keptBy[i.name] = have + keepHere;
+      return i.count - keepHere;
+    };
+    const surplus = [];
+    for (const i of bot.inventory.items()) {
+      if (bedless && /_bed$/.test(i.name) && !/bedrock/.test(i.name)) continue;
+      if (bedless && /(?:^|_)wool$/.test(i.name) && woolHeld >= 3) continue;
+      const give = giveOf(i);
+      if (give > 0) surplus.push({ item: i, give });
+    }
     // one-time "restart kit" per world: planks+sticks+table+food in the chest
     // is enough to re-craft the whole wood toolkit standing at the chest —
     // a death then costs a walk home, not a naked forest trek with fists
@@ -1159,10 +1171,7 @@ export async function stashDeposit(bot, mcData, log, state) {
     const chest = await pt(bot.openChest(chestBlock), 8000, "open chest");
     let moved = 0;
     try {
-      for (const item of surplus) {
-        const keep = stashKeepCount(item.name);
-        const give = item.count - keep;
-        if (give <= 0) continue;
+      for (const { item, give } of surplus) {
         await pt(chest.deposit(item.type, item.metadata, give), 8000, "deposit");
         moved += give;
       }
@@ -8145,6 +8154,25 @@ async function phaseStone(bot, mcData, state, log) {
   }
   if (!hasAny(bot, ["stone_pickaxe", "iron_pickaxe", "diamond_pickaxe"])) {
     return { ok: false, phase: "stone", message: "still no stone pickaxe" };
+  }
+  // insurance policy: a spare stone pick+sword is 5 cobble and 3 sticks at
+  // the table we already stand at — stashDeposit banks the duplicates, so a
+  // death respawns into "walk to the chest" instead of a fist-and-wood rerun
+  const stashedPick = (() => {
+    try {
+      return (ledgerLoad(bot) || []).some((e) => Object.keys(e.items || {}).some((k) => /_pickaxe$/.test(k) && k !== "wooden_pickaxe"));
+    } catch {
+      return false;
+    }
+  })();
+  if (state && !state.spareKitDone && !stashedPick && countItem(bot, "cobblestone") >= 10) {
+    if (countItem(bot, "stick") < 3) await ensureSticks(bot, mcData, 3).catch(() => {});
+    if (countItem(bot, "stick") >= 3) {
+      const a = await ensureCraft(bot, mcData, "stone_pickaxe", 1).catch(() => ({ ok: false }));
+      const b = await ensureCraft(bot, mcData, "stone_sword", 1).catch(() => ({ ok: false }));
+      if (a.ok) state.spareKitDone = true;
+      log?.(`[stash] spare kit crafted pick=${!!a.ok} sword=${!!b.ok}`);
+    }
   }
   await pullTable(bot, mcData);
   return { ok: true, phase: "stone", message: "stone tools", milestone: "STONE_TOOLS" };
