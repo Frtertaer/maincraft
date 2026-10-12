@@ -220,6 +220,22 @@ export function strategyLoad(bot) {
     deaths: Array.isArray(s.deaths) ? s.deaths : [],
   };
 }
+// long-lived kill rings: >=min ledger deaths within r of each other. The
+// 30-min death-zone TTL is right for walking around but wrong for a bed
+// anchor — the -208,74 bed was claimed 10min after the zone expired and
+// pinned every respawn into the same ring
+export function deathClusters(deaths, r = 48, min = 2) {
+  const pts = (deaths || []).filter((d) => d && Number.isFinite(d.x) && Number.isFinite(d.z));
+  const out = [];
+  for (const d of pts) {
+    const near = pts.filter((o) => Math.hypot(o.x - d.x, o.z - d.z) < r);
+    if (near.length < min) continue;
+    const c = { x: near.reduce((a, o) => a + o.x, 0) / near.length, z: near.reduce((a, o) => a + o.z, 0) / near.length, n: near.length };
+    if (!out.some((o) => Math.hypot(o.x - c.x, o.z - c.z) < r / 2)) out.push(c);
+  }
+  return out;
+}
+
 export function strategySave(s) {
   writeJson(STRATEGY_FILE, s);
 }

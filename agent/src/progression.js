@@ -9,7 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { executeAction, equipBestWeapon } from "./actions.js";
 import { bossCombatTick, isBossMobName, mobName } from "./boss-combat.js";
-import { phaseFromItems, itemsToMap, ledgerRecord, ledgerLoad, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget } from "./insurance.js";
+import { phaseFromItems, itemsToMap, ledgerRecord, ledgerLoad, readiness, armorPoints, intersectRays, perpendicularPoint, sitesLoad, sitesAdd, sweepTarget, strategyLoad, deathClusters } from "./insurance.js";
 
 const { goals } = pkgPathfinder;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -824,6 +824,18 @@ export function campZonesFor(bot, state) {
     ...(dzFile.pts || []),
     dzFile.camp,
   ].filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
+}
+
+// bed-anchor hazard: the short-lived camp ring plus every persistent
+// multi-death cluster from the strategy ledger
+export function bedHazardZones(bot, state) {
+  let cl = [];
+  try {
+    cl = deathClusters(strategyLoad(bot).deaths);
+  } catch {
+    /* ledger optional */
+  }
+  return [...campZonesFor(bot, state), ...cl];
 }
 
 export function posInCamp(pos, zones, r = 120) {
@@ -2722,7 +2734,9 @@ async function fortifyPocket(bot, mcData, log, state, pocketDeep, sealedCells, p
   // the chest, shift the whole bed one cell toward the plug
   let bedOk = false;
   const bedIt = bot.inventory.items().find((i) => /_bed$/.test(i.name) && !/bedrock/.test(i.name));
-  if (bedIt && !state.home?.claimed) {
+  const homeHot = posInCamp(deep, bedHazardZones(bot, state), 100);
+  if (bedIt && homeHot) log?.("[home] pocket sits in a kill ring — bed stays in the bag");
+  if (bedIt && !state.home?.claimed && !homeHot) {
     try {
       const clear = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name === "air";
       const solid = (x, y, z) => {
@@ -7105,7 +7119,7 @@ export async function ensureBedAndSleep(bot, mcData, log, state = null) {
       // the kill ring — the (50,-194) claim put respawns ~50m from two
       // recorded deaths and the night loop kept landing in the same bowl.
       // Carrying the bed out of the zone beats claiming it here
-      const bedZones = campZonesFor(bot, state);
+      const bedZones = bedHazardZones(bot, state);
       const todC = bot.time?.timeOfDay ?? 0;
       if (posInCamp(p, bedZones, 100) && todC >= 11000 && todC < 23000) {
         // a 120m carry started at dusk lands the naked bot on open ground at

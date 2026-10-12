@@ -27,7 +27,7 @@ import { createLocalController } from "./controller/local.js";
 import { Vec3 } from "vec3";
 import {
   intersectRays, perpendicularPoint, sweepTarget,
-  phaseFromItems, capitalGap, assessRisk, deathHeat, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
+  phaseFromItems, capitalGap, assessRisk, deathHeat, deathClusters, siteSpent, strategyRecord, pickMethod, readiness, armorPoints, ledgerTotals, siteKey,
 } from "./insurance.js";
 import fs from "fs";
 import path from "path";
@@ -901,6 +901,11 @@ const mkCtx = (world, over = {}) => ({
   strategyRecord(s, "portal", "obsidian_mine", site, "death");
   check("site spent at 3 deaths", siteSpent(s, "portal", site));
   check("other site fresh", !siteSpent(s, "portal", siteKey({ x: 200, z: 905 })));
+  {
+    const dc = deathClusters([{ x: -221, z: 54 }, { x: -188, z: 73 }, { x: -214, z: 72 }, { x: -233, z: 348 }, { x: 4, z: -5 }]);
+    check("death cluster found at kill ring", dc.length === 1 && Math.hypot(dc[0].x + 208, dc[0].z - 66) < 12 && dc[0].n === 3);
+    check("lone deaths are not clusters", deathClusters([{ x: 0, z: 0 }, { x: 200, z: 0 }]).length === 0);
+  }
   const pick = pickMethod(s, "portal", [{ name: "obsidian_mine", cost: 1 }, { name: "bucket_cast", cost: 1.5 }]);
   check("method switches after deaths", pick.name === "bucket_cast", JSON.stringify(pick));
   check("method respects availability", pickMethod({ rec: {} }, "portal", [{ name: "a", cost: 1, available: false }, { name: "b", cost: 3 }]).name === "b");
