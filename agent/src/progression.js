@@ -4996,7 +4996,8 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     // underground) never change inside one sealed wait. Retrying every
     // ~4s loop turned a whole night's hold into "tunneling out" spam —
     // a failed try just keeps holding behind the intact seal.
-    let lockdownTried = false;
+    let lockdownTries = 0;
+    let lockdownAt = 0;
     // night-shift anchor: the floor the pocket was sealed at, so the descent
     // cap measures depth below the seal — reset per hold
     let nightDigFloorY = null;
@@ -5400,20 +5401,26 @@ export async function burrowForNight(bot, mcData, log, force = false, _depth = 0
     const lockdownMob = findHostile(bot, 40);
     if (
       pocketDeep &&
-      !lockdownTried &&
+      lockdownTries < 3 &&
+      Date.now() - lockdownAt > 90000 &&
       lockdownMob &&
       todNow > 1000 &&
       todNow < 11000 &&
       Date.now() - t0 > 200000
     ) {
-      lockdownTried = true;
+      // one aborted tunnel (stripMine walled a skeleton at 7m, mined=0)
+      // used to end every retry and the pocket held the whole morning —
+      // retry up to 3x, 90s apart, swinging to the perpendicular sides
+      lockdownTries += 1;
+      lockdownAt = Date.now();
       const fp = bot.entity.position;
       const cp = lockdownMob.position;
-      const awayDir =
+      const away0 =
         Math.abs(cp.x - fp.x) > Math.abs(cp.z - fp.z)
-          ? [-Math.sign(cp.x - fp.x), 0]
-          : [0, -Math.sign(cp.z - fp.z)];
-      log?.(`[burrow] camper lockdown (${lockdownMob.name}) — tunneling out`);
+          ? [-Math.sign(cp.x - fp.x) || 1, 0]
+          : [0, -Math.sign(cp.z - fp.z) || 1];
+      const awayDir = [away0, [away0[1], away0[0]], [-away0[1], -away0[0]]][lockdownTries - 1];
+      log?.(`[burrow] camper lockdown (${lockdownMob.name}) try ${lockdownTries} dir ${awayDir} — tunneling out`);
       // 10 cells surfaced back into the pack: the camper tracks the tunnel
       // through the ceiling, so a shallow escape lands under it. 18 cells
       // puts real horizontal distance between the exit and the kill ring
