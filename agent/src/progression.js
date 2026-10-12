@@ -1156,7 +1156,11 @@ export async function stashDeposit(bot, mcData, log, state) {
     // it back on respawn, so partial fleece accumulates across lives until a
     // 3rd sheep + planks lands the bed claim that frees the respawn for good.
     // Once ≥3 wool is held it stays in hand for the imminent craft.
-    const bedless = !(state?.home?.claimed);
+    // a claim 250m back is no bed for tonight: the sheep run hunts fleece
+    // for a local one while this banked it — 3 wool in, 3 wool out, no bed
+    const hm = state?.home;
+    const bp = bot.entity?.position;
+    const bedless = !hm?.claimed || (bp && Number.isFinite(hm.x) && Math.hypot(hm.x - bp.x, hm.z - bp.z) > 120);
     const woolHeld = bedless ? countItem(bot, (i) => /(?:^|_)wool$/.test(i.name)) : 0;
     // keep counts are per item NAME, not per stack: tools never stack, so a
     // per-slot `count > keep` test never banked a spare pickaxe — the second
