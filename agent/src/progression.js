@@ -10224,7 +10224,10 @@ async function phaseStronghold(bot, mcData, state, log) {
       const r = await throwEyeRay(bot, mcData).catch(() => null);
       if (r && (r.dx || r.dz)) {
         sh.rays.push(r);
-        sh.side = perpendicularPoint(r, 110);
+        // strongholds sit 1280-2816 blocks out: a 110 side-step gave ~3°
+        // between rays, under intersectRays' 0.05 floor past ~2200 blocks,
+        // so every pair was rejected and eyes were thrown until gone
+        sh.side = perpendicularPoint(r, 320);
         log?.(`[stronghold] ray1 from ${r.x | 0},${r.z | 0} dir ${r.dx.toFixed(2)},${r.dz.toFixed(2)}`);
         return { ok: true, phase: "stronghold", message: "eye ray 1", milestone: "EYE_RAY1" };
       }
@@ -10246,7 +10249,7 @@ async function phaseStronghold(bot, mcData, state, log) {
     // ill-conditioned pair: keep the newer ray, side-step again
     if (r2 && (r2.dx || r2.dz)) {
       sh.rays = [r2];
-      sh.side = perpendicularPoint(r2, 110);
+      sh.side = perpendicularPoint(r2, 320);
     }
     return { ok: false, phase: "stronghold", message: "triangulation failed — re-sidestep" };
   }

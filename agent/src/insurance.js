@@ -98,9 +98,10 @@ export function phaseFromItems(m, dim = "", dragonPresent = false) {
   const has = (names) => names.some((n) => (m[n] || 0) > 0);
   const d = String(dim || "");
   if (/end/i.test(d)) return dragonPresent ? "dragon" : "clear";
-  const rods = c("blaze_rod") + c("blaze_powder");
   if (/nether/i.test(d)) {
-    if (c("blaze_rod") >= 6 || c("blaze_powder") >= 6) return c("ender_pearl") >= 12 ? "eyes" : "pearls";
+    // powder is half a rod: 6 powder used to count as "rods done" and left
+    // the Nether with only 6 eyes' worth
+    if (c("blaze_rod") * 2 + c("blaze_powder") >= 12) return c("ender_pearl") >= 12 ? "eyes" : "pearls";
     return "blaze";
   }
   // thrown eyes shatter (~20%): a run that lost 2 of 12 must stay in the
@@ -110,7 +111,7 @@ export function phaseFromItems(m, dim = "", dragonPresent = false) {
   const powder = c("blaze_rod") * 2 + c("blaze_powder");
   if (eyes >= 12 || (eyes >= 8 && pearls === 0)) return "stronghold";
   if (pearls + eyes >= 12 && powder + eyes >= 12) return "eyes";
-  if (rods >= 6 || powder + eyes >= 12 || eyes > 0) return "pearls";
+  if (powder + eyes >= 12 || eyes > 0) return "pearls";
   if (c((k) => k.includes("obsidian")) >= 10 && has(["flint_and_steel", "fire_charge"])) return "nether";
   if (has(["diamond_pickaxe"]) || (c("diamond") >= 3 && has(["iron_pickaxe", "diamond_pickaxe"]))) return "portal";
   if (has(["iron_pickaxe", "diamond_pickaxe", "netherite_pickaxe"])) return "diamond";
@@ -299,7 +300,6 @@ export function readiness(goal, m, armor) {
     need(blocks >= 32, "blocks>=32");
     need(c(/^golden_(helmet|chestplate|leggings|boots)$/) > 0 || c(/^gold_ingot$/) >= 5, "gold armor piece");
   } else if (goal === "end") {
-    need(c(/^ender_eye$/) >= 2, "eyes>=2 spare");
     need(armor >= 10, "armor>=10");
     need(sword, "weapon");
     need(food >= 16, "food>=16");
