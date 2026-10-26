@@ -879,6 +879,9 @@ const mkCtx = (world, over = {}) => ({
   check("phase iron pick", phaseFromItems({ iron_pickaxe: 1 }) === "diamond");
   check("phase portal", phaseFromItems({ iron_pickaxe: 1, diamond: 3 }) === "portal");
   check("phase nether dim", phaseFromItems({ blaze_rod: 7 }, "minecraft:the_nether") === "pearls");
+  check("nether: 6 powder is 3 rods, keep hunting", phaseFromItems({ blaze_powder: 6 }, "minecraft:the_nether") === "blaze");
+  check("nether: rods+powder add up", phaseFromItems({ blaze_rod: 4, blaze_powder: 4 }, "minecraft:the_nether") === "pearls");
+  check("overworld: 3 rods + 3 powder is not 6 rods", phaseFromItems({ blaze_rod: 3, blaze_powder: 3, iron_pickaxe: 1 }) !== "pearls");
   check("phase end dragon", phaseFromItems({}, "minecraft:the_end", true) === "dragon");
   const g = capitalGap({ wooden_pickaxe: 1 }, { iron_pickaxe: 1, diamond: 2 });
   check("capital gap after death", g.pocket === "stone" && g.capital === "diamond" && g.gap === 3, JSON.stringify(g));
@@ -915,6 +918,14 @@ const mkCtx = (world, over = {}) => ({
   check("triangulate parallel rejected", intersectRays({ x: 0, z: 0, dx: 1, dz: 0 }, { x: 0, z: 50, dx: 1, dz: 0.01 }) === null);
   check("triangulate behind rejected", intersectRays({ x: 0, z: 0, dx: -1, dz: 0 }, { x: 100, z: -100, dx: 0, dz: 1 }) === null);
   const side = perpendicularPoint({ x: 0, z: 0, dx: 1, dz: 0 }, 100);
+  {
+    // stronghold 2500 out along +x, second throw from a 320 side-step
+    const r1 = { x: 0, z: 0, dx: 1, dz: 0 };
+    const p2 = perpendicularPoint(r1, 320);
+    const L = Math.hypot(2500 - p2.x, 0 - p2.z);
+    const fix = intersectRays(r1, { x: p2.x, z: p2.z, dx: (2500 - p2.x) / L, dz: (0 - p2.z) / L });
+    check("triangulate far stronghold", !!fix && Math.abs(fix.x - 2500) < 1 && Math.abs(fix.z) < 1);
+  }
   check("side point perpendicular", Math.abs(side.x) < 1e-9 && Math.abs(side.z - 100) < 1e-9);
   check("eyes lost keeps stronghold", phaseFromItems({ ender_eye: 10 }) === "stronghold");
   check("eyes mid-craft stays eyes", phaseFromItems({ ender_eye: 6, ender_pearl: 6, blaze_powder: 6 }) === "eyes");

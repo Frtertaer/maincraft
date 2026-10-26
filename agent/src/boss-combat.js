@@ -1965,45 +1965,46 @@ function hardKite(bot, threat) {
 }
 
 // ─── Dragon ───────────────────────────────────────────────────
-// Crystals first (caged ones need a pillar + break one bar), then the
+// Crystals first (bow only, caged ones skipped), then the
 // dragon itself: melee on the perch, bow in the air, beds if we have them.
 async function dragonTick(bot, dragon, state, log) {
   await tryEat(bot, state);
 
-  const crystal = findNearest(bot, (e) => mobName(e) === "end_crystal", 130);
+  // A crystal blows up with power 6 when destroyed: within ~6 blocks that is
+  // 40+ damage through iron or diamond, so melee and pillar-up-and-hit were
+  // suicide. Crystals are shot from range only; caged ones (arrows stopped
+  // by the bars) and every crystal when there is no bow are skipped — the
+  // dragon still dies to perch melee/beds, just with some healing.
+  state.skipCrystals = state.skipCrystals || new Set();
+  const canShoot = hasBow(bot) && hasArrows(bot);
+  const crystal = canShoot
+    ? findNearest(bot, (e) => mobName(e) === "end_crystal" && !state.skipCrystals.has(e.id), 130)
+    : null;
   if (crystal) {
     state.phase = "crystal";
     const d = crystal.position.distanceTo(bot.entity.position);
-
-    // Active pillar climb toward this crystal
-    if (state.pillar) {
-      const climbing = await pillarStep(bot, state, crystal, log);
-      if (climbing) return true;
-      state.pillar = null;
+    if (state.crystalTarget !== crystal.id) {
+      state.crystalTarget = crystal.id;
+      state.crystalShots = 0;
     }
-
-    if (d <= 4.5) {
-      await swing(bot, crystal, state, 0.5);
-      return true;
-    }
-    if (hasBow(bot) && hasArrows(bot) && d < 55) {
-      // caged crystals eat arrows — after ~8 fruitless shots, pillar up
+    if (d < 55) {
       state.crystalShots = (state.crystalShots || 0) + 1;
-      if (state.crystalShots > 8 && d > 8) {
-        state.pillar = { targetId: crystal.id };
+      if (state.crystalShots > 8) {
+        log(`[boss] crystal ${crystal.id} survives ${state.crystalShots - 1} shots (caged?) — skipping it`);
+        state.skipCrystals.add(crystal.id);
+        state.crystalShots = 0;
         return true;
       }
       await shootAt(bot, crystal.position.offset(0, 0.5, 0), state, 700);
       return true;
     }
-    // No bow: walk up and pillar next to the spike
-    if (d > 8) {
-      state.pillar = { targetId: crystal.id };
-      return true;
+    try {
+      bot.pathfinder?.setGoal(new goals.GoalNear(crystal.position.x, bot.entity.position.y, crystal.position.z, 30), true);
+    } catch {
+      /* ignore */
     }
     return true;
   }
-  state.pillar = null;
   state.crystalShots = 0;
 
   const dist = dragon.position.distanceTo(bot.entity.position);
@@ -2054,97 +2055,6 @@ async function dragonTick(bot, dragon, state, log) {
     bot.pathfinder?.setGoal(new goals.GoalNear(0, bot.entity.position.y, 0, 6), true);
   } catch {
     /* ignore */
-  }
-  return true;
-}
-
-/**
- * Pillar-up state machine for caged end crystals: hop+place under feet
- * until at crystal height, break one iron bar, then hit the crystal.
- * state.pillar = { targetId } persists across ticks; returns false to bail.
- */
-async function pillarStep(bot, state, crystal, log) {
-  const t = crystal.position;
-  const feet = bot.entity.position.floored();
-
-  // At crystal height: break a bar if caged, then strike
-  if (feet.y >= t.y - 1) {
-    try {
-      bot.setControlState("jump", false);
-    } catch {
-      /* ignore */
-    }
-    const bar = bot.findBlock({
-      matching: (b) => b && b.name === "iron_bars",
-      maxDistance: 5,
-    });
-    if (bar && bar.position.distanceTo(bot.entity.position) <= 5.0) {
-      try {
-        await bot.lookAt(bar.position.offset(0.5, 0.5, 0.5), true);
-        await bot.dig(bar);
-        log("[boss] broke iron bar on cage");
-      } catch {
-        /* ignore */
-      }
-      return true;
-    }
-    const d = crystal.position.distanceTo(bot.entity.position);
-    if (d <= 5) {
-      await swing(bot, crystal, state, 0.5);
-      return true;
-    }
-    if (hasBow(bot) && hasArrows(bot)) {
-      await shootAt(bot, t.offset(0, 0.5, 0), state, 600);
-      return true;
-    }
-    return false;
-  }
-
-  // Need a placeable block
-  const mat = towerMaterial(bot);
-  if (!mat) {
-    log("[boss] pillar aborted: no building material");
-    return false;
-  }
-
-  // Get horizontally adjacent to the spike first
-  const dxz = Math.hypot(t.x - bot.entity.position.x, t.z - bot.entity.position.z);
-  if (dxz > 4.5) {
-    try {
-      bot.pathfinder?.setGoal(new goals.GoalNear(t.x, bot.entity.position.y, t.z, 3.5), true);
-      bot.setControlState("sprint", true);
-    } catch {
-      /* ignore */
-    }
-    return true;
-  }
-
-  try {
-    bot.pathfinder?.setGoal(null);
-    bot.setControlState("sprint", false);
-    await bot.equip(mat, "hand");
-  } catch {
-    return false;
-  }
-
-  // Jump-place: put a block under our feet each tick (after the feet clear)
-  const under = bot.blockAt(bot.entity.position.offset(0, -0.7, 0));
-  if (!under || under.name === "air") return false;
-  try {
-    await bot.lookAt(under.position.offset(0.5, 1, 0.5), true);
-    bot.setControlState("jump", true);
-    const y0 = bot.entity.position.y;
-    for (let i = 0; i < 14; i++) {
-      await sleep(60);
-      if (bot.entity.position.y - y0 >= 1.02) break;
-    }
-    await bot.placeBlock(under, new Vec3(0, 1, 0));
-    state.pillarBlocks = (state.pillarBlocks || 0) + 1;
-    bot.setControlState("jump", false);
-  } catch (err) {
-    bot.setControlState("jump", false);
-    log(`[boss] pillar place fail: ${err?.message || err}`);
-    return false;
   }
   return true;
 }

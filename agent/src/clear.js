@@ -123,6 +123,12 @@ export class ClearRunner {
     this._deathHandler = () => {
       this.deaths += 1;
       this.state._diedAt = Date.now();
+      // gate prep timeouts are per attempt: a respawned naked bot must not
+      // inherit an open gate from a prep window that expired hours ago
+      this.state._netherGateT0 = null;
+      this.state._netherGateOpenLogged = false;
+      this.state._endGateT0 = null;
+      this.state._endGateOpenLogged = false;
       // lastTarget is the last mob fought, not the killer: a bot that drowned
       // in a flooded hole 8min after a creeper fight was logged [creeper],
       // so the drowned-corpse skip never fired and it swam back in
